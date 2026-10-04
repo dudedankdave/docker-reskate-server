@@ -1,0 +1,30 @@
+# ReSkate dedicated server(s). Copy example.env to common.env (shared) and
+# server1.env/server2.env (name, map, ports). Start: docker compose up -d
+# Console: docker attach reskate-server-1   (detach: Ctrl-P Ctrl-Q)
+# Update:  docker compose pull && docker compose up -d
+x-reskate: &reskate
+  image: dudedankdave/reskate-server:latest
+  restart: unless-stopped
+  stdin_open: true
+  tty: true
+  # Players join through the Steam relay on a random UDP port; bridge NAT breaks it.
+  network_mode: host
+
+services:
+  reskate-1:
+    <<: *reskate
+    container_name: reskate-server-1
+    env_file: [common.env, server1.env]
+    volumes:
+      # ReSkateServer.json, ReSkateServer.log, Mods/, world-layers.json
+      - reskate-data:/data
+  # reskate-2:
+  #   <<: *reskate
+  #   container_name: reskate-server-2
+  #   env_file: [common.env, server2.env]
+  #   volumes:
+  #     - reskate-data-2:/data
+
+volumes:
+  reskate-data:
+  # reskate-data-2:
