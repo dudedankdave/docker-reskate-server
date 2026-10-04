@@ -7,7 +7,7 @@
 #   Server/ReSkateServer  Server/libsteam_api.so  Server/libtier0_s.so
 #   Server/libvstdlib_s.so  Server/steamclient.so
 #
-#   docker build -t dudedankdave/reskate-server:dev .
+#   docker build --build-arg VERSION=1.1.0 -t dudedankdave/reskate-server:1.1.0 .
 
 # ---- build stage: validate and stage the server files ----------------------
 FROM debian:trixie-slim AS server
@@ -20,6 +20,10 @@ RUN set -e; cd /out; \
 
 # ---- runtime stage ---------------------------------------------------------
 FROM debian:trixie-slim
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="reskate-server" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libssl3t64 ca-certificates python3-minimal tini \
  && rm -rf /var/lib/apt/lists/* \
@@ -29,7 +33,7 @@ RUN apt-get update \
 WORKDIR /app
 # --chown on COPY avoids a second 49 MB layer from a recursive chown
 COPY --from=server --chown=reskate:reskate /out/ /app/
-COPY --chown=reskate:reskate entrypoint.py /app/entrypoint.py
+COPY --chown=reskate:reskate entrypoint.py healthcheck.py /app/
 RUN ln -s /data/Mods /app/Mods \
  && ln -s /data/world-layers.json /app/world-layers.json \
  && ln -s /data/ReSkateServer.log /app/ReSkateServer.log \
@@ -40,5 +44,9 @@ RUN ln -s /data/Mods /app/Mods \
 ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate
 USER reskate
 VOLUME /data
+# Healthy once the log shows the server is up (see healthcheck.py). Startup needs a
+# Steam sign-in, so give it time before failures count.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD ["python3", "/app/healthcheck.py"]
 EXPOSE 27015/udp 27016/udp
 ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/app/entrypoint.py"]

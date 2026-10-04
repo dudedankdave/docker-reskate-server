@@ -4,7 +4,8 @@
 # Console: docker attach reskate-server-1   (detach: Ctrl-P Ctrl-Q)
 # Update:  docker compose pull && docker compose up -d
 x-reskate: &reskate
-  image: dudedankdave/reskate-server:latest
+  # Pin a version in production: RESKATE_VERSION=1.1.0 docker compose up -d
+  image: dudedankdave/reskate-server:${RESKATE_VERSION:-latest}
   restart: unless-stopped
   stdin_open: true
   tty: true

@@ -24,6 +24,8 @@ Copy `example.env` to `common.env` (shared) and `server1.env` (name, map, ports)
 
 - Console: `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q)
 - Update: `docker compose pull && docker compose up -d`
+- Pin a version: `RESKATE_VERSION=1.1.0 docker compose up -d` (default is `latest`). Tags: `1.1.0`, `1.1`, ...
+- Health: `docker ps` shows `healthy` once the log reports `... is up on <map>`. It turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 - Several servers: see below.
 
 ## Running multiple servers
@@ -73,5 +75,5 @@ Notes:
 The server binaries are proprietary and not part of this repo. Put the dedicated-server files in `./Server/` (`ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so`, `steamclient.so`), then:
 
 ```bash
-docker build -t dudedankdave/reskate-server:dev .
+docker build --build-arg VERSION=1.1.0 -t dudedankdave/reskate-server:1.1.0 .
 ```
