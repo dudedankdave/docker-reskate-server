@@ -89,6 +89,7 @@ The version in a tag is the ReSkate release of the server inside the image. It h
 |---|---|---|
 | Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
 | ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
+| Thunderstore download and unzip | `curl` + `unzip` | Built into the Go binary |
 | Entrypoint, Discord sidecar, healthcheck | Python 3 scripts (`python3-minimal`) | One static Go binary (`/app/reskate`) |
 | Init | `tini` | `tini` |
 | `curl` | Real `curl` | Small stand-in inside the Go binary, see below |
@@ -125,6 +126,28 @@ Put settings in env files (`example.env` lists all of them with example values).
 
 
 ### Custom maps and mods
+
+**Automatic: download from Thunderstore.** List packages in `MODS` (per server, in `serverN.env`) and the server installs them into `/data/Mods` on every start:
+
+```env
+MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
+```
+
+- **Formats:** `Owner-Name` (latest version, kept up to date), `Owner-Name-1.2.3` (pinned), or a package page URL such as `https://thunderstore.io/c/reskate/p/Owner/Name/`. Separate entries with commas, spaces or new lines.
+- **Map name:** the log prints the maps of each installed package, e.g. `[mods] brassy-Skate2Map 1.0.0: installed, maps: Skate2Map (use as MAP)`. Put that name into `MAP`.
+- **Nothing is downloaded when the installed version is current.** Maps are large (`Skate2Map` is 908 MB), so the first start can take minutes, and `docker ps` may show `unhealthy` until the server is up. Later starts only ask Thunderstore for the latest version number.
+- **Dependencies** listed in a package's `manifest.json` are installed too, at the version they ask for.
+- **Your own folders are safe:** a mod folder you copied in by hand is never overwritten, and is adopted without a download when its `manifest.json` already has the wanted version. Only folders the installer created are updated.
+- **Problems never stop the server:** if Thunderstore is unreachable or a package is invalid, it is logged as `[mods] ...` (see `docker logs`) and the server starts with what is installed.
+- **Refresh without a restart:** `docker exec reskate-server-1 /app/reskate mods` (slim image) or `docker exec reskate-server-1 python3 /app/mods.py` (default image). Restart the server afterwards so a changed map loads.
+- **Safety:** packages are downloaded over HTTPS from Thunderstore only. A zip with paths outside `/data/Mods`, links, or more than 8 GiB unpacked is refused. Still, only list packages you trust: players get the same files.
+
+
+&nbsp;
+
+&nbsp;
+
+**Manual: copy the mod folder yourself.**
 
 Custom maps are mod folders in `/data/Mods/<folder>`. The server only reads each mod's `reskate-levels.json`, but **players need the same map mod installed** to join.
 
@@ -224,6 +247,14 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `PARK_FINANCIAL` | park id | Layout of the financial park lot, e.g. `flumppark_08`, or `empty`. |
 | `WORLD_LAYER_SYNC` | `true` / `false` | Force the `LAYERS` below on every player. |
 | `LAYERS` | `key=on\|off\|default` list | World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting. |
+
+
+### Mods
+
+| Variable | Values | Description |
+|---|---|---|
+| `MODS` | package list | Thunderstore packages to install into `/data/Mods` on start: `Owner-Name`, `Owner-Name-1.2.3` or a package URL, comma or space separated. See [Custom maps and mods](#custom-maps-and-mods). |
+| `MODS_UPDATE` | `true` / `false` | `false` keeps installed versions even when a newer one exists (pinned entries and missing packages are still installed). Default `true`. |
 
 
 ### Updates
@@ -358,6 +389,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 | Joins time out for everyone | Stateless firewall dropping the relay replies, see [Networking](#networking). |
 | Restart loop, log says `Config problem` | `SERVER_NAME` over 64 characters, or an unquoted `#` / `'` in an env value. |
 | Container `unhealthy` | Stuck Steam sign-in or a config problem, check `docker logs`. |
+| `MODS` entry not installed | Look for `[mods]` lines in `docker logs <container>`. Names are `Owner-Name` as shown on Thunderstore, and `/data` needs free space (maps can be 1 GB or more). |
 | Custom map not found | `MAP` must be the `displayName` from the mod's `reskate-levels.json`, and the mod folder must be in `/data/Mods/`. |
 | Settings don't change | Empty variables are ignored. Use `off` to clear `SERVER_PASSWORD` / `WELCOME_MESSAGE`. |
 
