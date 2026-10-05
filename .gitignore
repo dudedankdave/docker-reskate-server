@@ -1,4 +1,4 @@
-.env
 common.env
-server*.env
+.env
 Server/
+server*.env

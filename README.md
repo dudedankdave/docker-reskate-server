@@ -13,7 +13,7 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 
 ## Contents
 
-[Quick start](#quick-start) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Several servers](#several-servers) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
+[Quick start](#quick-start) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Several servers](#several-servers) · [Slim image](#slim-image) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
 
 ## Quick start
 
@@ -44,7 +44,7 @@ volumes:
 | Update | `docker compose pull && docker compose up -d` |
 | Pin a version | `RESKATE_VERSION=1.1.1 docker compose up -d` (default `latest`) |
 
-Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.1`, `1.1`, `latest`. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
+Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.1`, `1.1`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 
 Every restart gives the server a new Steam ID and **a new join code**, and disconnects the players.
 
@@ -126,6 +126,20 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
 - The last announced version is kept in `/data/.discord-update-notified`.
 
+## Slim image
+
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `1.1.1-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl. Same environment variables, same Discord webhook, same `/data` layout, so switching is just changing the tag:
+
+```yaml
+    image: dudedankdave/reskate-server:slim
+```
+
+- One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
+- The server runs exactly one `curl` command to read the global ban list. The slim image ships a small stand-in for that command. If a future ReSkate release changes it, the log says `The global ban list could not be read` and the stand-in needs an update. The default image has real curl and is not affected.
+- There is no bash. For debugging use `docker exec -it <container> busybox sh`.
+- The source is in [`slim/`](slim/). Build it from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:slim .`
+- `latest` and the plain version tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once the `slim` tag has been refreshed for the new release.
+
 ## Several servers
 
 Run one container per server from the same image. Each needs its **own** data volume, its **own** `PORT` / `QUERY_PORT`, and its own name and map. Everything else can be shared.
@@ -204,4 +218,5 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `notifier.py` | Discord console forwarding and update announcements |
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
+| `slim/` | Source and Dockerfile of the slim (distroless) image |
 | `example.env`, `docker-compose.yml` | Starting point for your own setup |
