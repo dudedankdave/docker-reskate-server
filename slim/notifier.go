@@ -21,15 +21,16 @@ import (
 )
 
 const (
-	logPath    = "/data/ReSkateServer.log"
-	statePath  = "/data/.discord-update-notified"
-	notesPath  = "/data/DiscordWebhook.log"
-	modsState  = "/data/.discord-mods-notified"
-	repo       = "Dingo-Shenanigans/ReSkate"
-	hub        = "dudedankdave/reskate-server"
-	checkEvery = 3 * time.Hour
-	flushAfter = 3 * time.Second
-	maxPending = 300
+	logPath        = "/data/ReSkateServer.log"
+	statePath      = "/data/.discord-update-notified"
+	notesPath      = "/data/DiscordWebhook.log"
+	modsState      = "/data/.discord-mods-notified"
+	repo           = "Dingo-Shenanigans/ReSkate"
+	hub            = "dudedankdave/reskate-server"
+	checkEvery     = 3 * time.Hour
+	modsCheckEvery = time.Hour // Thunderstore mods are checked hourly
+	flushAfter     = 3 * time.Second
+	maxPending     = 300
 )
 
 var (
@@ -371,7 +372,7 @@ func modsLoop(url, name string, mentions []string) {
 	time.Sleep(85 * time.Second)
 	for {
 		checkMods(url, name, mentions)
-		time.Sleep(checkEvery)
+		time.Sleep(modsCheckEvery)
 	}
 }
 

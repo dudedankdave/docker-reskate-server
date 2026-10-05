@@ -22,6 +22,7 @@ NOTES = "/data/DiscordWebhook.log"
 REPO = "Dingo-Shenanigans/ReSkate"
 HUB = "dudedankdave/reskate-server"
 CHECK_EVERY = 3 * 3600
+MODS_CHECK_EVERY = 3600     # Thunderstore mods are checked hourly
 FLUSH_AFTER = 3          # seconds a console line may wait to be batched
 MAX_PENDING = 300        # lines kept while Discord is unreachable
 DATE = re.compile(r"^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2})\]")
@@ -241,7 +242,7 @@ def mods_loop(url, name, mentions):
             check_mods(url, name, mentions)
         except Exception as e:
             note(f"mod update check: {e!r}")
-        time.sleep(CHECK_EVERY)
+        time.sleep(MODS_CHECK_EVERY)
 
 
 def update_loop(url, name, mentions, running):
