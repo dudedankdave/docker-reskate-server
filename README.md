@@ -22,6 +22,7 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 [Quick start](#quick-start) · [About](#about) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Multi-server support](#multi-server-support) · [Slim image](#slim-image) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
 
 ---
+<br/>
 
 ## Quick start
 
@@ -40,10 +41,13 @@ services:
 volumes:
   reskate-data:
 ```
+<br/>
 
 1. Copy `example.env` to `common.env` (shared settings) and `server1.env` (name, map, ports).
 2. `docker compose up -d`
 3. `docker logs reskate-server-1` shows the **join code** once the server is up.
+
+<br/>
 
 | Task | Command |
 |---|---|
@@ -52,9 +56,13 @@ volumes:
 | Update | `docker compose pull && docker compose up -d` |
 | Pin a version | `RESKATE_VERSION=1.1.1 docker compose up -d` (default `latest`) |
 
+<br/>
+
 Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.1`, `1.1`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 
 Every restart gives the server a new Steam ID and **a new join code**, and disconnects the players.
+
+<br/>
 
 ---
 
@@ -72,6 +80,8 @@ Every restart gives the server a new Steam ID and **a new join code**, and disco
 
 The version in a tag is the ReSkate release of the server inside the image. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available as published.
 
+<br/>
+
 
 ### Dependencies
 
@@ -88,6 +98,8 @@ The version in a tag is the ReSkate release of the server inside the image. It h
 | Runs as | uid 1000 (`reskate`) | uid 1000 |
 | Debugging | `docker exec -it <container> bash` | `docker exec -it <container> busybox sh` |
 
+<br/>
+
 
 ### curl
 
@@ -101,11 +113,15 @@ curl --silent --show-error --fail --max-time 15 --max-filesize N --proto =https 
 - **Slim image:** ships a small stand-in for exactly that command, built into `/app/reskate`. If a future ReSkate release changes the command, the stand-in refuses the unknown option and needs an update.
 - **Without `curl`:** the log says `The global ban list could not be read` and only the server's own bans apply.
 
+<br/>
+
 ---
 
 ## Configuration
 
 Put settings in env files (`example.env` lists all of them with example values). Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one. Unset or empty variables leave the existing value alone. The Discord variables are in [Discord webhook](#discord-webhook).
+
+<br/>
 
 
 ### Custom maps and mods
@@ -122,6 +138,8 @@ Custom maps are mod folders in `/data/Mods/<folder>`. The server only reads each
 3. Restart the server: `docker compose restart reskate-1`
 
 Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every server has its own `/data` volume, so copy the mod into each server that should use it.
+
+<br/>
 
 
 ### Per server
@@ -214,10 +232,13 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 |---|---|---|
 | `AUTO_UPDATE` | `true` / `false` | Only sets a key in `ReSkateServer.json`. The server cannot update itself on Linux, see [Keeping up to date](#keeping-up-to-date). |
 
+<br/>
 
 ### Data
 
 `/data` (a volume) holds `ReSkateServer.json`, `ReSkateServer.log`, `Mods/` and `world-layers.json`.
+
+<br/>
 
 ---
 
@@ -228,6 +249,7 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 - **Console:** every line the server prints (joins, leaves, admin commands, throwdowns, ...) is posted as a code block, batched every few seconds. `docker attach` keeps working.
 - **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (checked every 3 hours), and again when the matching Docker Hub image is published. Only this message can mention anyone.
 
+<br/>
 
 | Variable | Meaning |
 |---|---|
@@ -236,11 +258,15 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 | `DISCORD_CONSOLE` | `false` = only update messages, no console output (default `true`). |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
+<br/>
+
 - Player names and chat can never ping anyone: console posts disable all mentions.
 - Each server sends its own update message. If several servers share one webhook, set `DISCORD_MENTION_IDS` on one of them only.
 - The console includes the **join code**. Use a channel only people you trust can read.
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
 - The last announced version is kept in `/data/.discord-update-notified`.
+
+<br/>
 
 ---
 
@@ -252,11 +278,15 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
     image: dudedankdave/reskate-server:slim
 ```
 
+<br/>
+
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
 - The global ban list needs `curl`: the slim image ships a small stand-in, see [About](#curl).
 - There is no bash. For debugging use `docker exec -it <container> busybox sh`.
 - The source is in [`slim/`](slim/). Build it from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain version tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once the `slim` tag has been refreshed for the new release.
+
+<br/>
 
 ---
 
@@ -287,6 +317,8 @@ Run one container per server from the same image. Each needs its **own** data vo
 - All servers use `network_mode: host`, so ports must be unique on the host. Use one block per server, e.g. 12400/12401, 12410/12411, 12420/12421.
 - Sharing one `/data` volume makes the servers overwrite each other's config, mods and logs.
 
+<br/>
+
 ---
 
 ## Keeping up to date
@@ -303,6 +335,8 @@ ReSkate releases often and the game client updates itself, so the server has to 
   7 */3 * * * /path/to/check-update.sh reskate-server-1 >> /var/log/reskate-update-check.log 2>&1
   ```
 
+<br/>
+
 ---
 
 ## Networking
@@ -311,6 +345,8 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - Only `QUERY_PORT` needs to be reachable from the internet. Open it for UDP.
 - With a **stateless firewall**, also allow replies from the Steam relay: UDP from source ports 27000-27200 to destination ports 32768-65535. Without that rule, joins time out.
 - `network_mode: host` is required, the relay breaks behind bridge NAT.
+
+<br/>
 
 ---
 
@@ -325,6 +361,8 @@ ReSkate releases often and the game client updates itself, so the server has to 
 | Custom map not found | `MAP` must be the `displayName` from the mod's `reskate-levels.json`, and the mod folder must be in `/data/Mods/`. |
 | Settings don't change | Empty variables are ignored. Use `off` to clear `SERVER_PASSWORD` / `WELCOME_MESSAGE`. |
 
+<br/>
+
 ---
 
 ## Building
@@ -334,6 +372,8 @@ The server binaries are proprietary and not part of this repo. Download `ReSkate
 ```bash
 docker build --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:1.1.1 .
 ```
+
+<br/>
 
 Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `latest` as well.
 
