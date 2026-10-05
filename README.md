@@ -24,9 +24,24 @@ Copy `example.env` to `common.env` (shared) and `server1.env` (name, map, ports)
 
 - Console: `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q)
 - Update: `docker compose pull && docker compose up -d`
-- Pin a version: `RESKATE_VERSION=1.1.0 docker compose up -d` (default is `latest`). Tags: `1.1.0`, `1.1`, ...
+- Pin a version: `RESKATE_VERSION=1.1.1 docker compose up -d` (default is `latest`). Tags: `1.1.1`, `1.1`, `latest`, ... (the tag matches the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases)).
 - Health: `docker ps` shows `healthy` once the log reports `... is up on <map>`. It turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 - Several servers: see below.
+- Keep the server on the same ReSkate version as your players, see [Keeping up to date](#keeping-up-to-date).
+
+## Keeping up to date
+
+**The server must run the same ReSkate version as the players' game.** ReSkate releases often and the client updates itself. If the server falls behind, it can disappear from the in-game server list and join codes time out, even though the container is `healthy` and registered on Steam. Other players who have not updated yet can still join, which makes this easy to miss.
+
+- The server binary is baked into the image. `AUTO_UPDATE` only sets a key in `ReSkateServer.json`; it does not update the container.
+- To update: `docker compose pull && docker compose up -d`. This restarts the servers, which disconnects players and changes the Steam ID and join code.
+- If the new tag is not on Docker Hub yet, build it yourself (see [Building](#building)).
+- `check-update.sh` compares the running image's version with the latest ReSkate GitHub release and tells you whether `docker compose pull` is enough. Run it from cron to get notified:
+
+  ```bash
+  # every 3 hours; set NOTIFY_WEBHOOK to a URL to get a POST once per new release
+  7 */3 * * * /path/to/check-update.sh reskate-server-1 >> /var/log/reskate-update-check.log 2>&1
+  ```
 
 ## Running multiple servers
 
@@ -75,5 +90,7 @@ Notes:
 The server binaries are proprietary and not part of this repo. Put the dedicated-server files in `./Server/` (`ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so`, `steamclient.so`), then:
 
 ```bash
-docker build --build-arg VERSION=1.1.0 -t dudedankdave/reskate-server:1.1.0 .
+docker build --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:1.1.1 .
 ```
+
+Get the files from the Linux server download of a [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) (`ReSkateServer-Linux-<version>.tar.gz`). Use the release version as `VERSION`, then tag it `<major>.<minor>` and `latest` as well.
