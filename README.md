@@ -15,7 +15,7 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 
 ## Contents
 
-[Quick start](#quick-start) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Multi-server support](#multi-server-support) · [Slim image](#slim-image) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
+[Quick start](#quick-start) · [About](#about) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Multi-server support](#multi-server-support) · [Slim image](#slim-image) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
 
 ---
 
@@ -54,9 +54,74 @@ Every restart gives the server a new Steam ID and **a new join code**, and disco
 
 ---
 
+## About
+
+&nbsp;
+
+### Tags
+
+| Tag | What it is | Size on disk (download) |
+|---|---|---|
+| `latest` | Newest ReSkate release, default image (Debian slim) | 172 MB (64 MB) |
+| `1.1.1`, `1.1` | That ReSkate release, pinned (`1.1` follows the newest `1.1.x`) | 172 MB (64 MB) |
+| `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
+| `1.1.1-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+
+The version in a tag is the ReSkate release of the server inside the image. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available as published.
+
+&nbsp;
+
+### Dependencies
+
+| | Default (`latest`, `1.1.1`) | `slim` |
+|---|---|---|
+| Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
+| ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
+| Entrypoint, Discord sidecar, healthcheck | Python 3 scripts (`python3-minimal`) | One static Go binary (`/app/reskate`) |
+| Init | `tini` | `tini` |
+| `curl` | Real `curl` | Small stand-in inside the Go binary, see below |
+| Shell | bash | Static busybox, `sh` only |
+| TLS (OpenSSL, CA certificates) | `libssl3`, `ca-certificates` | Included in the base image |
+| Package manager | apt | None |
+| Runs as | uid 1000 (`reskate`) | uid 1000 |
+| Debugging | `docker exec -it <container> bash` | `docker exec -it <container> busybox sh` |
+
+&nbsp;
+
+### curl
+
+The server reads the ReSkate team's global ban list from `api.reskate.dev` at startup and every ten minutes. It does that by running one fixed command through `sh`:
+
+```
+curl --silent --show-error --fail --max-time 15 --max-filesize N --proto =https --user-agent ReSkateServer/1 <url>
+```
+
+- **Default image:** ships real `curl`, nothing to do.
+- **Slim image:** ships a small stand-in for exactly that command, built into `/app/reskate`. If a future ReSkate release changes the command, the stand-in refuses the unknown option and needs an update.
+- **Without `curl`:** the log says `The global ban list could not be read` and only the server's own bans apply.
+
+---
+
 ## Configuration
 
 Put settings in env files (`example.env` lists all of them with example values). Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one. Unset or empty variables leave the existing value alone. The Discord variables are in [Discord webhook](#discord-webhook).
+
+&nbsp;
+
+### Custom maps and mods
+
+Custom maps are mod folders in `/data/Mods/<folder>`. The server only reads each mod's `reskate-levels.json`, but **players need the same map mod installed** to join.
+
+1. Copy the map's mod folder from the game's `Mods` folder into the server's volume:
+
+   ```bash
+   docker cp <mod-folder> reskate-server-1:/data/Mods/
+   ```
+
+2. Set `MAP` to the `displayName` from the mod's `reskate-levels.json`, e.g. `MAP=Skate2Map`.
+3. Restart the server: `docker compose restart reskate-1`
+
+Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every server has its own `/data` volume, so copy the mod into each server that should use it.
 
 &nbsp;
 
@@ -157,14 +222,11 @@ Put settings in env files (`example.env` lists all of them with example values).
 |---|---|---|
 | `AUTO_UPDATE` | `true` / `false` | Only sets a key in `ReSkateServer.json`. The server cannot update itself on Linux, see [Keeping up to date](#keeping-up-to-date). |
 
+&nbsp;
+
 ### Data
 
-`/data` (a volume) holds `ReSkateServer.json`, `ReSkateServer.log`, `Mods/` and `world-layers.json`. Custom maps are mod folders in `/data/Mods/<folder>`:
-
-```bash
-docker cp <mod-folder> reskate-server-1:/data/Mods/
-docker compose restart reskate-1
-```
+`/data` (a volume) holds `ReSkateServer.json`, `ReSkateServer.log`, `Mods/` and `world-layers.json`.
 
 ---
 
@@ -192,14 +254,14 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 
 ## Slim image
 
-`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `1.1.1-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl. Same environment variables, same Discord webhook, same `/data` layout, so switching is just changing the tag:
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `1.1.1-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about) for what is inside each tag). Same environment variables, same Discord webhook, same `/data` layout, so switching is just changing the tag:
 
 ```yaml
     image: dudedankdave/reskate-server:slim
 ```
 
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
-- The server runs exactly one `curl` command to read the global ban list. The slim image ships a small stand-in for that command. If a future ReSkate release changes it, the log says `The global ban list could not be read` and the stand-in needs an update. The default image has real curl and is not affected.
+- The global ban list needs `curl`: the slim image ships a small stand-in, see [About](#curl).
 - There is no bash. For debugging use `docker exec -it <container> busybox sh`.
 - The source is in [`slim/`](slim/). Build it from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain version tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once the `slim` tag has been refreshed for the new release.
@@ -270,8 +332,6 @@ ReSkate releases often and the game client updates itself, so the server has to 
 | Container `unhealthy` | Stuck Steam sign-in or a config problem, check `docker logs`. |
 | Custom map not found | `MAP` must be the `displayName` from the mod's `reskate-levels.json`, and the mod folder must be in `/data/Mods/`. |
 | Settings don't change | Empty variables are ignored. Use `off` to clear `SERVER_PASSWORD` / `WELCOME_MESSAGE`. |
-
-The image includes `curl`, which the server needs to read the global ban list.
 
 ---
 
