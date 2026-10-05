@@ -1,4 +1,4 @@
-# ReSkate dedicated server
+# ReSkate - Dedicated Server - Docker 
 
 [Docker Hub](https://hub.docker.com/r/dudedankdave/reskate-server) · [GitHub](https://github.com/dudedankdave/docker-reskate-server) · [ReSkate releases](https://github.com/Dingo-Shenanigans/ReSkate/releases)
 
