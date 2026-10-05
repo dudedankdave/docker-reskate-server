@@ -25,7 +25,7 @@ LABEL org.opencontainers.image.title="reskate-server" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl python3-minimal tini \
+ && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl unzip python3-minimal tini \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -m -u 1000 reskate \
  && mkdir -p /data /home/reskate/.steam/sdk64 \
@@ -33,7 +33,7 @@ RUN apt-get update \
 WORKDIR /app
 # --chown on COPY avoids a second 49 MB layer from a recursive chown
 COPY --from=server --chown=reskate:reskate /out/ /app/
-COPY --chown=reskate:reskate entrypoint.py healthcheck.py notifier.py /app/
+COPY --chown=reskate:reskate entrypoint.py healthcheck.py notifier.py mods.py /app/
 RUN ln -s /data/Mods /app/Mods \
  && ln -s /data/world-layers.json /app/world-layers.json \
  && ln -s /data/ReSkateServer.log /app/ReSkateServer.log \

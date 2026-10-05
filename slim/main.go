@@ -3,6 +3,7 @@
 //
 //	reskate              env vars -> /data/ReSkateServer.json, Discord sidecar, exec server
 //	reskate notifier     Discord sidecar (started by the entrypoint)
+//	reskate mods         install the MODS from Thunderstore now (docker exec ... /app/reskate mods)
 //	reskate healthcheck  container health from /data/ReSkateServer.log
 //	curl ...             (symlink) the small subset of curl the server uses
 package main
@@ -26,6 +27,15 @@ func main() {
 		switch os.Args[1] {
 		case "notifier":
 			notifierMain()
+			return
+		case "mods":
+			update := true
+			if u, ok := env("MODS_UPDATE"); ok {
+				update = asBool("MODS_UPDATE", u)
+			}
+			if v, ok := env("MODS"); ok {
+				installMods(v, update)
+			}
 			return
 		case "healthcheck":
 			os.Exit(healthMain())

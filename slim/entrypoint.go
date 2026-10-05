@@ -282,6 +282,15 @@ func entrypointMain(serverArgs []string) {
 		die("cannot replace %s: %v", configPath, err)
 	}
 
+	// Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
+	if v, ok := env("MODS"); ok {
+		update := true
+		if u, ok := env("MODS_UPDATE"); ok {
+			update = asBool("MODS_UPDATE", u)
+		}
+		installMods(v, update)
+	}
+
 	// Discord sidecar (console forwarding + update announcements): a child process that
 	// outlives the exec below, so the server keeps the console for `docker attach`.
 	if hook, ok := env("DISCORD_WEBHOOK"); ok {

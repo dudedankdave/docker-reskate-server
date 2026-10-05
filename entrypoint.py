@@ -5,6 +5,7 @@ unset or empty leaves the value already in the file (or the server default) alon
 so changes made in-game/console survive restarts unless the env var pins them.
 ADMINS / BANS / SCORE_ALLOW are merged with what the file already holds.
 
+MODS / MODS_UPDATE install Thunderstore mods before the server starts, see mods.py.
 DISCORD_WEBHOOK (+ DISCORD_MENTION_IDS, DISCORD_CONSOLE, DISCORD_USERNAME) are not server
 settings: they start notifier.py, see there.
 """
@@ -163,6 +164,16 @@ with open(tmp, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 os.replace(tmp, CONFIG)
+
+# Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
+if (value := env("MODS")) is not None:
+    update = as_bool("MODS_UPDATE", env("MODS_UPDATE") or "true")
+    sys.path.insert(0, "/app")
+    try:
+        import mods
+        mods.install_all(value, update)
+    except Exception as exc:  # the server must start even if this breaks
+        print(f"[mods] disabled: {exc!r}", flush=True)
 
 # Discord sidecar (console forwarding + update announcements). It is forked off before the
 # server is exec'd, so the server keeps the console for `docker attach`.
