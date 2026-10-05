@@ -60,86 +60,105 @@ Put settings in env files (`example.env` lists all of them with example values).
 
 ### Per server
 
-| Variable | Values | Description |
-|---|---|---|
-| `SERVER_NAME` | text, 1-64 chars | Name in the server browser. Longer names cause a restart loop. |
-| `MAP` | text | Map everyone skates: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`, or the `displayName` of a custom map mod (`reskate-levels.json`). |
-| `PORT` | number | Game port. Never bound, players join via the Steam relay. |
-| `QUERY_PORT` | number | Server browser / A2S queries. |
+- **`SERVER_NAME`** (text, 1-64 chars): Name in the server browser. Longer names cause a restart loop.
+
+- **`MAP`** (text): Map everyone skates: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`, or the `displayName` of a custom map mod (`reskate-levels.json`).
+
+- **`PORT`** (number): Game port. Never bound, players join via the Steam relay.
+
+- **`QUERY_PORT`** (number): Server browser / A2S queries.
 
 ### Access
 
-| Variable | Values | Description |
-|---|---|---|
-| `SERVER_PASSWORD` | text, `off` | Join password. Empty = anyone can join; `off` clears an existing password. |
-| `LISTED` | `true` / `false` | `false` hides the server from the browser; players then need the join code. |
-| `MAX_PLAYERS` | 1-249 | Player limit. |
-| `ADMINS` | SteamID64 list | Comma-separated admins who may change settings in-game. Merged with the admins already in the config. |
-| `BANS` | `id[:name]` list | Comma-separated players who can never join. Merged with existing bans. |
-| `WELCOME_MESSAGE` | text, `off` | Chat line sent to each player as they join. `off` clears it. |
+- **`SERVER_PASSWORD`** (text, `off`): Join password. Empty = anyone can join; `off` clears an existing password.
+
+- **`LISTED`** (`true` / `false`): `false` hides the server from the browser; players then need the join code.
+
+- **`MAX_PLAYERS`** (1-249): Player limit.
+
+- **`ADMINS`** (SteamID64 list): Comma-separated admins who may change settings in-game. Merged with the admins already in the config.
+
+- **`BANS`** (`id[:name]` list): Comma-separated players who can never join. Merged with existing bans.
+
+- **`WELCOME_MESSAGE`** (text, `off`): Chat line sent to each player as they join. `off` clears it.
 
 ### Gameplay
 
-| Variable | Values | Description |
-|---|---|---|
-| `TPS` | `20` `30` `60` `120` | Network updates per second. |
-| `OBJECT_PLACEMENT` | `everyone` `admins` `nobody` | Who can build and place objects. |
-| `NOCLIP` | `true` / `false` | Let players use noclip (and tp). Default `true`, admins always can. |
-| `NO_BAIL` | `true` / `false` | Let players use No Bail. Default `true`, admins always can. |
-| `BOOSTS` | `true` / `false` | Let players use the forward and up boosts. Default `true`, admins always can. |
-| `ENFORCE_TUNING` | `true` / `false` | Players skate with the game's own physics tuning, not edited copies. Default `true`. |
-| `PARTIES` | `true` / `false` | Let players form parties. Default `true`. |
-| `PARTY_SIZE` | 2-8 | Most players in one party. Default `8`. |
-| `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
-| `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
+- **`TPS`** (`20` `30` `60` `120`): Network updates per second.
+
+- **`OBJECT_PLACEMENT`** (`everyone` `admins` `nobody`): Who can build and place objects.
+
+- **`NOCLIP`** (`true` / `false`): Let players use noclip (and tp). Default `true`, admins always can.
+
+- **`NO_BAIL`** (`true` / `false`): Let players use No Bail. Default `true`, admins always can.
+
+- **`BOOSTS`** (`true` / `false`): Let players use the forward and up boosts. Default `true`, admins always can.
+
+- **`ENFORCE_TUNING`** (`true` / `false`): Players skate with the game's own physics tuning, not edited copies. Default `true`.
+
+- **`PARTIES`** (`true` / `false`): Let players form parties. Default `true`.
+
+- **`PARTY_SIZE`** (2-8): Most players in one party. Default `8`.
+
+- **`ANNOUNCE_THROWDOWNS`** (`true` / `false`): Tell everyone in chat when a throwdown drop is placed. Default `true`.
+
+- **`ACTIVITY_LOG`** (`true` / `false`): Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`.
 
 ### Anti-cheat
 
-| Variable | Values | Description |
-|---|---|---|
-| `SPEED_CHECK` | `off` `warn` `kick` | Catch players whose game runs faster than normal (speedhack). `warn` (default) takes them out of throwdowns and coop challenges and tells admins. |
-| `SCORE_CHECK` | `off` `warn` `kick` | Catch players whose mods change trick scoring or skater handling. `warn` (default) takes them out of throwdowns and coop challenges. |
-| `SCORE_ALLOW` | hex list | Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list. |
+- **`SPEED_CHECK`** (`off` `warn` `kick`): Catch players whose game runs faster than normal (speedhack). `warn` (default) takes them out of throwdowns and coop challenges and tells admins.
+
+- **`SCORE_CHECK`** (`off` `warn` `kick`): Catch players whose mods change trick scoring or skater handling. `warn` (default) takes them out of throwdowns and coop challenges.
+
+- **`SCORE_ALLOW`** (hex list): Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list.
 
 ### Voice
 
-| Variable | Values | Description |
-|---|---|---|
-| `VOICE_CHAT` | `true` / `false` | Allow voice chat. |
-| `VOICE_RANGE` | 50-1000 | How far proximity voice reaches, in metres. |
-| `DISTANCE_FULL_RATE_RETURN` | metres | Voice update distance: players closer than this are back at the full update rate. |
-| `DISTANCE_HALF_RATE_START` | metres | Voice update distance: players farther than this update at half rate. |
-| `DISTANCE_HALF_RATE_RETURN` | metres | Voice update distance: players closer than this are back at half rate. |
-| `DISTANCE_LOW_RATE_START` | metres | Voice update distance: players farther than this update at the low rate. |
+- **`VOICE_CHAT`** (`true` / `false`): Allow voice chat.
+
+- **`VOICE_RANGE`** (50-1000): How far proximity voice reaches, in metres.
+
+- **`DISTANCE_FULL_RATE_RETURN`** (metres): Voice update distance: players closer than this are back at the full update rate.
+
+- **`DISTANCE_HALF_RATE_START`** (metres): Voice update distance: players farther than this update at half rate.
+
+- **`DISTANCE_HALF_RATE_RETURN`** (metres): Voice update distance: players closer than this are back at half rate.
+
+- **`DISTANCE_LOW_RATE_START`** (metres): Voice update distance: players farther than this update at the low rate.
 
 ### Voting
 
-| Variable | Values | Description |
-|---|---|---|
-| `VOTE_MAP_ENABLED` | `true` / `false` | Players can vote for a map change (`/vote map <map>`). Off until turned on. |
-| `VOTE_MAP_PERCENT` | number | Share of connected players whose yes passes a map vote. |
-| `VOTE_KICK_ENABLED` | `true` / `false` | Players can vote to kick someone (`/vote kick <player>`). Admins cannot be vote-kicked. |
-| `VOTE_KICK_PERCENT` | number | Share of connected players whose yes passes a kick vote. |
-| `VOTE_TIME_OF_DAY_ENABLED` | `true` / `false` | Players can vote on the time of day (`/vote tod <time>`). Needs `WORLD_LAYER_SYNC`. |
-| `VOTE_TIME_OF_DAY_PERCENT` | number | Share of connected players whose yes passes a time-of-day vote. |
-| `VOTE_SECONDS` | seconds | How long a vote runs. Default `30`. |
-| `VOTE_COOLDOWN_SECONDS` | seconds | How long a player waits before starting another vote. Default `60`. |
+- **`VOTE_MAP_ENABLED`** (`true` / `false`): Players can vote for a map change (`/vote map <map>`). Off until turned on.
+
+- **`VOTE_MAP_PERCENT`** (number): Share of connected players whose yes passes a map vote.
+
+- **`VOTE_KICK_ENABLED`** (`true` / `false`): Players can vote to kick someone (`/vote kick <player>`). Admins cannot be vote-kicked.
+
+- **`VOTE_KICK_PERCENT`** (number): Share of connected players whose yes passes a kick vote.
+
+- **`VOTE_TIME_OF_DAY_ENABLED`** (`true` / `false`): Players can vote on the time of day (`/vote tod <time>`). Needs `WORLD_LAYER_SYNC`.
+
+- **`VOTE_TIME_OF_DAY_PERCENT`** (number): Share of connected players whose yes passes a time-of-day vote.
+
+- **`VOTE_SECONDS`** (seconds): How long a vote runs. Default `30`.
+
+- **`VOTE_COOLDOWN_SECONDS`** (seconds): How long a player waits before starting another vote. Default `60`.
 
 ### Parks and layers
 
-| Variable | Values | Description |
-|---|---|---|
-| `PARK_CONSTRUCTION` | park id | Layout of the construction park lot, e.g. `skatepark_01`, or `empty`. |
-| `PARK_HISTORIC` | park id | Layout of the historic park lot, e.g. `megapark_05`, or `empty`. |
-| `PARK_FINANCIAL` | park id | Layout of the financial park lot, e.g. `flumppark_08`, or `empty`. |
-| `WORLD_LAYER_SYNC` | `true` / `false` | Force the `LAYERS` below on every player. |
-| `LAYERS` | `key=on\|off\|default` list | World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting. |
+- **`PARK_CONSTRUCTION`** (park id): Layout of the construction park lot, e.g. `skatepark_01`, or `empty`.
+
+- **`PARK_HISTORIC`** (park id): Layout of the historic park lot, e.g. `megapark_05`, or `empty`.
+
+- **`PARK_FINANCIAL`** (park id): Layout of the financial park lot, e.g. `flumppark_08`, or `empty`.
+
+- **`WORLD_LAYER_SYNC`** (`true` / `false`): Force the `LAYERS` below on every player.
+
+- **`LAYERS`** (`key=on|off|default` list): World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting.
 
 ### Updates
 
-| Variable | Values | Description |
-|---|---|---|
-| `AUTO_UPDATE` | `true` / `false` | Only sets a key in `ReSkateServer.json`. The server cannot update itself on Linux, see [Keeping up to date](#keeping-up-to-date). |
+- **`AUTO_UPDATE`** (`true` / `false`): Only sets a key in `ReSkateServer.json`. The server cannot update itself on Linux, see [Keeping up to date](#keeping-up-to-date).
 
 ### Data
 
