@@ -2,7 +2,7 @@
 
 [Docker Hub](https://hub.docker.com/r/dudedankdave/reskate-server) · [GitHub](https://github.com/dudedankdave/docker-reskate-server) · [ReSkate releases](https://github.com/Dingo-Shenanigans/ReSkate/releases)
 
-Docker image for the ReSkate dedicated server. Settings are passed as environment variables and written to `/data/ReSkateServer.json` on every start. Unset or empty variables leave the existing value alone.
+Docker image for the ReSkate dedicated server (the native Linux build, no Wine). Settings are passed as environment variables and written to `/data/ReSkateServer.json` on every start. Unset or empty variables leave the existing value alone.
 
 ## Quick start
 
@@ -38,12 +38,34 @@ Copy `example.env` to `common.env` (shared) and `server1.env` (name, map, ports)
 - The server binary is baked into the image. `AUTO_UPDATE` only sets a key in `ReSkateServer.json`; it does not update the container.
 - To update: `docker compose pull && docker compose up -d`. This restarts the servers, which disconnects players and changes the Steam ID and join code.
 - If the new tag is not on Docker Hub yet, build it yourself (see [Building](#building)).
-- `check-update.sh` compares the running image's version with the latest ReSkate GitHub release and tells you whether `docker compose pull` is enough. Run it from cron to get notified:
+- With `DISCORD_WEBHOOK` set, the image announces new releases itself, see [Discord webhook](#discord-webhook).
+- `check-update.sh` (host-side alternative) compares the running image's version with the latest ReSkate GitHub release and tells you whether `docker compose pull` is enough. Run it from cron to get notified:
 
   ```bash
   # every 3 hours; set NOTIFY_WEBHOOK to a URL to get a POST once per new release
   7 */3 * * * /path/to/check-update.sh reskate-server-1 >> /var/log/reskate-update-check.log 2>&1
   ```
+
+## Discord webhook
+
+Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) to get the server in Discord:
+
+- **Console:** every line the server prints (joins, leaves, admin commands, throwdowns, ...) is posted as a code block, batched every few seconds. `docker attach` keeps working.
+- **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (the image checks GitHub every 3 hours), and again when the matching Docker Hub image is published. Only this message can mention anyone.
+
+| Variable | Meaning |
+|---|---|
+| `DISCORD_WEBHOOK` | Webhook URL (Discord: channel settings, Integrations, Webhooks). Unset = off. |
+| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids to mention in the update message, e.g. `123456789012345678,234567890123456789`. |
+| `DISCORD_CONSOLE` | `false` = only post update messages, no console output (default `true`). |
+| `DISCORD_USERNAME` | Name shown for the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
+
+Notes:
+- Player names and chat can never ping: console posts disable all mentions.
+- Each server sends its own update message. If several servers share one webhook, set `DISCORD_MENTION_IDS` on one of them only.
+- The console includes the **join code**, so post it to a channel only people you trust can read.
+- Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
+- The last announced version is kept in `/data/.discord-update-notified`.
 
 ## Running multiple servers
 
@@ -85,7 +107,7 @@ Notes:
 
 ## Environment variables
 
-`SERVER_NAME`, `MAP`, `PORT`, `QUERY_PORT`, `MAX_PLAYERS`, `SERVER_PASSWORD`, `WELCOME_MESSAGE`, `LISTED`, `AUTO_UPDATE`, `ADMINS`, `BANS`, `TPS` (20/30/60/120), `NOCLIP`, `NO_BAIL`, `BOOSTS`, `ENFORCE_TUNING`, `OBJECT_PLACEMENT` (everyone/admins/nobody), `PARTIES`, `PARTY_SIZE`, `ANNOUNCE_THROWDOWNS`, `ACTIVITY_LOG`, `SPEED_CHECK`/`SCORE_CHECK` (off/warn/kick), `SCORE_ALLOW`, `VOICE_CHAT`, `VOICE_RANGE`, `DISTANCE_*`, `VOTE_*`, `PARK_CONSTRUCTION`/`PARK_HISTORIC`/`PARK_FINANCIAL`, `WORLD_LAYER_SYNC`, `LAYERS`. See `example.env` for defaults.
+`SERVER_NAME`, `MAP`, `PORT`, `QUERY_PORT`, `MAX_PLAYERS`, `SERVER_PASSWORD`, `WELCOME_MESSAGE`, `LISTED`, `AUTO_UPDATE`, `ADMINS`, `BANS`, `TPS` (20/30/60/120), `NOCLIP`, `NO_BAIL`, `BOOSTS`, `ENFORCE_TUNING`, `OBJECT_PLACEMENT` (everyone/admins/nobody), `PARTIES`, `PARTY_SIZE`, `ANNOUNCE_THROWDOWNS`, `ACTIVITY_LOG`, `SPEED_CHECK`/`SCORE_CHECK` (off/warn/kick), `SCORE_ALLOW`, `VOICE_CHAT`, `VOICE_RANGE`, `DISTANCE_*`, `VOTE_*`, `PARK_CONSTRUCTION`/`PARK_HISTORIC`/`PARK_FINANCIAL`, `WORLD_LAYER_SYNC`, `LAYERS`. See `example.env` for defaults. Discord: `DISCORD_WEBHOOK`, `DISCORD_MENTION_IDS`, `DISCORD_CONSOLE`, `DISCORD_USERNAME` (see [Discord webhook](#discord-webhook)).
 
 ## Building
 

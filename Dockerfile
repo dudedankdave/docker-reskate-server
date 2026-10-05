@@ -25,7 +25,7 @@ LABEL org.opencontainers.image.title="reskate-server" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libssl3t64 ca-certificates python3-minimal tini \
+ && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl python3-minimal tini \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -m -u 1000 reskate \
  && mkdir -p /data /home/reskate/.steam/sdk64 \
@@ -33,7 +33,7 @@ RUN apt-get update \
 WORKDIR /app
 # --chown on COPY avoids a second 49 MB layer from a recursive chown
 COPY --from=server --chown=reskate:reskate /out/ /app/
-COPY --chown=reskate:reskate entrypoint.py healthcheck.py /app/
+COPY --chown=reskate:reskate entrypoint.py healthcheck.py notifier.py /app/
 RUN ln -s /data/Mods /app/Mods \
  && ln -s /data/world-layers.json /app/world-layers.json \
  && ln -s /data/ReSkateServer.log /app/ReSkateServer.log \
@@ -41,7 +41,7 @@ RUN ln -s /data/Mods /app/Mods \
  && echo 3354750 > /app/steam_appid.txt \
  && chown -h reskate:reskate /app/Mods /app/world-layers.json /app/ReSkateServer.log /app/steam_appid.txt \
     /home/reskate/.steam/sdk64/steamclient.so
-ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate
+ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION
 USER reskate
 VOLUME /data
 # Healthy once the log shows the server is up (see healthcheck.py). Startup needs a
