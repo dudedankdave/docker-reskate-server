@@ -60,7 +60,6 @@ Every restart gives the server a new Steam ID and **a new join code**, and disco
 
 ## About
 
-&nbsp;
 
 ### Tags
 
@@ -73,7 +72,6 @@ Every restart gives the server a new Steam ID and **a new join code**, and disco
 
 The version in a tag is the ReSkate release of the server inside the image. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available as published.
 
-&nbsp;
 
 ### Dependencies
 
@@ -90,7 +88,6 @@ The version in a tag is the ReSkate release of the server inside the image. It h
 | Runs as | uid 1000 (`reskate`) | uid 1000 |
 | Debugging | `docker exec -it <container> bash` | `docker exec -it <container> busybox sh` |
 
-&nbsp;
 
 ### curl
 
@@ -110,7 +107,6 @@ curl --silent --show-error --fail --max-time 15 --max-filesize N --proto =https 
 
 Put settings in env files (`example.env` lists all of them with example values). Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one. Unset or empty variables leave the existing value alone. The Discord variables are in [Discord webhook](#discord-webhook).
 
-&nbsp;
 
 ### Custom maps and mods
 
@@ -127,7 +123,6 @@ Custom maps are mod folders in `/data/Mods/<folder>`. The server only reads each
 
 Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every server has its own `/data` volume, so copy the mod into each server that should use it.
 
-&nbsp;
 
 ### Per server
 
@@ -138,7 +133,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `PORT` | number | Game port. Never bound, players join via the Steam relay. |
 | `QUERY_PORT` | number | Server browser / A2S queries. |
 
-&nbsp;
 
 ### Access
 
@@ -151,7 +145,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `BANS` | `id[:name]` list | Comma-separated players who can never join. Merged with existing bans. |
 | `WELCOME_MESSAGE` | text, `off` | Chat line sent to each player as they join. `off` clears it. |
 
-&nbsp;
 
 ### Gameplay
 
@@ -168,7 +161,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
 
-&nbsp;
 
 ### Anti-cheat
 
@@ -178,7 +170,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `SCORE_CHECK` | `off` `warn` `kick` | Catch players whose mods change trick scoring or skater handling. `warn` (default) takes them out of throwdowns and coop challenges. |
 | `SCORE_ALLOW` | hex list | Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list. |
 
-&nbsp;
 
 ### Voice
 
@@ -191,7 +182,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `DISTANCE_HALF_RATE_RETURN` | metres | Voice update distance: players closer than this are back at half rate. |
 | `DISTANCE_LOW_RATE_START` | metres | Voice update distance: players farther than this update at the low rate. |
 
-&nbsp;
 
 ### Voting
 
@@ -206,7 +196,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `VOTE_SECONDS` | seconds | How long a vote runs. Default `30`. |
 | `VOTE_COOLDOWN_SECONDS` | seconds | How long a player waits before starting another vote. Default `60`. |
 
-&nbsp;
 
 ### Parks and layers
 
@@ -218,7 +207,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `WORLD_LAYER_SYNC` | `true` / `false` | Force the `LAYERS` below on every player. |
 | `LAYERS` | `key=on\|off\|default` list | World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting. |
 
-&nbsp;
 
 ### Updates
 
@@ -226,7 +214,6 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 |---|---|---|
 | `AUTO_UPDATE` | `true` / `false` | Only sets a key in `ReSkateServer.json`. The server cannot update itself on Linux, see [Keeping up to date](#keeping-up-to-date). |
 
-&nbsp;
 
 ### Data
 
@@ -240,6 +227,7 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 
 - **Console:** every line the server prints (joins, leaves, admin commands, throwdowns, ...) is posted as a code block, batched every few seconds. `docker attach` keeps working.
 - **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (checked every 3 hours), and again when the matching Docker Hub image is published. Only this message can mention anyone.
+
 
 | Variable | Meaning |
 |---|---|
