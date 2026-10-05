@@ -20,6 +20,7 @@ import subprocess
 MODS_DIR = "/data/Mods"
 TMP_DIR = "/data/.mods-tmp"          # same volume as Mods, so renames are atomic
 MARKER = ".thunderstore.json"
+EVENTS = "/data/.mods-events"        # install/update events, posted to Discord by notifier.py
 BASE = os.environ.get("THUNDERSTORE_URL", "https://thunderstore.io").rstrip("/")
 MAX_UNPACKED = 8 * 1024 ** 3        # refuse zips that unpack to more than 8 GiB
 ID = re.compile(r"^([A-Za-z0-9_]+)-([A-Za-z0-9_]+)(?:-(\d+\.\d+\.\d+))?$")
@@ -29,6 +30,17 @@ URL = re.compile(r"/(?:p|package)/(?:download/)?([A-Za-z0-9_]+)/([A-Za-z0-9_]+)(
 def rmtree(path):
     """Recursive delete via rm: the image's minimal Python lacks the usual helper module."""
     subprocess.run(["rm", "-rf", path], check=False)
+
+
+def record_event(owner, name, old, new, maps):
+    """Hand an install/update over to the Discord sidecar (only when a webhook is set)."""
+    if not os.environ.get("DISCORD_WEBHOOK"):
+        return
+    try:
+        with open(EVENTS, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"owner": owner, "name": name, "from": old, "to": new, "maps": maps}) + "\n")
+    except OSError:
+        pass
 
 
 def log(message):
@@ -92,7 +104,7 @@ def check_zip(path):
         raise RuntimeError("zip unpacks to more than 8 GiB")
 
 
-def install(owner, name, version, url):
+def install(owner, name, version, url, old=None):
     target = os.path.join(MODS_DIR, name)
     work = os.path.join(TMP_DIR, name)
     rmtree(TMP_DIR)
@@ -127,6 +139,7 @@ def install(owner, name, version, url):
     except (OSError, ValueError, KeyError):
         pass
     log(f"{owner}-{name} {version}: installed" + (f", maps: {', '.join(maps)} (use as MAP)" if maps else ""))
+    record_event(owner, name, old, version, maps)
 
 
 def ensure(owner, name, version, update, dependency=False, seen=None):
@@ -152,11 +165,29 @@ def ensure(owner, name, version, update, dependency=False, seen=None):
     elif have is not None and version is None and not update:
         log(f"{label}: {have} installed, newer {want} available (MODS_UPDATE=false)")
     else:
-        install(owner, name, want, m["download_url"])
+        install(owner, name, want, m["download_url"], have)
     for dep in m.get("dependencies", []):
         d = ID.match(dep)
         if d:
             ensure(d.group(1), d.group(2), d.group(3), update, True, seen)
+
+
+def pending_updates(spec):
+    """Unpinned MODS entries whose installed version is older than the latest on Thunderstore."""
+    out = []
+    for token in re.split(r"[\s,]+", spec.strip()):
+        p = parse(token) if token else None
+        if not p or p[2]:                      # invalid or pinned: nothing to announce
+            continue
+        try:
+            latest = meta(p[0], p[1])["version_number"]
+        except Exception as e:
+            log(f"{token}: update check failed: {e}")
+            continue
+        have = read_manifest(os.path.join(MODS_DIR, p[1])).get("version_number")
+        if have and version_key(latest) > version_key(have):
+            out.append((p[0], p[1], latest, have))
+    return out
 
 
 def install_all(spec, update=True):

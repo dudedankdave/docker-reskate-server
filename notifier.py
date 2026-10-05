@@ -17,6 +17,7 @@ import time
 
 LOG = "/data/ReSkateServer.log"
 STATE = "/data/.discord-update-notified"
+MODS_STATE = "/data/.discord-mods-notified"
 NOTES = "/data/DiscordWebhook.log"
 REPO = "Dingo-Shenanigans/ReSkate"
 HUB = "dudedankdave/reskate-server"
@@ -183,6 +184,66 @@ def check_once(url, name, mentions, running):
             json.dump({"version": latest, "published": published}, f)
 
 
+def post_mod_events(url, name):
+    """Announce the installs/updates mods.py did during this start, then forget them."""
+    import mods
+    try:
+        with open(mods.EVENTS, encoding="utf-8") as f:
+            events = [json.loads(line) for line in f if line.strip()]
+        os.remove(mods.EVENTS)
+    except (OSError, ValueError):
+        return
+    for e in events:
+        label = f"{e['owner']}-{e['name']}"
+        maps = f" Maps: {', '.join(e['maps'])}." if e.get("maps") else ""
+        if e.get("from"):
+            text = f"**MOD UPDATED**: {label} {e['from']} to **{e['to']}**.{maps}"
+        else:
+            text = f"**MOD INSTALLED**: {label} **{e['to']}**.{maps}"
+        post(url, {"username": name, "content": text, "allowed_mentions": {"parse": []}})
+
+
+def check_mods(url, name, mentions):
+    """Announce (once per version) newer Thunderstore versions of the unpinned MODS entries."""
+    import mods
+    spec = os.environ.get("MODS", "")
+    update = os.environ.get("MODS_UPDATE", "true").strip().lower() in ("1", "true", "yes", "on")
+    try:
+        with open(MODS_STATE, encoding="utf-8") as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        seen = {}
+    tags = " ".join(f"<@{i}>" for i in mentions)
+    for owner, pkg, latest, have in mods.pending_updates(spec):
+        key = f"{owner}-{pkg}"
+        if seen.get(key) == latest:
+            continue
+        how = ("Restart the server to install it. The restart kicks everyone and changes the join code."
+               if update else "`MODS_UPDATE` is false, so it will not be installed automatically.")
+        text = (f"{tags} **MOD UPDATE AVAILABLE**: {key} **{latest}** is out, this server has **{have}**. {how}\n"
+                f"https://thunderstore.io/c/reskate/p/{owner}/{pkg}/")
+        if post(url, {"username": name, "content": text.strip(),
+                      "allowed_mentions": {"parse": [], "users": list(mentions)}}):
+            seen[key] = latest
+            with open(MODS_STATE, "w", encoding="utf-8") as f:
+                json.dump(seen, f)
+
+
+def mods_loop(url, name, mentions):
+    time.sleep(5)
+    try:
+        post_mod_events(url, name)
+    except Exception as e:
+        note(f"mod events: {e!r}")
+    time.sleep(85)
+    while True:
+        try:
+            check_mods(url, name, mentions)
+        except Exception as e:
+            note(f"mod update check: {e!r}")
+        time.sleep(CHECK_EVERY)
+
+
 def update_loop(url, name, mentions, running):
     time.sleep(60)
     while True:
@@ -199,6 +260,9 @@ def main():
     name = username()
     mentions = [i.strip() for i in os.environ.get("DISCORD_MENTION_IDS", "").split(",") if i.strip()]
     running = os.environ.get("RESKATE_IMAGE_VERSION", "")
+    if os.environ.get("MODS", "").strip():
+        import threading
+        threading.Thread(target=mods_loop, args=(url, name, mentions), daemon=True).start()
     if re.fullmatch(r"\d+(\.\d+)+", running):
         threading.Thread(target=update_loop, args=(url, name, mentions, running), daemon=True).start()
     else:

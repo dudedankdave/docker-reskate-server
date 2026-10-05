@@ -24,6 +24,7 @@ const (
 	logPath    = "/data/ReSkateServer.log"
 	statePath  = "/data/.discord-update-notified"
 	notesPath  = "/data/DiscordWebhook.log"
+	modsState  = "/data/.discord-mods-notified"
 	repo       = "Dingo-Shenanigans/ReSkate"
 	hub        = "dudedankdave/reskate-server"
 	checkEvery = 3 * time.Hour
@@ -296,6 +297,84 @@ func checkOnce(url, name string, mentions []string, running string) {
 	}
 }
 
+func postModEvents(url, name string) {
+	raw, err := os.ReadFile(modsEvents)
+	if err != nil {
+		return
+	}
+	_ = os.Remove(modsEvents)
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var e struct {
+			Owner, Name, From, To string
+			Maps                  []string
+		}
+		if json.Unmarshal([]byte(line), &e) != nil {
+			continue
+		}
+		label := e.Owner + "-" + e.Name
+		maps := ""
+		if len(e.Maps) > 0 {
+			maps = " Maps: " + strings.Join(e.Maps, ", ") + "."
+		}
+		text := fmt.Sprintf("**MOD INSTALLED**: %s **%s**.%s", label, e.To, maps)
+		if e.From != "" {
+			text = fmt.Sprintf("**MOD UPDATED**: %s %s to **%s**.%s", label, e.From, e.To, maps)
+		}
+		post(url, map[string]any{"username": name, "content": text,
+			"allowed_mentions": map[string]any{"parse": []string{}}})
+	}
+}
+
+func checkMods(url, name string, mentions []string) {
+	update := true
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MODS_UPDATE"))); v == "0" || v == "false" || v == "no" || v == "off" {
+		update = false
+	}
+	seen := map[string]string{}
+	if raw, err := os.ReadFile(modsState); err == nil {
+		_ = json.Unmarshal(raw, &seen)
+	}
+	var tags []string
+	for _, id := range mentions {
+		tags = append(tags, "<@"+id+">")
+	}
+	users := mentions
+	if users == nil {
+		users = []string{}
+	}
+	for _, u := range pendingModUpdates(os.Getenv("MODS")) {
+		key := u.owner + "-" + u.name
+		if seen[key] == u.latest {
+			continue
+		}
+		how := "Restart the server to install it. The restart kicks everyone and changes the join code."
+		if !update {
+			how = "`MODS_UPDATE` is false, so it will not be installed automatically."
+		}
+		text := fmt.Sprintf("%s **MOD UPDATE AVAILABLE**: %s **%s** is out, this server has **%s**. %s\nhttps://thunderstore.io/c/reskate/p/%s/%s/",
+			strings.Join(tags, " "), key, u.latest, u.have, how, u.owner, u.name)
+		if post(url, map[string]any{"username": name, "content": strings.TrimSpace(text),
+			"allowed_mentions": map[string]any{"parse": []string{}, "users": users}}) {
+			seen[key] = u.latest
+			raw, _ := json.Marshal(seen)
+			_ = os.WriteFile(modsState, raw, 0o644)
+		}
+	}
+}
+
+func modsLoop(url, name string, mentions []string) {
+	time.Sleep(5 * time.Second)
+	postModEvents(url, name)
+	time.Sleep(85 * time.Second)
+	for {
+		checkMods(url, name, mentions)
+		time.Sleep(checkEvery)
+	}
+}
+
 func updateLoop(url, name string, mentions []string, running string) {
 	time.Sleep(time.Minute)
 	for {
@@ -317,6 +396,9 @@ func notifierMain() {
 		}
 	}
 	running := os.Getenv("RESKATE_IMAGE_VERSION")
+	if strings.TrimSpace(os.Getenv("MODS")) != "" {
+		go modsLoop(url, name, mentions)
+	}
 	if versionRe.MatchString(running) {
 		go updateLoop(url, name, mentions, running)
 	} else {

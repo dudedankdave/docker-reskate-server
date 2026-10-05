@@ -27,7 +27,8 @@ const (
 	modsDir     = "/data/Mods"
 	modsTmp     = "/data/.mods-tmp" // same volume as Mods, so renames are atomic
 	modsMarker  = ".thunderstore.json"
-	maxUnpacked = 8 << 30 // refuse zips that unpack to more than 8 GiB
+	modsEvents  = "/data/.mods-events" // install/update events, posted to Discord by the notifier
+	maxUnpacked = 8 << 30              // refuse zips that unpack to more than 8 GiB
 )
 
 var (
@@ -127,6 +128,43 @@ func writeMarker(folder, owner, name, version string) {
 	_ = os.WriteFile(filepath.Join(folder, modsMarker), raw, 0o644)
 }
 
+// recordModEvent hands an install/update over to the Discord sidecar (only when a webhook is set).
+func recordModEvent(owner, name, old, version string, maps []string) {
+	if os.Getenv("DISCORD_WEBHOOK") == "" {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{"owner": owner, "name": name, "from": old, "to": version, "maps": maps})
+	f, err := os.OpenFile(modsEvents, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(append(raw, '\n'))
+}
+
+type modUpdate struct{ owner, name, latest, have string }
+
+// pendingModUpdates lists unpinned MODS entries whose installed version is older than the latest.
+func pendingModUpdates(spec string) []modUpdate {
+	var out []modUpdate
+	for _, token := range splitRe.Split(strings.TrimSpace(spec), -1) {
+		p := parseMod(token)
+		if token == "" || p == nil || p[3] != "" { // invalid or pinned: nothing to announce
+			continue
+		}
+		m, err := modMeta(p[1], p[2], "")
+		if err != nil {
+			mlog("%s: update check failed: %v", token, err)
+			continue
+		}
+		have := manifestVersion(filepath.Join(modsDir, p[2]))
+		if have != "" && newer(m.Version, have) {
+			out = append(out, modUpdate{p[1], p[2], m.Version, have})
+		}
+	}
+	return out
+}
+
 func unsafeName(n string) bool {
 	n = strings.ReplaceAll(n, "\\", "/")
 	if strings.HasPrefix(n, "/") {
@@ -202,7 +240,7 @@ func extract(archive, dest string) error {
 	return nil
 }
 
-func installMod(owner, name, version, url string) error {
+func installMod(owner, name, version, url, old string) error {
 	target := filepath.Join(modsDir, name)
 	work := filepath.Join(modsTmp, name)
 	_ = os.RemoveAll(modsTmp)
@@ -268,6 +306,7 @@ func installMod(owner, name, version, url string) error {
 		msg += ", maps: " + strings.Join(maps, ", ") + " (use as MAP)"
 	}
 	mlog("%s", msg)
+	recordModEvent(owner, name, old, version, maps)
 	return nil
 }
 
@@ -306,7 +345,7 @@ func ensureMod(owner, name, version string, update, dependency bool, seen map[st
 	case exists && have != "" && version == "" && !update:
 		mlog("%s: %s installed, newer %s available (MODS_UPDATE=false)", label, have, want)
 	default:
-		if err := installMod(owner, name, want, m.DownloadURL); err != nil {
+		if err := installMod(owner, name, want, m.DownloadURL, have); err != nil {
 			return err
 		}
 	}
