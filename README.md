@@ -139,6 +139,7 @@ MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
 - **Dependencies** listed in a package's `manifest.json` are installed too, at the version they ask for.
 - **Your own folders are safe:** a mod folder you copied in by hand is never overwritten, and is adopted without a download when its `manifest.json` already has the wanted version. Only folders the installer created are updated.
 - **Problems never stop the server:** if Thunderstore is unreachable or a package is invalid, it is logged as `[mods] ...` (see `docker logs`) and the server starts with what is installed.
+- **Update messages in Discord:** with `DISCORD_WEBHOOK` set, the server checks Thunderstore every 3 hours and posts **MOD UPDATE AVAILABLE** once per new version, mentioning `DISCORD_MENTION_IDS`. It does not install while running: restart the server to get the new version (needs `MODS_UPDATE` not `false`). What the installer did at start is posted as **MOD INSTALLED** / **MOD UPDATED**. Pinned entries (`Owner-Name-1.2.3`) are not checked.
 - **Refresh without a restart:** `docker exec reskate-server-1 /app/reskate mods` (slim image) or `docker exec reskate-server-1 python3 /app/mods.py` (default image). Restart the server afterwards so a changed map loads.
 - **Safety:** packages are downloaded over HTTPS from Thunderstore only. A zip with paths outside `/data/Mods`, links, or more than 8 GiB unpacked is refused. Still, only list packages you trust: players get the same files.
 
@@ -278,7 +279,7 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Discord:
 
 - **Console:** every line the server prints (joins, leaves, admin commands, throwdowns, ...) is posted as a code block, batched every few seconds. `docker attach` keeps working.
-- **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (checked every 3 hours), and again when the matching Docker Hub image is published. Only this message can mention anyone.
+- **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (checked every 3 hours), and again when the matching Docker Hub image is published. The same for [Thunderstore mods](#custom-maps-and-mods): **MOD UPDATE AVAILABLE** per new version, **MOD INSTALLED** / **MOD UPDATED** after a start. Only the update messages can mention anyone.
 
 <br/>
 
