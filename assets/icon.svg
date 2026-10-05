@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="ReSkate server">
+  <rect width="256" height="256" rx="48" fill="#0f172a"/>
+  <g fill="#1e293b" stroke="#334155" stroke-width="4">
+    <rect x="52" y="30" width="152" height="36" rx="10"/>
+    <rect x="52" y="72" width="152" height="36" rx="10"/>
+    <rect x="52" y="114" width="152" height="36" rx="10"/>
+  </g>
+  <g fill="#f97316">
+    <circle cx="76" cy="48" r="6"/>
+    <circle cx="76" cy="90" r="6"/>
+    <circle cx="76" cy="132" r="6"/>
+  </g>
+  <g fill="#475569">
+    <rect x="98" y="44" width="80" height="8" rx="4"/>
+    <rect x="98" y="86" width="80" height="8" rx="4"/>
+    <rect x="98" y="128" width="80" height="8" rx="4"/>
+  </g>
+  <g transform="rotate(-8 128 204)">
+    <rect x="30" y="184" width="196" height="22" rx="11" fill="#f97316"/>
+    <rect x="62" y="206" width="14" height="10" fill="#94a3b8"/>
+    <rect x="180" y="206" width="14" height="10" fill="#94a3b8"/>
+    <circle cx="69" cy="224" r="11" fill="#e2e8f0"/>
+    <circle cx="187" cy="224" r="11" fill="#e2e8f0"/>
+  </g>
+</svg>
