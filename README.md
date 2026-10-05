@@ -1,4 +1,4 @@
-<p align="center">
+<p align="left">
   <img src="https://raw.githubusercontent.com/dudedankdave/docker-reskate-server/main/assets/icon.png" width="128" height="128" alt="ReSkate server icon">
 </p>
 
