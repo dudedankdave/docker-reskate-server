@@ -58,107 +58,195 @@ Every restart gives the server a new Steam ID and **a new join code**, and disco
 
 Put settings in env files (`example.env` lists all of them with example values). Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one. Unset or empty variables leave the existing value alone. The Discord variables are in [Discord webhook](#discord-webhook).
 
+&nbsp;
+
 ### Per server
 
 - **`SERVER_NAME`** (text, 1-64 chars): Name in the server browser. Longer names cause a restart loop.
 
+&nbsp;
+
 - **`MAP`** (text): Map everyone skates: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`, or the `displayName` of a custom map mod (`reskate-levels.json`).
+
+&nbsp;
 
 - **`PORT`** (number): Game port. Never bound, players join via the Steam relay.
 
+&nbsp;
+
 - **`QUERY_PORT`** (number): Server browser / A2S queries.
+
+&nbsp;
 
 ### Access
 
 - **`SERVER_PASSWORD`** (text, `off`): Join password. Empty = anyone can join; `off` clears an existing password.
 
+&nbsp;
+
 - **`LISTED`** (`true` / `false`): `false` hides the server from the browser; players then need the join code.
+
+&nbsp;
 
 - **`MAX_PLAYERS`** (1-249): Player limit.
 
+&nbsp;
+
 - **`ADMINS`** (SteamID64 list): Comma-separated admins who may change settings in-game. Merged with the admins already in the config.
+
+&nbsp;
 
 - **`BANS`** (`id[:name]` list): Comma-separated players who can never join. Merged with existing bans.
 
+&nbsp;
+
 - **`WELCOME_MESSAGE`** (text, `off`): Chat line sent to each player as they join. `off` clears it.
+
+&nbsp;
 
 ### Gameplay
 
 - **`TPS`** (`20` `30` `60` `120`): Network updates per second.
 
+&nbsp;
+
 - **`OBJECT_PLACEMENT`** (`everyone` `admins` `nobody`): Who can build and place objects.
+
+&nbsp;
 
 - **`NOCLIP`** (`true` / `false`): Let players use noclip (and tp). Default `true`, admins always can.
 
+&nbsp;
+
 - **`NO_BAIL`** (`true` / `false`): Let players use No Bail. Default `true`, admins always can.
+
+&nbsp;
 
 - **`BOOSTS`** (`true` / `false`): Let players use the forward and up boosts. Default `true`, admins always can.
 
+&nbsp;
+
 - **`ENFORCE_TUNING`** (`true` / `false`): Players skate with the game's own physics tuning, not edited copies. Default `true`.
+
+&nbsp;
 
 - **`PARTIES`** (`true` / `false`): Let players form parties. Default `true`.
 
+&nbsp;
+
 - **`PARTY_SIZE`** (2-8): Most players in one party. Default `8`.
+
+&nbsp;
 
 - **`ANNOUNCE_THROWDOWNS`** (`true` / `false`): Tell everyone in chat when a throwdown drop is placed. Default `true`.
 
+&nbsp;
+
 - **`ACTIVITY_LOG`** (`true` / `false`): Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`.
+
+&nbsp;
 
 ### Anti-cheat
 
 - **`SPEED_CHECK`** (`off` `warn` `kick`): Catch players whose game runs faster than normal (speedhack). `warn` (default) takes them out of throwdowns and coop challenges and tells admins.
 
+&nbsp;
+
 - **`SCORE_CHECK`** (`off` `warn` `kick`): Catch players whose mods change trick scoring or skater handling. `warn` (default) takes them out of throwdowns and coop challenges.
 
+&nbsp;
+
 - **`SCORE_ALLOW`** (hex list): Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list.
+
+&nbsp;
 
 ### Voice
 
 - **`VOICE_CHAT`** (`true` / `false`): Allow voice chat.
 
+&nbsp;
+
 - **`VOICE_RANGE`** (50-1000): How far proximity voice reaches, in metres.
+
+&nbsp;
 
 - **`DISTANCE_FULL_RATE_RETURN`** (metres): Voice update distance: players closer than this are back at the full update rate.
 
+&nbsp;
+
 - **`DISTANCE_HALF_RATE_START`** (metres): Voice update distance: players farther than this update at half rate.
+
+&nbsp;
 
 - **`DISTANCE_HALF_RATE_RETURN`** (metres): Voice update distance: players closer than this are back at half rate.
 
+&nbsp;
+
 - **`DISTANCE_LOW_RATE_START`** (metres): Voice update distance: players farther than this update at the low rate.
+
+&nbsp;
 
 ### Voting
 
 - **`VOTE_MAP_ENABLED`** (`true` / `false`): Players can vote for a map change (`/vote map <map>`). Off until turned on.
 
+&nbsp;
+
 - **`VOTE_MAP_PERCENT`** (number): Share of connected players whose yes passes a map vote.
+
+&nbsp;
 
 - **`VOTE_KICK_ENABLED`** (`true` / `false`): Players can vote to kick someone (`/vote kick <player>`). Admins cannot be vote-kicked.
 
+&nbsp;
+
 - **`VOTE_KICK_PERCENT`** (number): Share of connected players whose yes passes a kick vote.
+
+&nbsp;
 
 - **`VOTE_TIME_OF_DAY_ENABLED`** (`true` / `false`): Players can vote on the time of day (`/vote tod <time>`). Needs `WORLD_LAYER_SYNC`.
 
+&nbsp;
+
 - **`VOTE_TIME_OF_DAY_PERCENT`** (number): Share of connected players whose yes passes a time-of-day vote.
+
+&nbsp;
 
 - **`VOTE_SECONDS`** (seconds): How long a vote runs. Default `30`.
 
+&nbsp;
+
 - **`VOTE_COOLDOWN_SECONDS`** (seconds): How long a player waits before starting another vote. Default `60`.
+
+&nbsp;
 
 ### Parks and layers
 
 - **`PARK_CONSTRUCTION`** (park id): Layout of the construction park lot, e.g. `skatepark_01`, or `empty`.
 
+&nbsp;
+
 - **`PARK_HISTORIC`** (park id): Layout of the historic park lot, e.g. `megapark_05`, or `empty`.
+
+&nbsp;
 
 - **`PARK_FINANCIAL`** (park id): Layout of the financial park lot, e.g. `flumppark_08`, or `empty`.
 
+&nbsp;
+
 - **`WORLD_LAYER_SYNC`** (`true` / `false`): Force the `LAYERS` below on every player.
 
+&nbsp;
+
 - **`LAYERS`** (`key=on|off|default` list): World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting.
+
+&nbsp;
 
 ### Updates
 
 - **`AUTO_UPDATE`** (`true` / `false`): Only sets a key in `ReSkateServer.json`. The server cannot update itself on Linux, see [Keeping up to date](#keeping-up-to-date).
+
+&nbsp;
 
 ### Data
 
@@ -178,12 +266,29 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 - **Console:** every line the server prints (joins, leaves, admin commands, throwdowns, ...) is posted as a code block, batched every few seconds. `docker attach` keeps working.
 - **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (checked every 3 hours), and again when the matching Docker Hub image is published. Only this message can mention anyone.
 
-| Variable | Meaning |
-|---|---|
-| `DISCORD_WEBHOOK` | Webhook URL (Discord: channel settings, Integrations, Webhooks). Unset = off. |
-| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids to mention in the update message, e.g. `123456789012345678,234567890123456789`. |
-| `DISCORD_CONSOLE` | `false` = only update messages, no console output (default `true`). |
-| `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
+&nbsp;
+
+**Variables**
+
+&nbsp;
+
+- **`DISCORD_WEBHOOK`**: Webhook URL (Discord: channel settings, Integrations, Webhooks). Unset = off.
+
+&nbsp;
+
+- **`DISCORD_MENTION_IDS`**: Comma-separated Discord user ids to mention in the update message, e.g. `123456789012345678,234567890123456789`.
+
+&nbsp;
+
+- **`DISCORD_CONSOLE`**: `false` = only update messages, no console output (default `true`).
+
+&nbsp;
+
+- **`DISCORD_USERNAME`**: Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names.
+
+&nbsp;
+
+**Notes**
 
 - Player names and chat can never ping anyone: console posts disable all mentions.
 - Each server sends its own update message. If several servers share one webhook, set `DISCORD_MENTION_IDS` on one of them only.
