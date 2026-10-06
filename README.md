@@ -139,8 +139,8 @@ MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
 - **Dependencies** listed in a package's `manifest.json` are installed too, at the version they ask for.
 - **Your own folders are safe:** a mod folder you copied in by hand is never overwritten, and is adopted without a download when its `manifest.json` already has the wanted version. Only folders the installer created are updated.
 - **Problems never stop the server:** if Thunderstore is unreachable or a package is invalid, it is logged as `[mods] ...` (see `docker logs`) and the server starts with what is installed.
-- **Map renames:** an update of an unpinned map can rename the map (`Skate2Map` 1.0.5 became `New San Vanelona`). The server then refuses to start. Before that, the log prints `[maps] WARNING: MAP "..." is not a built-in map and no installed mod provides it` with the names that are installed, so you know what to put in `MAP` (the same check covers every `MAP_POOL` entry). Pin the version (`Owner-Name-1.2.3`) if a map must never change.
-- **Update messages in Discord:** with `DISCORD_WEBHOOK` set, the server checks Thunderstore every hour and posts **MOD UPDATE AVAILABLE** once per new version, mentioning `DISCORD_MENTION_IDS`. It does not install while running: restart the server to get the new version (needs `MODS_UPDATE` not `false`). What the installer did at start is posted as **MOD INSTALLED** / **MOD UPDATED**. Pinned entries (`Owner-Name-1.2.3`) are not checked.
+- **Map renames:** an update can rename a map (`Skate2Map` 1.0.5 became `New San Vanelona`), and the server then refuses to start. The log prints a `[maps] WARNING` with the installed map names to put in `MAP` (every `MAP_POOL` entry is checked too). Pin the version (`Owner-Name-1.2.3`) if a map must never change.
+- **Update messages in Discord:** the admin feed announces new versions of unpinned mods once per version (checked hourly) and what the installer did at start, see [Discord webhook](#discord-webhook). Nothing is installed while the server runs: restart it to get the new version (unless `MODS_UPDATE=false`). Pinned entries are not checked.
 - **Refresh without a restart:** `docker exec reskate-server-1 /app/reskate mods` (slim image) or `docker exec reskate-server-1 python3 /app/mods.py` (default image). Restart the server afterwards so a changed map loads.
 - **Safety:** packages are downloaded over HTTPS from Thunderstore only. A zip with paths outside `/data/Mods`, links, or more than 8 GiB unpacked is refused. Still, only list packages you trust: players get the same files.
 
@@ -285,8 +285,6 @@ Two webhooks per server, so admins and players can have their own channels. Eith
 
 - **Admin feed** (`DISCORD_WEBHOOK_ADMIN`): everything the server prints, as code blocks batched every few seconds: joins with Steam IDs, leaves with reasons, `[admin]` commands, `[chat]`, `[objects]`, `[join]` problems, throwdowns, config problems and the start-up lines including the **join code**. `docker attach` keeps working. It also gets the **update messages**: **UPDATE AVAILABLE** once per new ReSkate release (checked every 3 hours, and again when the matching Docker Hub image is published), and for [Thunderstore mods](#custom-maps-and-mods) **MOD UPDATE AVAILABLE** per new version (checked every hour) plus **MOD INSTALLED** / **MOD UPDATED** after a start. Only the update messages can mention anyone.
 - **User feed** (`DISCORD_WEBHOOK_USER`): only what players should see, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdown lines and the "is up on" line. No Steam IDs, no leave reasons, no chat, no admin commands, no join code.
-
-`DISCORD_WEBHOOK` is the older name of `DISCORD_WEBHOOK_ADMIN` and keeps working.
 
 <br/>
 
