@@ -3,7 +3,7 @@
 # Slim (distroless) build of the ReSkate dedicated server: no shell, no package manager, no Python,
 # no curl. Build context must be the directory holding ./Server (the proprietary files) and
 # ./slim, e.g.:
-#   docker build -f slim/Dockerfile --build-arg VERSION=1.1.2 -t dudedankdave/reskate-server:1.1.2 .
+#   docker build -f slim/Dockerfile --build-arg VERSION=1.1.3 -t dudedankdave/reskate-server:1.1.3 .
 
 # ---- the one static Go binary (entrypoint, Discord sidecar, healthcheck, curl stand-in) ----
 FROM golang:1.24-alpine AS gobuild

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -78,6 +79,49 @@ func nonNegative(name, v string) any {
 	}
 	return n
 }
+
+// ReSkate 1.1.3+ only accepts 1-64 ASCII letters, digits, spaces and - _ [ ] ( ) as a name and
+// refuses to start otherwise. Clean a name it would reject (and say so) instead of crash-looping.
+var (
+	nameOK    = regexp.MustCompile(`^[A-Za-z0-9 _\[\]()-]{1,64}$`)
+	nameDrop  = regexp.MustCompile(`['\x{2019}.#%]`)
+	nameBad   = regexp.MustCompile(`[^A-Za-z0-9 _\[\]()-]`)
+	nameDash  = regexp.MustCompile(`\s*-(?:\s*-)+\s*`)
+	nameSpace = regexp.MustCompile(`\s+`)
+	accents   = strings.NewReplacer(
+		"ä", "a", "ö", "o", "ü", "u", "Ä", "A", "Ö", "O", "Ü", "U", "ß", "ss",
+		"é", "e", "è", "e", "ê", "e", "ë", "e", "É", "E", "È", "E", "Ê", "E", "Ë", "E",
+		"á", "a", "à", "a", "â", "a", "ã", "a", "å", "a", "Á", "A", "À", "A", "Â", "A", "Ã", "A", "Å", "A",
+		"í", "i", "ì", "i", "î", "i", "ï", "i", "Í", "I", "Ì", "I", "Î", "I", "Ï", "I",
+		"ó", "o", "ò", "o", "ô", "o", "õ", "o", "ø", "o", "Ó", "O", "Ò", "O", "Ô", "O", "Õ", "O", "Ø", "O",
+		"ú", "u", "ù", "u", "û", "u", "Ú", "U", "Ù", "U", "Û", "U", "ý", "y", "ÿ", "y", "Ý", "Y",
+		"ç", "c", "Ç", "C", "ñ", "n", "Ñ", "N", "æ", "ae", "Æ", "AE", "œ", "oe", "Œ", "OE")
+)
+
+func cleanName(v string) string {
+	s := accents.Replace(v)
+	s = nameDrop.ReplaceAllString(s, "")
+	s = nameBad.ReplaceAllString(s, "-")
+	s = nameDash.ReplaceAllString(s, " - ")
+	s = strings.Trim(nameSpace.ReplaceAllString(s, " "), " -")
+	if len(s) > 64 {
+		s = strings.TrimRight(s[:64], " -")
+	}
+	if s == "" {
+		s = "ReSkate server"
+	}
+	return s
+}
+
+func serverName(name, v string) any {
+	if nameOK.MatchString(v) {
+		return v
+	}
+	clean := cleanName(v)
+	fmt.Printf("[config] %s %q is not accepted by ReSkate 1.1.3+ (1-64 letters, numbers, spaces and - _ [ ] ( ) only), using %q instead\n", name, v, clean)
+	return clean
+}
+
 func boolConv(name, v string) any { return asBool(name, v) }
 func intConv(name, v string) any  { return asInt(name, v) }
 
@@ -127,7 +171,7 @@ func entrypointMain(serverArgs []string) {
 		env, key string
 		c        conv
 	}{
-		{"SERVER_NAME", "name", text},
+		{"SERVER_NAME", "name", serverName},
 		{"MAP", "map", text},
 		{"MAP_ROTATION_MINUTES", "map_rotation_minutes", nonNegative},
 		{"MAX_PLAYERS", "max_players", intConv},
