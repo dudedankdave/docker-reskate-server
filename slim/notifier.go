@@ -142,6 +142,77 @@ type tailState struct {
 	pos int64
 }
 
+var (
+	joinedRe = regexp.MustCompile(`^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$`)
+	leftRe   = regexp.MustCompile(`^(.+) left \(.*\)$`)
+	upRe     = regexp.MustCompile(`^.+ is up on .+ for \d+ players\.$`)
+	taggedRe = regexp.MustCompile(`^\[(?:chat|admin|join|objects)\] `)
+	lineRe   = regexp.MustCompile(`^\[(\d\d:\d\d:\d\d)\] (.*)$`)
+)
+
+// userLine is the player-facing version of a cleaned console line, or "" when it is admin-only:
+// joins and leaves (no Steam IDs, no leave reasons), throwdowns and the server-up line.
+func userLine(line string) string {
+	m := lineRe.FindStringSubmatch(line)
+	if m == nil {
+		return ""
+	}
+	stamp, text := m[1], m[2]
+	if taggedRe.MatchString(text) {
+		return ""
+	}
+	if strings.HasPrefix(text, "[throwdown] ") || upRe.MatchString(text) {
+		return line
+	}
+	if j := joinedRe.FindStringSubmatch(text); j != nil {
+		return fmt.Sprintf("[%s] %s joined, %s players", stamp, j[1], j[2])
+	}
+	if l := leftRe.FindStringSubmatch(text); l != nil {
+		return fmt.Sprintf("[%s] %s left", stamp, l[1])
+	}
+	return ""
+}
+
+// feed batches console lines for one webhook; convert filters/rewrites them (nil = every line).
+type feed struct {
+	url, name string
+	convert   func(string) string
+	pending   []string
+	first     time.Time
+}
+
+func (f *feed) add(lines []string) {
+	if f.convert != nil {
+		var out []string
+		for _, l := range lines {
+			if c := f.convert(l); c != "" {
+				out = append(out, c)
+			}
+		}
+		lines = out
+	}
+	if len(lines) > 0 && len(f.pending) == 0 {
+		f.first = time.Now()
+	}
+	f.pending = append(f.pending, lines...)
+	if len(f.pending) > maxPending {
+		skipped := len(f.pending) - maxPending
+		f.pending = append([]string{fmt.Sprintf("... %d lines skipped", skipped)}, f.pending[skipped:]...)
+	}
+}
+
+func (f *feed) flushIfDue() {
+	total := 0
+	for _, l := range f.pending {
+		total += len(l)
+	}
+	if len(f.pending) > 0 && (time.Since(f.first) >= flushAfter || total > 1700) {
+		batch := f.pending
+		f.pending = nil
+		sendConsole(f.url, f.name, batch)
+	}
+}
+
 func readNew(s *tailState) []string {
 	st, err := os.Stat(logPath)
 	if err != nil {
@@ -176,32 +247,16 @@ func readNew(s *tailState) []string {
 	return out
 }
 
-func consoleLoop(url, name string) {
+func consoleLoop(feeds []*feed) {
 	s := &tailState{}
 	if st, err := os.Stat(logPath); err == nil { // only what the server writes from now on
 		s.ino, s.pos = st.Sys().(*syscall.Stat_t).Ino, st.Size()
 	}
-	var pending []string
-	var first time.Time
 	for {
-		if nw := readNew(s); len(nw) > 0 {
-			if len(pending) == 0 {
-				first = time.Now()
-			}
-			pending = append(pending, nw...)
-		}
-		if len(pending) > maxPending {
-			skipped := len(pending) - maxPending
-			pending = append([]string{fmt.Sprintf("... %d lines skipped", skipped)}, pending[skipped:]...)
-		}
-		total := 0
-		for _, l := range pending {
-			total += len(l)
-		}
-		if len(pending) > 0 && (time.Since(first) >= flushAfter || total > 1700) {
-			batch := pending
-			pending = nil
-			sendConsole(url, name, batch)
+		nw := readNew(s)
+		for _, f := range feeds {
+			f.add(nw)
+			f.flushIfDue()
 		}
 		time.Sleep(time.Second)
 	}
@@ -385,8 +440,14 @@ func updateLoop(url, name string, mentions []string, running string) {
 }
 
 func notifierMain() {
-	url := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
-	if url == "" {
+	// DISCORD_WEBHOOK_ADMIN (DISCORD_WEBHOOK is its older name): everything, plus the update messages.
+	// DISCORD_WEBHOOK_USER: the player-facing lines only.
+	admin := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_ADMIN"))
+	if admin == "" {
+		admin = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
+	}
+	user := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_USER"))
+	if admin == "" && user == "" {
 		return
 	}
 	name := username()
@@ -397,18 +458,26 @@ func notifierMain() {
 		}
 	}
 	running := os.Getenv("RESKATE_IMAGE_VERSION")
-	if strings.TrimSpace(os.Getenv("MODS")) != "" {
-		go modsLoop(url, name, mentions)
+	var feeds []*feed
+	if admin != "" {
+		if strings.TrimSpace(os.Getenv("MODS")) != "" {
+			go modsLoop(admin, name, mentions)
+		}
+		if versionRe.MatchString(running) {
+			go updateLoop(admin, name, mentions, running)
+		} else {
+			note("update check off: image version %q is not a release number", running)
+		}
+		switch strings.ToLower(strings.TrimSpace(os.Getenv("DISCORD_CONSOLE"))) {
+		case "", "1", "true", "yes", "on":
+			feeds = append(feeds, &feed{url: admin, name: name})
+		}
 	}
-	if versionRe.MatchString(running) {
-		go updateLoop(url, name, mentions, running)
-	} else {
-		note("update check off: image version %q is not a release number", running)
+	if user != "" {
+		feeds = append(feeds, &feed{url: user, name: name, convert: userLine})
 	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("DISCORD_CONSOLE"))) {
-	case "", "1", "true", "yes", "on":
-		consoleLoop(url, name)
-	default:
-		select {}
+	if len(feeds) > 0 {
+		consoleLoop(feeds)
 	}
+	select {}
 }

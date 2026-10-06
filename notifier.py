@@ -99,6 +99,55 @@ def clean(line):
     return line.replace("```", "'''")[:500]
 
 
+JOINED = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$")
+LEFT = re.compile(r"^(.+) left \(.*\)$")
+UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
+TAGGED = re.compile(r"^\[(?:chat|admin|join|objects)\] ")
+LINE = re.compile(r"^\[(\d\d:\d\d:\d\d)\] (.*)$")
+
+
+def user_line(line):
+    """The player-facing version of a cleaned console line, or None when it is admin-only:
+    joins and leaves (no Steam IDs, no leave reasons), throwdowns and the server-up line."""
+    m = LINE.match(line)
+    if not m:
+        return None
+    stamp, text = m.groups()
+    if TAGGED.match(text):
+        return None
+    if text.startswith("[throwdown] ") or UP.match(text):
+        return line
+    j = JOINED.match(text)
+    if j:
+        return f"[{stamp}] {j.group(1)} joined, {j.group(2)} players"
+    left = LEFT.match(text)
+    if left:
+        return f"[{stamp}] {left.group(1)} left"
+    return None
+
+
+class Feed:
+    """Batches console lines for one webhook; `convert` filters/rewrites them (None = every line)."""
+
+    def __init__(self, url, name, convert=None):
+        self.url, self.name, self.convert = url, name, convert
+        self.pending, self.first = [], 0.0
+
+    def add(self, lines):
+        if self.convert:
+            lines = [x for x in map(self.convert, lines) if x]
+        if lines and not self.pending:
+            self.first = time.time()
+        self.pending += lines
+        if len(self.pending) > MAX_PENDING:
+            self.pending = [f"... {len(self.pending) - MAX_PENDING} lines skipped"] + self.pending[-MAX_PENDING:]
+
+    def flush_if_due(self):
+        if self.pending and (time.time() - self.first >= FLUSH_AFTER or sum(map(len, self.pending)) > 1700):
+            batch, self.pending = self.pending, []
+            send_console(self.url, self.name, batch)
+
+
 def read_new(state):
     try:
         st = os.stat(LOG)
@@ -118,26 +167,24 @@ def read_new(state):
     return [clean(line) for line in data[:end].decode("utf-8", "replace").splitlines() if line.strip()]
 
 
-def console_loop(url, name):
+def console_loop(feeds):
     try:
         st = os.stat(LOG)
         state = {"ino": st.st_ino, "pos": st.st_size}   # only what the server writes from now on
     except FileNotFoundError:
         state = {"ino": None, "pos": 0}
-    pending, first = [], 0.0
     while True:
         try:
             new = read_new(state)
-            if new and not pending:
-                first = time.time()
-            pending += new
-            if len(pending) > MAX_PENDING:
-                pending = [f"... {len(pending) - MAX_PENDING} lines skipped"] + pending[-MAX_PENDING:]
-            if pending and (time.time() - first >= FLUSH_AFTER or sum(map(len, pending)) > 1700):
-                batch, pending = pending, []
-                send_console(url, name, batch)
         except Exception as e:  # never let the sidecar die
             note(f"console loop: {e!r}")
+            new = []
+        for feed in feeds:
+            try:
+                feed.add(new)
+                feed.flush_if_due()
+            except Exception as e:
+                note(f"console feed: {e!r}")
         time.sleep(1)
 
 
@@ -257,19 +304,27 @@ def update_loop(url, name, mentions, running):
 
 def main():
     import threading
-    url = os.environ["DISCORD_WEBHOOK"].strip()
+    # DISCORD_WEBHOOK_ADMIN (DISCORD_WEBHOOK is its older name): everything, plus the update messages.
+    # DISCORD_WEBHOOK_USER: the player-facing lines only.
+    admin = (os.environ.get("DISCORD_WEBHOOK_ADMIN") or os.environ.get("DISCORD_WEBHOOK") or "").strip()
+    user = os.environ.get("DISCORD_WEBHOOK_USER", "").strip()
     name = username()
     mentions = [i.strip() for i in os.environ.get("DISCORD_MENTION_IDS", "").split(",") if i.strip()]
     running = os.environ.get("RESKATE_IMAGE_VERSION", "")
-    if os.environ.get("MODS", "").strip():
-        import threading
-        threading.Thread(target=mods_loop, args=(url, name, mentions), daemon=True).start()
-    if re.fullmatch(r"\d+(\.\d+)+", running):
-        threading.Thread(target=update_loop, args=(url, name, mentions, running), daemon=True).start()
-    else:
-        note(f"update check off: image version {running!r} is not a release number")
-    if os.environ.get("DISCORD_CONSOLE", "true").strip().lower() in ("1", "true", "yes", "on"):
-        console_loop(url, name)
+    feeds = []
+    if admin:
+        if os.environ.get("MODS", "").strip():
+            threading.Thread(target=mods_loop, args=(admin, name, mentions), daemon=True).start()
+        if re.fullmatch(r"\d+(\.\d+)+", running):
+            threading.Thread(target=update_loop, args=(admin, name, mentions, running), daemon=True).start()
+        else:
+            note(f"update check off: image version {running!r} is not a release number")
+        if os.environ.get("DISCORD_CONSOLE", "true").strip().lower() in ("1", "true", "yes", "on"):
+            feeds.append(Feed(admin, name))
+    if user:
+        feeds.append(Feed(user, name, user_line))
+    if feeds:
+        console_loop(feeds)
     else:
         while True:
             time.sleep(3600)

@@ -135,7 +135,7 @@ MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
 
 - **Formats:** `Owner-Name` (latest version, kept up to date), `Owner-Name-1.2.3` (pinned), or a package page URL such as `https://thunderstore.io/c/reskate/p/Owner/Name/`. Separate entries with commas, spaces or new lines.
 - **Map name:** the log prints the maps of each installed package, e.g. `[mods] brassy-Skate2Map 1.0.0: installed, maps: Skate2Map (use as MAP)`. Put that name into `MAP`.
-- **Nothing is downloaded when the installed version is current.** Maps are large (`Skate2Map` is 908 MB), so the first start can take minutes, and `docker ps` may show `unhealthy` until the server is up. Later starts only ask Thunderstore for the latest version number.
+- **Nothing is downloaded when the installed version is current.** Maps are large (`Skate2Map` is 908 MB), so the first start can take minutes, and `docker ps` may show `unhealthy` until the server is up. Later starts only ask Thunderstore for the latest version number. Updates only go forward: an unpinned package is never replaced by an older version, even if Thunderstore's "latest" lags a few minutes behind a fresh release.
 - **Dependencies** listed in a package's `manifest.json` are installed too, at the version they ask for.
 - **Your own folders are safe:** a mod folder you copied in by hand is never overwritten, and is adopted without a download when its `manifest.json` already has the wanted version. Only folders the installer created are updated.
 - **Problems never stop the server:** if Thunderstore is unreachable or a package is invalid, it is logged as `[mods] ...` (see `docker logs`) and the server starts with what is installed.
@@ -281,27 +281,30 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 
 ## Discord webhook
 
-Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Discord:
+Two webhooks per server, so admins and players can have their own channels. Either one works alone.
 
-- **Console:** every line the server prints (joins, leaves, admin commands, throwdowns, ...) is posted as a code block, batched every few seconds. `docker attach` keeps working.
-- **Updates:** when a new ReSkate release is out, the server posts **UPDATE AVAILABLE** once per release (checked every 3 hours), and again when the matching Docker Hub image is published. The same for [Thunderstore mods](#custom-maps-and-mods), checked every hour: **MOD UPDATE AVAILABLE** per new version, **MOD INSTALLED** / **MOD UPDATED** after a start. Only the update messages can mention anyone.
+- **Admin feed** (`DISCORD_WEBHOOK_ADMIN`): everything the server prints, as code blocks batched every few seconds: joins with Steam IDs, leaves with reasons, `[admin]` commands, `[chat]`, `[objects]`, `[join]` problems, throwdowns, config problems and the start-up lines including the **join code**. `docker attach` keeps working. It also gets the **update messages**: **UPDATE AVAILABLE** once per new ReSkate release (checked every 3 hours, and again when the matching Docker Hub image is published), and for [Thunderstore mods](#custom-maps-and-mods) **MOD UPDATE AVAILABLE** per new version (checked every hour) plus **MOD INSTALLED** / **MOD UPDATED** after a start. Only the update messages can mention anyone.
+- **User feed** (`DISCORD_WEBHOOK_USER`): only what players should see, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdown lines and the "is up on" line. No Steam IDs, no leave reasons, no chat, no admin commands, no join code.
+
+`DISCORD_WEBHOOK` is the older name of `DISCORD_WEBHOOK_ADMIN` and keeps working.
 
 <br/>
 
 | Variable | Meaning |
 |---|---|
-| `DISCORD_WEBHOOK` | Webhook URL (Discord: channel settings, Integrations, Webhooks). Unset = off. |
-| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids to mention in the update message, e.g. `123456789012345678,234567890123456789`. |
-| `DISCORD_CONSOLE` | `false` = only update messages, no console output (default `true`). |
+| `DISCORD_WEBHOOK_ADMIN` | Webhook URL for the admin feed (Discord: channel settings, Integrations, Webhooks). Unset = no admin feed and no update messages. Older name: `DISCORD_WEBHOOK`. |
+| `DISCORD_WEBHOOK_USER` | Webhook URL for the user feed. Unset = no user feed. |
+| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids to mention in the update messages of the admin feed, e.g. `123456789012345678,234567890123456789`. |
+| `DISCORD_CONSOLE` | `false` = no console lines in the admin feed, only the update messages (default `true`). The user feed is not affected. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
 <br/>
 
-- Player names and chat can never ping anyone: console posts disable all mentions.
-- Each server sends its own update message. If several servers share one webhook, set `DISCORD_MENTION_IDS` on one of them only.
-- The console includes the **join code**. Use a channel only people you trust can read.
+- Player names and chat can never ping anyone: all console posts disable mentions.
+- Each server sends its own update messages. If several servers share one admin webhook, set `DISCORD_MENTION_IDS` on one of them only.
+- The admin feed contains the **join code**, Steam IDs and chat. Use a channel only people you trust can read. The user feed is safe for a public channel.
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
-- The last announced version is kept in `/data/.discord-update-notified`.
+- The last announced versions are kept in `/data/.discord-update-notified` and `/data/.discord-mods-notified`.
 
 <br/>
 

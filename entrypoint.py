@@ -6,7 +6,7 @@ so changes made in-game/console survive restarts unless the env var pins them.
 ADMINS / BANS / SCORE_ALLOW are merged with what the file already holds.
 
 MODS / MODS_UPDATE install Thunderstore mods before the server starts, see mods.py.
-DISCORD_WEBHOOK (+ DISCORD_MENTION_IDS, DISCORD_CONSOLE, DISCORD_USERNAME) are not server
+DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK (older name) / DISCORD_WEBHOOK_USER (+ DISCORD_MENTION_IDS, DISCORD_CONSOLE, DISCORD_USERNAME) are not server
 settings: they start notifier.py, see there.
 """
 import json
@@ -249,9 +249,12 @@ warn_unknown_maps(cfg)
 
 # Discord sidecar (console forwarding + update announcements). It is forked off before the
 # server is exec'd, so the server keeps the console for `docker attach`.
-if (hook := env("DISCORD_WEBHOOK")) is not None:
-    if not hook.startswith(("https://", "http://")):
-        sys.exit("DISCORD_WEBHOOK: expected a webhook URL starting with https://")
+hooks = [(v, env(v)) for v in ("DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER")]
+hooks = [(v, h) for v, h in hooks if h is not None]
+if hooks:
+    for var, hook in hooks:
+        if not hook.startswith(("https://", "http://")):
+            sys.exit(f"{var}: expected a webhook URL starting with https://")
     for var in ("DISCORD_MENTION_IDS",):
         for item in as_list(env(var) or ""):
             if not item.isdigit():

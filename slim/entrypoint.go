@@ -413,9 +413,17 @@ func entrypointMain(serverArgs []string) {
 
 	// Discord sidecar (console forwarding + update announcements): a child process that
 	// outlives the exec below, so the server keeps the console for `docker attach`.
-	if hook, ok := env("DISCORD_WEBHOOK"); ok {
-		if !strings.HasPrefix(hook, "https://") && !strings.HasPrefix(hook, "http://") {
-			die("DISCORD_WEBHOOK: expected a webhook URL starting with https://")
+	var hooks [][2]string
+	for _, v := range []string{"DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER"} {
+		if h, ok := env(v); ok {
+			hooks = append(hooks, [2]string{v, h})
+		}
+	}
+	if len(hooks) > 0 {
+		for _, h := range hooks {
+			if !strings.HasPrefix(h[1], "https://") && !strings.HasPrefix(h[1], "http://") {
+				die("%s: expected a webhook URL starting with https://", h[0])
+			}
 		}
 		if v, ok := env("DISCORD_MENTION_IDS"); ok {
 			for _, item := range asList(v) {

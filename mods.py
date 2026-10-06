@@ -34,7 +34,7 @@ def rmtree(path):
 
 def record_event(owner, name, old, new, maps):
     """Hand an install/update over to the Discord sidecar (only when a webhook is set)."""
-    if not os.environ.get("DISCORD_WEBHOOK"):
+    if not (os.environ.get("DISCORD_WEBHOOK_ADMIN") or os.environ.get("DISCORD_WEBHOOK")):
         return
     try:
         with open(EVENTS, "a", encoding="utf-8") as f:
@@ -162,6 +162,8 @@ def ensure(owner, name, version, update, dependency=False, seen=None):
         log(f"{label}: {MODS_DIR}/{name} ({have}) was not installed by MODS, leaving it alone")
     elif have is not None and dependency:
         log(f"{label}: needs {want}, {have} is installed, leaving it")
+    elif have is not None and version is None and version_key(want) < version_key(have):
+        log(f"{label}: {have} installed, Thunderstore reports older {want} (stale?), leaving it")
     elif have is not None and version is None and not update:
         log(f"{label}: {have} installed, newer {want} available (MODS_UPDATE=false)")
     else:

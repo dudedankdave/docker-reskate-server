@@ -130,7 +130,7 @@ func writeMarker(folder, owner, name, version string) {
 
 // recordModEvent hands an install/update over to the Discord sidecar (only when a webhook is set).
 func recordModEvent(owner, name, old, version string, maps []string) {
-	if os.Getenv("DISCORD_WEBHOOK") == "" {
+	if os.Getenv("DISCORD_WEBHOOK") == "" && os.Getenv("DISCORD_WEBHOOK_ADMIN") == "" {
 		return
 	}
 	raw, _ := json.Marshal(map[string]any{"owner": owner, "name": name, "from": old, "to": version, "maps": maps})
@@ -342,6 +342,8 @@ func ensureMod(owner, name, version string, update, dependency bool, seen map[st
 		mlog("%s: %s/%s (%s) was not installed by MODS, leaving it alone", label, modsDir, name, have)
 	case exists && have != "" && dependency:
 		mlog("%s: needs %s, %s is installed, leaving it", label, want, have)
+	case exists && have != "" && version == "" && newer(have, want):
+		mlog("%s: %s installed, Thunderstore reports older %s (stale?), leaving it", label, have, want)
 	case exists && have != "" && version == "" && !update:
 		mlog("%s: %s installed, newer %s available (MODS_UPDATE=false)", label, have, want)
 	default:
