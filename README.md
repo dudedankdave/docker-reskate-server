@@ -54,11 +54,11 @@ volumes:
 | Console | `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q) |
 | Status | `docker ps` (`healthy` once the log reports `... is up on <map>`) |
 | Update | `docker compose pull && docker compose up -d` |
-| Pin a version | `RESKATE_VERSION=1.1.1 docker compose up -d` (default `latest`) |
+| Pin a version | `RESKATE_VERSION=1.1.2 docker compose up -d` (default `latest`) |
 
 <br/>
 
-Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.1`, `1.1`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
+Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.2`, `1.1`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 
 Every restart gives the server a new Steam ID and **a new join code**, and disconnects the players.
 
@@ -74,9 +74,9 @@ Every restart gives the server a new Steam ID and **a new join code**, and disco
 | Tag | What it is | Size on disk (download) |
 |---|---|---|
 | `latest` | Newest ReSkate release, default image (Debian slim) | 172 MB (64 MB) |
-| `1.1.1`, `1.1` | That ReSkate release, pinned (`1.1` follows the newest `1.1.x`) | 172 MB (64 MB) |
+| `1.1.2`, `1.1` | That ReSkate release, pinned (`1.1` follows the newest `1.1.x`) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
-| `1.1.1-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `1.1.2-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
 
 The version in a tag is the ReSkate release of the server inside the image. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available as published.
 
@@ -85,7 +85,7 @@ The version in a tag is the ReSkate release of the server inside the image. It h
 
 ### Dependencies
 
-| | Default (`latest`, `1.1.1`) | `slim` |
+| | Default (`latest`, `1.1.2`) | `slim` |
 |---|---|---|
 | Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
 | ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
@@ -161,6 +161,8 @@ Custom maps are mod folders in `/data/Mods/<folder>`. The server only reads each
 2. Set `MAP` to the `displayName` from the mod's `reskate-levels.json`, e.g. `MAP=Skate2Map`.
 3. Restart the server: `docker compose restart reskate-1`
 
+To rotate through several maps, list their names in `MAP_POOL` and set `MAP_ROTATION_MINUTES`, see [Per server](#per-server).
+
 Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every server has its own `/data` volume, so copy the mod into each server that should use it.
 
 <br/>
@@ -172,6 +174,8 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 |---|---|---|
 | `SERVER_NAME` | text, 1-64 chars | Name in the server browser. Longer names cause a restart loop. |
 | `MAP` | text | Map everyone skates: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`, or the `displayName` of a custom map mod (`reskate-levels.json`). |
+| `MAP_POOL` | map list, `off` | The maps players may vote for and the rotation goes through, in order, e.g. `San Vansterdam,Isle of Grom,Skate2Map` (comma separated). Empty = every map the server knows. Admins can still change to any map. `off` empties an existing pool. Pins the list: in-game `map-pool` changes are replaced on restart. Every name must be a built-in map or the map of an installed mod, otherwise the server refuses to start (`Config problem: map_pool ... is not a single known map`). |
+| `MAP_ROTATION_MINUTES` | minutes, `0` = off | Minutes on each map before the server moves to the next one in `MAP_POOL`. Players get a minute's warning; the clock waits while nobody is on and starts over whenever the map changes (by a vote or an admin too). |
 | `PORT` | number | Game port. Never bound, players join via the Steam relay. |
 | `QUERY_PORT` | number | Server browser / A2S queries. |
 
@@ -304,7 +308,7 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 
 ## Slim image
 
-`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `1.1.1-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about) for what is inside each tag). Same environment variables, same Discord webhook, same `/data` layout, so switching is just changing the tag:
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `1.1.2-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about) for what is inside each tag). Same environment variables, same Discord webhook, same `/data` layout, so switching is just changing the tag:
 
 ```yaml
     image: dudedankdave/reskate-server:slim
@@ -315,7 +319,7 @@ Set `DISCORD_WEBHOOK` (per server, in `serverN.env`) and the server talks to Dis
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
 - The global ban list needs `curl`: the slim image ships a small stand-in, see [About](#curl).
 - There is no bash. For debugging use `docker exec -it <container> busybox sh`.
-- The source is in [`slim/`](slim/). Build it from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:slim .`
+- The source is in [`slim/`](slim/). Build it from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=1.1.2 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain version tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once the `slim` tag has been refreshed for the new release.
 
 <br/>
@@ -390,6 +394,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 | Joins time out for everyone | Stateless firewall dropping the relay replies, see [Networking](#networking). |
 | Restart loop, log says `Config problem` | `SERVER_NAME` over 64 characters, or an unquoted `#` / `'` in an env value. |
 | Container `unhealthy` | Stuck Steam sign-in or a config problem, check `docker logs`. |
+| Restart loop, log says `Config problem: map_pool` | A name in `MAP_POOL` is not a built-in map and not the `displayName` of an installed mod. Fix the spelling, or check `docker logs` for `[mods]` lines if the mod failed to install. |
 | `MODS` entry not installed | Look for `[mods]` lines in `docker logs <container>`. Names are `Owner-Name` as shown on Thunderstore, and `/data` needs free space (maps can be 1 GB or more). |
 | Custom map not found | `MAP` must be the `displayName` from the mod's `reskate-levels.json`, and the mod folder must be in `/data/Mods/`. |
 | Settings don't change | Empty variables are ignored. Use `off` to clear `SERVER_PASSWORD` / `WELCOME_MESSAGE`. |
@@ -403,7 +408,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 The server binaries are proprietary and not part of this repo. Download `ReSkateServer-Linux-<version>.tar.gz` from a [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) and copy `ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so` and `steamclient.so` into `./Server/`, then:
 
 ```bash
-docker build --build-arg VERSION=1.1.1 -t dudedankdave/reskate-server:1.1.1 .
+docker build --build-arg VERSION=1.1.2 -t dudedankdave/reskate-server:1.1.2 .
 ```
 
 <br/>

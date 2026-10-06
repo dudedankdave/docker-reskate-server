@@ -71,6 +71,13 @@ func clearable(_, v string) any {
 	}
 	return v
 }
+func nonNegative(name, v string) any {
+	n := asInt(name, v)
+	if n < 0 {
+		die("%s: expected 0 (off) or more minutes, got %q", name, v)
+	}
+	return n
+}
 func boolConv(name, v string) any { return asBool(name, v) }
 func intConv(name, v string) any  { return asInt(name, v) }
 
@@ -122,6 +129,7 @@ func entrypointMain(serverArgs []string) {
 	}{
 		{"SERVER_NAME", "name", text},
 		{"MAP", "map", text},
+		{"MAP_ROTATION_MINUTES", "map_rotation_minutes", nonNegative},
 		{"MAX_PLAYERS", "max_players", intConv},
 		{"SERVER_PASSWORD", "password", clearable},
 		{"WELCOME_MESSAGE", "welcome", clearable},
@@ -208,6 +216,18 @@ func entrypointMain(serverArgs []string) {
 				layers[strings.TrimSpace(key)] = mode
 			}
 		}
+	}
+
+	// MAP_POOL=Map A,Map B: the maps players vote between and the rotation goes through.
+	// Pins the list (in-game map-pool changes are replaced on restart); "off" empties it = all maps.
+	if v, ok := env("MAP_POOL"); ok {
+		pool := []any{}
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			for _, m := range asList(v) {
+				pool = append(pool, m)
+			}
+		}
+		cfg["map_pool"] = pool
 	}
 
 	// Lists are merged so in-game additions (admin add, ban) are kept.

@@ -49,6 +49,13 @@ def choice(*allowed):
     return check
 
 
+def non_negative(name, value):
+    n = as_int(name, value)
+    if n < 0:
+        sys.exit(f"{name}: expected 0 (off) or more minutes, got {value!r}")
+    return n
+
+
 def text(_name, value):
     return value
 
@@ -67,6 +74,7 @@ if os.path.exists(CONFIG):
 SIMPLE = {
     "SERVER_NAME": ("name", text),
     "MAP": ("map", text),
+    "MAP_ROTATION_MINUTES": ("map_rotation_minutes", non_negative),
     "MAX_PLAYERS": ("max_players", as_int),
     "SERVER_PASSWORD": ("password", clearable),
     "WELCOME_MESSAGE": ("welcome", clearable),
@@ -142,6 +150,11 @@ if (value := env("LAYERS")) is not None:
             layers.pop(key.strip(), None)
         else:
             layers[key.strip()] = mode
+
+# MAP_POOL=Map A,Map B: the maps players vote between and the rotation goes through.
+# Pins the list (in-game map-pool changes are replaced on restart); "off" empties it = all maps.
+if (value := env("MAP_POOL")) is not None:
+    cfg["map_pool"] = [] if value.lower() in ("off", "none") else as_list(value)
 
 # Lists are merged so in-game additions (admin add, ban) are kept.
 if (value := env("ADMINS")) is not None:
