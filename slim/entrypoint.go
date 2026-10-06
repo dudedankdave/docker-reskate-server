@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -152,6 +153,59 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// Maps the server knows without a mod (ReSkate's own list); anything else must come from an installed mod.
+var builtinMaps = []string{"San Vansterdam", "Isle of Grom", "Super Ultra Mega Resort", "Stadium 1"}
+
+// warnUnknownMaps: the server refuses to start on an unknown map. Say which names are available before it does.
+func warnUnknownMaps(cfg map[string]any) {
+	provided := map[string]string{}
+	entries, _ := os.ReadDir("/data/Mods")
+	for _, e := range entries {
+		var lv struct {
+			Levels []struct {
+				DisplayName string `json:"displayName"`
+			} `json:"levels"`
+		}
+		if readJSON("/data/Mods/"+e.Name()+"/reskate-levels.json", &lv) {
+			for _, l := range lv.Levels {
+				if l.DisplayName != "" {
+					provided[l.DisplayName] = e.Name()
+				}
+			}
+		}
+	}
+	known := map[string]bool{}
+	var names []string
+	for _, m := range builtinMaps {
+		known[strings.ToLower(m)] = true
+	}
+	for m := range provided {
+		known[strings.ToLower(m)] = true
+		names = append(names, m)
+	}
+	sort.Strings(names)
+	type want struct{ v, name string }
+	var wanted []want
+	if m, ok := cfg["map"].(string); ok && m != "" {
+		wanted = append(wanted, want{"MAP", m})
+	}
+	if pool, ok := cfg["map_pool"].([]any); ok {
+		for _, m := range pool {
+			wanted = append(wanted, want{"MAP_POOL", fmt.Sprint(m)})
+		}
+	}
+	installed := "none"
+	if len(names) > 0 {
+		installed = strings.Join(names, ", ")
+	}
+	for _, w := range wanted {
+		if !known[strings.ToLower(w.name)] {
+			fmt.Printf("[maps] WARNING: %s %q is not a built-in map and no installed mod provides it, the server will refuse to start (Config problem). Installed mod maps: %s. Built-in maps: %s.\n",
+				w.v, w.name, installed, strings.Join(builtinMaps, ", "))
+		}
+	}
 }
 
 func entrypointMain(serverArgs []string) {
@@ -354,6 +408,8 @@ func entrypointMain(serverArgs []string) {
 		}
 		installMods(v, update)
 	}
+
+	warnUnknownMaps(cfg)
 
 	// Discord sidecar (console forwarding + update announcements): a child process that
 	// outlives the exec below, so the server keeps the console for `docker attach`.

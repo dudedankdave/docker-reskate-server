@@ -84,6 +84,35 @@ def server_name(name, value):
     return clean
 
 
+# Maps the server knows without a mod (ReSkate's own list); anything else must come from an installed mod.
+BUILTIN_MAPS = ["San Vansterdam", "Isle of Grom", "Super Ultra Mega Resort", "Stadium 1"]
+
+
+def warn_unknown_maps(cfg):
+    """The server refuses to start on an unknown map. Say which names are available before it does."""
+    provided = {}
+    try:
+        folders = sorted(os.listdir("/data/Mods"))
+    except OSError:
+        folders = []
+    for folder in folders:
+        try:
+            with open(f"/data/Mods/{folder}/reskate-levels.json", encoding="utf-8-sig") as f:
+                for level in json.load(f).get("levels", []):
+                    if level.get("displayName"):
+                        provided[level["displayName"]] = folder
+        except (OSError, ValueError, AttributeError):
+            pass
+    known = {m.lower() for m in BUILTIN_MAPS} | {m.lower() for m in provided}
+    wanted = [("MAP", cfg["map"])] if isinstance(cfg.get("map"), str) and cfg["map"] else []
+    wanted += [("MAP_POOL", str(m)) for m in (cfg.get("map_pool") or [])]
+    for var, name in wanted:
+        if name.lower() not in known:
+            print(f'[maps] WARNING: {var} "{name}" is not a built-in map and no installed mod provides it, '
+                  f'the server will refuse to start (Config problem). Installed mod maps: '
+                  f'{", ".join(sorted(provided)) or "none"}. Built-in maps: {", ".join(BUILTIN_MAPS)}.', flush=True)
+
+
 def text(_name, value):
     return value
 
@@ -215,6 +244,8 @@ if (value := env("MODS")) is not None:
         mods.install_all(value, update)
     except Exception as exc:  # the server must start even if this breaks
         print(f"[mods] disabled: {exc!r}", flush=True)
+
+warn_unknown_maps(cfg)
 
 # Discord sidecar (console forwarding + update announcements). It is forked off before the
 # server is exec'd, so the server keeps the console for `docker attach`.
