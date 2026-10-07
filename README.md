@@ -60,7 +60,7 @@ volumes:
 
 Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.5`, `1.1`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 
-Every restart gives the server a new Steam ID and **a new join code**, and disconnects the players.
+Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join code**. Either way a restart disconnects the players.
 
 <br/>
 
@@ -176,7 +176,7 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `MAP_ROTATION_MINUTES` | minutes, `0` = off | Minutes on each map before the server moves to the next one in `MAP_POOL`. Players get a minute's warning; the clock waits while nobody is on and starts over whenever the map changes (by a vote or an admin too). |
 | `PORT` | number | Game port. Never bound, players join via the Steam relay. |
 | `QUERY_PORT` | number | Server browser / A2S queries. |
-| `STEAM_TOKEN` | token, `off` | Steam game server token: keeps the same Steam ID and **join code** across restarts. Create one per server at steamcommunity.com/dev/managegameservers (App ID 3354750) and keep it private. Empty = anonymous sign-in, a new Steam ID on every start. `off` clears it. |
+| `STEAM_TOKEN` | token, `off` | Steam game server token: keeps the same Steam ID across restarts (the join code can still change, e.g. after an update). Create one per server at steamcommunity.com/dev/managegameservers (App ID 3354750) and keep it private. Empty = anonymous sign-in, a new Steam ID on every start. `off` clears it. |
 
 
 ### Access
@@ -364,7 +364,7 @@ Run one container per server from the same image. Each needs its **own** data vo
 ReSkate releases often and the game client updates itself, so the server has to follow.
 
 - The server binary is baked into the image. ReSkate 1.1.4+ can update itself, but a self-updated binary is lost when the container is recreated, so this image keeps that off (see `AUTO_UPDATE`). Updating means a new image.
-- **Update:** `docker compose pull && docker compose up -d` (changes the join codes unless you use `STEAM_TOKEN`). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
+- **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
 - **Get told about releases:** set `DISCORD_WEBHOOK`, see [Discord webhook](#discord-webhook).
 - **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release and says whether `docker compose pull` is enough (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Run it from cron, e.g. `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
