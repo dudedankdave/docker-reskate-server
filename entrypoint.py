@@ -57,9 +57,9 @@ def non_negative(name, value):
     return n
 
 
-# ReSkate 1.1.3+ only accepts 1-64 ASCII letters, digits, spaces and - _ [ ] ( ) as a name and
+# ReSkate only accepts 1-64 ASCII letters, digits, spaces and - _ / [ ] ( ) as a name and
 # refuses to start otherwise. Clean a name it would reject (and say so) instead of crash-looping.
-NAME_OK = re.compile(r"[A-Za-z0-9 _\[\]()-]{1,64}")
+NAME_OK = re.compile(r"[A-Za-z0-9 _/\[\]()-]{1,64}")
 ACCENTS = {ord(k): v for k, v in zip(
     "äöüÄÖÜéèêëÉÈÊËáàâãåÁÀÂÃÅíìîïÍÌÎÏóòôõøÓÒÔÕØúùûÚÙÛýÿÝçÇñÑ",
     "aouAOUeeeeEEEEaaaaaAAAAAiiiiIIIIoooooOOOOOuuuUUUyyYcCnN")}
@@ -69,7 +69,7 @@ ACCENTS.update({ord("ß"): "ss", ord("æ"): "ae", ord("Æ"): "AE", ord("œ"): "o
 def clean_name(value):
     s = value.translate(ACCENTS)
     s = re.sub(r"['\u2019.#%]", "", s)              # joins the letters around it: COCOJAMBO'S -> COCOJAMBOS
-    s = re.sub(r"[^A-Za-z0-9 _\[\]()-]", "-", s)    # | / : , ... become a dash
+    s = re.sub(r"[^A-Za-z0-9 _/\[\]()-]", "-", s)    # | : , ... become a dash
     s = re.sub(r"\s*-(?:\s*-)+\s*", " - ", s)       # no runs of dashes
     s = re.sub(r"\s+", " ", s).strip(" -")
     return s[:64].rstrip(" -") or "ReSkate server"
@@ -79,7 +79,7 @@ def server_name(name, value):
     if NAME_OK.fullmatch(value):
         return value
     clean = clean_name(value)
-    print(f'[config] {name} {value!r} is not accepted by ReSkate 1.1.3+ (1-64 letters, numbers, spaces and - _ [ ] ( ) only), '
+    print(f'[config] {name} {value!r} is not accepted by ReSkate (1-64 letters, numbers, spaces and - _ / [ ] ( ) only), '
           f'using {clean!r} instead', flush=True)
     return clean
 
@@ -131,6 +131,7 @@ if os.path.exists(CONFIG):
 SIMPLE = {
     "SERVER_NAME": ("name", server_name),
     "MAP": ("map", text),
+    "STEAM_TOKEN": ("steam_token", clearable),
     "MAP_ROTATION_MINUTES": ("map_rotation_minutes", non_negative),
     "MAX_PLAYERS": ("max_players", as_int),
     "SERVER_PASSWORD": ("password", clearable),
@@ -273,6 +274,10 @@ if hooks:
         finally:
             os._exit(0)
 
-args = ["/app/ReSkateServer", "--config", CONFIG] + sys.argv[1:]
+# ReSkate 1.1.4+ can replace its own binary. In a container that drifts from the image tag and is
+# lost when the container is recreated, so it stays off unless AUTO_UPDATE=true is set explicitly.
+auto = (env("AUTO_UPDATE") or "").lower() in ("1", "true", "yes", "on")
+no_update = [] if auto or "--no-update" in sys.argv[1:] else ["--no-update"]
+args = ["/app/ReSkateServer", "--config", CONFIG] + no_update + sys.argv[1:]
 os.chdir("/app")
 os.execv(args[0], args)

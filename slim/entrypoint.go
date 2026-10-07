@@ -81,12 +81,12 @@ func nonNegative(name, v string) any {
 	return n
 }
 
-// ReSkate 1.1.3+ only accepts 1-64 ASCII letters, digits, spaces and - _ [ ] ( ) as a name and
+// ReSkate only accepts 1-64 ASCII letters, digits, spaces and - _ / [ ] ( ) as a name and
 // refuses to start otherwise. Clean a name it would reject (and say so) instead of crash-looping.
 var (
-	nameOK    = regexp.MustCompile(`^[A-Za-z0-9 _\[\]()-]{1,64}$`)
+	nameOK    = regexp.MustCompile(`^[A-Za-z0-9 _/\[\]()-]{1,64}$`)
 	nameDrop  = regexp.MustCompile(`['\x{2019}.#%]`)
-	nameBad   = regexp.MustCompile(`[^A-Za-z0-9 _\[\]()-]`)
+	nameBad   = regexp.MustCompile(`[^A-Za-z0-9 _/\[\]()-]`)
 	nameDash  = regexp.MustCompile(`\s*-(?:\s*-)+\s*`)
 	nameSpace = regexp.MustCompile(`\s+`)
 	accents   = strings.NewReplacer(
@@ -119,7 +119,7 @@ func serverName(name, v string) any {
 		return v
 	}
 	clean := cleanName(v)
-	fmt.Printf("[config] %s %q is not accepted by ReSkate 1.1.3+ (1-64 letters, numbers, spaces and - _ [ ] ( ) only), using %q instead\n", name, v, clean)
+	fmt.Printf("[config] %s %q is not accepted by ReSkate (1-64 letters, numbers, spaces and - _ / [ ] ( ) only), using %q instead\n", name, v, clean)
 	return clean
 }
 
@@ -227,6 +227,7 @@ func entrypointMain(serverArgs []string) {
 	}{
 		{"SERVER_NAME", "name", serverName},
 		{"MAP", "map", text},
+		{"STEAM_TOKEN", "steam_token", clearable},
 		{"MAP_ROTATION_MINUTES", "map_rotation_minutes", nonNegative},
 		{"MAX_PLAYERS", "max_players", intConv},
 		{"SERVER_PASSWORD", "password", clearable},
@@ -442,7 +443,20 @@ func entrypointMain(serverArgs []string) {
 		}
 	}
 
-	args := append([]string{"/app/ReSkateServer", "--config", configPath}, serverArgs...)
+	// ReSkate 1.1.4+ can replace its own binary. In a container that drifts from the image tag and is
+	// lost when the container is recreated, so it stays off unless AUTO_UPDATE=true is set explicitly.
+	args := []string{"/app/ReSkateServer", "--config", configPath}
+	au, _ := env("AUTO_UPDATE")
+	if l := strings.ToLower(au); l != "1" && l != "true" && l != "yes" && l != "on" {
+		skip := false
+		for _, a := range serverArgs {
+			skip = skip || a == "--no-update"
+		}
+		if !skip {
+			args = append(args, "--no-update")
+		}
+	}
+	args = append(args, serverArgs...)
 	if err := os.Chdir("/app"); err != nil {
 		die("chdir /app: %v", err)
 	}
