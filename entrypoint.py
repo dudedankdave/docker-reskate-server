@@ -113,6 +113,15 @@ def warn_unknown_maps(cfg):
                   f'{", ".join(sorted(provided)) or "none"}. Built-in maps: {", ".join(BUILTIN_MAPS)}.', flush=True)
 
 
+def int_range(lo, hi):
+    def check(name, value):
+        n = as_int(name, value)
+        if not lo <= n <= hi:
+            sys.exit(f"{name}: expected a number from {lo} to {hi}, got {value!r}")
+        return n
+    return check
+
+
 def text(_name, value):
     return value
 
@@ -131,6 +140,10 @@ if os.path.exists(CONFIG):
 SIMPLE = {
     "SERVER_NAME": ("name", server_name),
     "MAP": ("map", text),
+    "SEND_RATE": ("send_rate", int_range(128, 16384)),
+    "CROWD_BUDGET": ("crowd_budget", int_range(0, 1000000)),
+    "RESERVED_SLOTS": ("reserved_slots", int_range(0, 249)),
+    "OBJECT_LIMIT": ("object_limit", int_range(0, 1024)),
     "STEAM_TOKEN": ("steam_token", clearable),
     "MAP_ROTATION_MINUTES": ("map_rotation_minutes", non_negative),
     "MAX_PLAYERS": ("max_players", as_int),
@@ -218,6 +231,9 @@ if (value := env("MAP_POOL")) is not None:
 if (value := env("ADMINS")) is not None:
     admins = [str(a) for a in cfg.get("admins", [])]
     cfg["admins"] = admins + [a for a in as_list(value) if a not in admins]
+if (value := env("RESERVED")) is not None:
+    reserved = [str(a) for a in cfg.get("reserved", [])]
+    cfg["reserved"] = reserved + [a for a in as_list(value) if a not in reserved]
 if (value := env("SCORE_ALLOW")) is not None:
     allowed = [s.lower() for s in cfg.get("score_allow", [])]
     cfg["score_allow"] = allowed + [s.lower() for s in as_list(value) if s.lower() not in allowed]

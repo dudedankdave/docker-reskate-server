@@ -123,6 +123,16 @@ func serverName(name, v string) any {
 	return clean
 }
 
+func intRange(lo, hi int) conv {
+	return func(name, v string) any {
+		n := asInt(name, v)
+		if n < lo || n > hi {
+			die("%s: expected a number from %d to %d, got %q", name, lo, hi, v)
+		}
+		return n
+	}
+}
+
 func boolConv(name, v string) any { return asBool(name, v) }
 func intConv(name, v string) any  { return asInt(name, v) }
 
@@ -227,6 +237,10 @@ func entrypointMain(serverArgs []string) {
 	}{
 		{"SERVER_NAME", "name", serverName},
 		{"MAP", "map", text},
+		{"SEND_RATE", "send_rate", intRange(128, 16384)},
+		{"CROWD_BUDGET", "crowd_budget", intRange(0, 1000000)},
+		{"RESERVED_SLOTS", "reserved_slots", intRange(0, 249)},
+		{"OBJECT_LIMIT", "object_limit", intRange(0, 1024)},
 		{"STEAM_TOKEN", "steam_token", clearable},
 		{"MAP_ROTATION_MINUTES", "map_rotation_minutes", nonNegative},
 		{"MAX_PLAYERS", "max_players", intConv},
@@ -346,6 +360,23 @@ func entrypointMain(serverArgs []string) {
 			out[i] = a
 		}
 		cfg["admins"] = out
+	}
+	if v, ok := env("RESERVED"); ok {
+		var reserved []string
+		old, _ := cfg["reserved"].([]any)
+		for _, a := range old {
+			reserved = append(reserved, asString(a))
+		}
+		for _, a := range asList(v) {
+			if !contains(reserved, a) {
+				reserved = append(reserved, a)
+			}
+		}
+		out := make([]any, len(reserved))
+		for i, a := range reserved {
+			out[i] = a
+		}
+		cfg["reserved"] = out
 	}
 	if v, ok := env("SCORE_ALLOW"); ok {
 		var allowed []string
