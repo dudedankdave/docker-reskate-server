@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -198,10 +199,11 @@ func warnUnknownMaps(cfg map[string]any) {
 	sort.Strings(names)
 	type want struct{ v, name string }
 	var wanted []want
-	if m, ok := cfg["map"].(string); ok && m != "" {
+	maps, _ := cfg["maps"].(map[string]any)
+	if m, ok := maps["map"].(string); ok && m != "" {
 		wanted = append(wanted, want{"MAP", m})
 	}
-	if pool, ok := cfg["map_pool"].([]any); ok {
+	if pool, ok := maps["pool"].([]any); ok {
 		for _, m := range pool {
 			wanted = append(wanted, want{"MAP_POOL", fmt.Sprint(m)})
 		}
@@ -218,6 +220,143 @@ func warnUnknownMaps(cfg map[string]any) {
 	}
 }
 
+var bansPath = filepath.Join(filepath.Dir(configPath), "data", "bans.json")
+
+// layout: section -> {key, key before 1.1.7}. ReSkate 1.1.7 put the settings into sections and renamed several.
+var layout = []struct {
+	section string
+	keys    [][2]string
+}{
+	{"server", [][2]string{{"name", "name"}, {"password", "password"}, {"welcome_message", "welcome"},
+		{"listed", "listed"}, {"max_players", "max_players"}, {"port", "port"},
+		{"query_port", "query_port"}, {"steam_token", "steam_token"},
+		{"auto_update", "auto_update"}, {"activity_log", "activity_log"}}},
+	{"access", [][2]string{{"admins", "admins"}, {"reserved_players_slots", "reserved"},
+		{"use_global_bans", "global_bans"}}},
+	{"maps", [][2]string{{"map", "map"}, {"pool", "map_pool"}, {"rotation_minutes", "map_rotation_minutes"},
+		{"parks", "parks"}, {"world_layer_sync", "world_layer_sync"}, {"layers", "layers"}}},
+	{"players", [][2]string{{"allow_boosts", "boosts"}, {"allow_no_bail", "no_bail"}, {"allow_noclip", "noclip"},
+		{"allow_parties", "parties"}, {"party_size", "party_size"},
+		{"allow_voice_chat", "voice_chat"}, {"voice_range", "voice_range"},
+		{"object_placement", "object_placement"}, {"object_limit", "object_limit"},
+		{"announce_throwdowns", "announce_throwdowns"}}},
+	{"anti_cheat", [][2]string{{"speed_hack", "speed_check"}, {"modified_scoring", "score_check"},
+		{"allowed_scoring_mods", "score_allow"}, {"enforce_tuning", "enforce_tuning"},
+		{"bone_scale_limit", "bone_scale_limit"}}},
+	{"network", [][2]string{{"send_rate", "send_rate"}, {"crowd_budget", "crowd_budget"}, {"distances", "distances"}}},
+}
+
+// removed: settings gone in 1.1.7 -> their env var.
+var removed = [][2]string{{"tps", "TPS"}, {"reserved_slots", "RESERVED_SLOTS"}}
+
+func loadBans() []any {
+	raw, err := os.ReadFile(bansPath)
+	if err != nil {
+		return []any{}
+	}
+	var bans []any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if dec.Decode(&bans) != nil || bans == nil {
+		return []any{}
+	}
+	return bans
+}
+
+func mergeBans(bans, add []any) []any {
+	var known []string
+	for _, b := range bans {
+		if m, ok := b.(map[string]any); ok {
+			known = append(known, asString(m["id"]))
+		}
+	}
+	for _, b := range add {
+		if m, ok := b.(map[string]any); ok && !contains(known, asString(m["id"])) {
+			known = append(known, asString(m["id"]))
+			bans = append(bans, b)
+		}
+	}
+	return bans
+}
+
+func writeJSON(path string, v any) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		die("cannot encode %s: %v", path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		die("cannot create %s: %v", filepath.Dir(path), err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+		die("cannot write %s: %v", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		die("cannot replace %s: %v", path, err)
+	}
+}
+
+// migrate moves pre-1.1.7 top-level settings into their sections (a value already in a section wins).
+func migrate(cfg map[string]any) {
+	moved := false
+	for _, l := range layout {
+		for _, k := range l.keys {
+			if v, ok := cfg[k[1]]; ok { // no old name is also a section name
+				sec := sub(cfg, l.section)
+				if _, ok := sec[k[0]]; !ok {
+					sec[k[0]] = v
+				}
+				delete(cfg, k[1])
+				moved = true
+			}
+		}
+	}
+	for _, r := range removed {
+		if _, ok := cfg[r[0]]; ok {
+			delete(cfg, r[0])
+			moved = true
+		}
+	}
+	if b, ok := cfg["bans"]; ok {
+		old, _ := b.([]any)
+		writeJSON(bansPath, mergeBans(loadBans(), old))
+		delete(cfg, "bans")
+		moved = true
+	}
+	if moved {
+		fmt.Println("[config] moved the settings to the sectioned layout of ReSkate 1.1.7+")
+	}
+}
+
+// mergeList appends the env list to cfg[section][key], keeping what is there (in-game additions).
+func mergeList(cfg map[string]any, section, key, v string, lower bool) {
+	norm := func(s string) string {
+		if lower {
+			return strings.ToLower(s)
+		}
+		return s
+	}
+	sec := sub(cfg, section)
+	var have []string
+	old, _ := sec[key].([]any)
+	for _, a := range old {
+		have = append(have, norm(asString(a)))
+	}
+	for _, a := range asList(v) {
+		if a = norm(a); !contains(have, a) {
+			have = append(have, a)
+		}
+	}
+	out := make([]any, len(have))
+	for i, a := range have {
+		out[i] = a
+	}
+	sec[key] = out
+}
+
 func entrypointMain(serverArgs []string) {
 	if err := os.MkdirAll("/data/Mods", 0o755); err != nil {
 		die("cannot create /data/Mods: %v", err)
@@ -230,50 +369,56 @@ func entrypointMain(serverArgs []string) {
 			die("%s: %v", configPath, err)
 		}
 	}
+	migrate(cfg)
 
 	simple := []struct {
-		env, key string
-		c        conv
+		env, section, key string
+		c                 conv
 	}{
-		{"SERVER_NAME", "name", serverName},
-		{"MAP", "map", text},
-		{"SEND_RATE", "send_rate", intRange(128, 16384)},
-		{"CROWD_BUDGET", "crowd_budget", intRange(0, 1000000)},
-		{"RESERVED_SLOTS", "reserved_slots", intRange(0, 249)},
-		{"OBJECT_LIMIT", "object_limit", intRange(0, 1024)},
-		{"BONE_SCALE_LIMIT", "bone_scale_limit", intRange(0, 8)},
-		{"STEAM_TOKEN", "steam_token", clearable},
-		{"MAP_ROTATION_MINUTES", "map_rotation_minutes", nonNegative},
-		{"MAX_PLAYERS", "max_players", intConv},
-		{"SERVER_PASSWORD", "password", clearable},
-		{"WELCOME_MESSAGE", "welcome", clearable},
-		{"LISTED", "listed", boolConv},
-		{"AUTO_UPDATE", "auto_update", boolConv},
-		{"ANNOUNCE_THROWDOWNS", "announce_throwdowns", boolConv},
-		{"PARTIES", "parties", boolConv},
-		{"PARTY_SIZE", "party_size", intConv},
-		{"SPEED_CHECK", "speed_check", choice("off", "warn", "kick")},
-		{"SCORE_CHECK", "score_check", choice("off", "warn", "kick")},
-		{"ACTIVITY_LOG", "activity_log", boolConv},
-		{"PORT", "port", intConv},
-		{"QUERY_PORT", "query_port", intConv},
-		{"TPS", "tps", choice("20", "30", "60", "120")},
-		{"VOICE_CHAT", "voice_chat", boolConv},
-		{"VOICE_RANGE", "voice_range", intConv},
-		{"OBJECT_PLACEMENT", "object_placement", choice("everyone", "admins", "nobody")},
-		{"NOCLIP", "noclip", boolConv},
-		{"NO_BAIL", "no_bail", boolConv},
-		{"BOOSTS", "boosts", boolConv},
-		{"ENFORCE_TUNING", "enforce_tuning", boolConv},
-		{"WORLD_LAYER_SYNC", "world_layer_sync", boolConv},
+		{"SERVER_NAME", "server", "name", serverName},
+		{"SERVER_PASSWORD", "server", "password", clearable},
+		{"WELCOME_MESSAGE", "server", "welcome_message", clearable},
+		{"LISTED", "server", "listed", boolConv},
+		{"MAX_PLAYERS", "server", "max_players", intRange(1, 249)},
+		{"PORT", "server", "port", intConv},
+		{"QUERY_PORT", "server", "query_port", intConv},
+		{"STEAM_TOKEN", "server", "steam_token", clearable},
+		{"AUTO_UPDATE", "server", "auto_update", boolConv},
+		{"ACTIVITY_LOG", "server", "activity_log", boolConv},
+		{"GLOBAL_BANS", "access", "use_global_bans", boolConv},
+		{"MAP", "maps", "map", text},
+		{"MAP_ROTATION_MINUTES", "maps", "rotation_minutes", nonNegative},
+		{"WORLD_LAYER_SYNC", "maps", "world_layer_sync", boolConv},
+		{"BOOSTS", "players", "allow_boosts", boolConv},
+		{"NO_BAIL", "players", "allow_no_bail", boolConv},
+		{"NOCLIP", "players", "allow_noclip", boolConv},
+		{"PARTIES", "players", "allow_parties", boolConv},
+		{"PARTY_SIZE", "players", "party_size", intConv},
+		{"VOICE_CHAT", "players", "allow_voice_chat", boolConv},
+		{"VOICE_RANGE", "players", "voice_range", intRange(50, 1000)},
+		{"OBJECT_PLACEMENT", "players", "object_placement", choice("everyone", "admins", "nobody")},
+		{"OBJECT_LIMIT", "players", "object_limit", intRange(0, 1024)},
+		{"ANNOUNCE_THROWDOWNS", "players", "announce_throwdowns", boolConv},
+		{"SPEED_CHECK", "anti_cheat", "speed_hack", choice("off", "warn", "kick")},
+		{"SCORE_CHECK", "anti_cheat", "modified_scoring", choice("off", "warn", "kick")},
+		{"ENFORCE_TUNING", "anti_cheat", "enforce_tuning", boolConv},
+		{"BONE_SCALE_LIMIT", "anti_cheat", "bone_scale_limit", intRange(0, 8)},
+		{"USE_STEAM_RELAY", "network", "use_steam_relay", boolConv},
+		{"SEND_RATE", "network", "send_rate", intRange(128, 16384)},
+		{"CROWD_BUDGET", "network", "crowd_budget", intRange(0, 1000000)},
+		{"PACK_MS", "network", "pack_ms", intRange(0, 50)},
+		{"FINGER_DISTANCE", "network", "finger_distance", intRange(0, 100000)},
+		{"STEAM_DEBUG", "network", "steam_debug", boolConv},
 	}
 	for _, s := range simple {
 		if v, ok := env(s.env); ok {
-			cfg[s.key] = s.c(s.env, v)
+			sub(cfg, s.section)[s.key] = s.c(s.env, v)
 		}
 	}
-	if t, ok := cfg["tps"].(string); ok {
-		cfg["tps"], _ = strconv.Atoi(t)
+	for _, r := range removed {
+		if _, ok := env(r[1]); ok {
+			fmt.Printf("[config] %s is ignored: ReSkate 1.1.7 removed the '%s' setting\n", r[1], r[0])
+		}
 	}
 
 	for _, d := range []struct{ env, key string }{
@@ -283,14 +428,14 @@ func entrypointMain(serverArgs []string) {
 		{"DISTANCE_LOW_RATE_START", "low_rate_start"},
 	} {
 		if v, ok := env(d.env); ok {
-			sub(cfg, "distances")[d.key] = asInt(d.env, v)
+			sub(sub(cfg, "network"), "distances")[d.key] = asInt(d.env, v)
 		}
 	}
 	for _, p := range []struct{ env, key string }{
 		{"PARK_CONSTRUCTION", "construction"}, {"PARK_HISTORIC", "historic"}, {"PARK_FINANCIAL", "financial"},
 	} {
 		if v, ok := env(p.env); ok {
-			sub(cfg, "parks")[p.key] = v
+			sub(sub(cfg, "maps"), "parks")[p.key] = v
 		}
 	}
 
@@ -317,7 +462,7 @@ func entrypointMain(serverArgs []string) {
 
 	// LAYERS=key=on,other_key=off
 	if v, ok := env("LAYERS"); ok {
-		layers := sub(cfg, "layers")
+		layers := sub(sub(cfg, "maps"), "layers")
 		for _, item := range asList(v) {
 			key, mode, _ := strings.Cut(item, "=")
 			mode = strings.ToLower(strings.TrimSpace(mode))
@@ -341,97 +486,35 @@ func entrypointMain(serverArgs []string) {
 				pool = append(pool, m)
 			}
 		}
-		cfg["map_pool"] = pool
+		sub(cfg, "maps")["pool"] = pool
 	}
 
 	// Lists are merged so in-game additions (admin add, ban) are kept.
 	if v, ok := env("ADMINS"); ok {
-		var admins []string
-		old, _ := cfg["admins"].([]any)
-		for _, a := range old {
-			admins = append(admins, asString(a))
-		}
-		for _, a := range asList(v) {
-			if !contains(admins, a) {
-				admins = append(admins, a)
-			}
-		}
-		out := make([]any, len(admins))
-		for i, a := range admins {
-			out[i] = a
-		}
-		cfg["admins"] = out
+		mergeList(cfg, "access", "admins", v, false)
 	}
 	if v, ok := env("RESERVED"); ok {
-		var reserved []string
-		old, _ := cfg["reserved"].([]any)
-		for _, a := range old {
-			reserved = append(reserved, asString(a))
-		}
-		for _, a := range asList(v) {
-			if !contains(reserved, a) {
-				reserved = append(reserved, a)
-			}
-		}
-		out := make([]any, len(reserved))
-		for i, a := range reserved {
-			out[i] = a
-		}
-		cfg["reserved"] = out
+		mergeList(cfg, "access", "reserved_players_slots", v, false)
 	}
 	if v, ok := env("SCORE_ALLOW"); ok {
-		var allowed []string
-		old, _ := cfg["score_allow"].([]any)
-		for _, a := range old {
-			allowed = append(allowed, strings.ToLower(asString(a)))
-		}
-		for _, a := range asList(v) {
-			if a = strings.ToLower(a); !contains(allowed, a) {
-				allowed = append(allowed, a)
-			}
-		}
-		out := make([]any, len(allowed))
-		for i, a := range allowed {
-			out[i] = a
-		}
-		cfg["score_allow"] = out
+		mergeList(cfg, "anti_cheat", "allowed_scoring_mods", v, true)
 	}
-	// BANS=76561198000000000,76561198000000001:Some Name
+	// BANS=76561198000000000,76561198000000001:Some Name  (written to data/bans.json)
 	if v, ok := env("BANS"); ok {
-		bans, _ := cfg["bans"].([]any)
-		if bans == nil {
-			bans = []any{}
-		}
-		var known []string
-		for _, b := range bans {
-			if m, ok := b.(map[string]any); ok {
-				known = append(known, asString(m["id"]))
-			}
-		}
+		var add []any
 		for _, item := range asList(v) {
 			sid, name, _ := strings.Cut(item, ":")
-			sid, name = strings.TrimSpace(sid), strings.TrimSpace(name)
-			if !contains(known, sid) {
-				bans = append(bans, map[string]any{"id": sid, "name": name, "added": 0})
-			}
+			add = append(add, map[string]any{"id": strings.TrimSpace(sid), "name": strings.TrimSpace(name), "added": 0})
 		}
-		cfg["bans"] = bans
+		bans := loadBans()
+		n := len(bans)
+		bans = mergeBans(bans, add)
+		if _, err := os.Stat(bansPath); err != nil || len(bans) != n {
+			writeJSON(bansPath, bans)
+		}
 	}
 
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(cfg); err != nil {
-		die("cannot encode config: %v", err)
-	}
-	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
-		die("cannot write %s: %v", tmp, err)
-	}
-	if err := os.Rename(tmp, configPath); err != nil {
-		die("cannot replace %s: %v", configPath, err)
-	}
+	writeJSON(configPath, cfg)
 
 	// Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
 	if v, ok := env("MODS"); ok {

@@ -2,3 +2,4 @@ common.env
 .env
 Server/
 server*.env
+__pycache__/
