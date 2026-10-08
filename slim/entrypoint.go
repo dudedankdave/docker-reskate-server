@@ -241,6 +241,7 @@ func entrypointMain(serverArgs []string) {
 		{"CROWD_BUDGET", "crowd_budget", intRange(0, 1000000)},
 		{"RESERVED_SLOTS", "reserved_slots", intRange(0, 249)},
 		{"OBJECT_LIMIT", "object_limit", intRange(0, 1024)},
+		{"BONE_SCALE_LIMIT", "bone_scale_limit", intRange(0, 8)},
 		{"STEAM_TOKEN", "steam_token", clearable},
 		{"MAP_ROTATION_MINUTES", "map_rotation_minutes", nonNegative},
 		{"MAX_PLAYERS", "max_players", intConv},

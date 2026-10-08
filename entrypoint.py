@@ -144,6 +144,7 @@ SIMPLE = {
     "CROWD_BUDGET": ("crowd_budget", int_range(0, 1000000)),
     "RESERVED_SLOTS": ("reserved_slots", int_range(0, 249)),
     "OBJECT_LIMIT": ("object_limit", int_range(0, 1024)),
+    "BONE_SCALE_LIMIT": ("bone_scale_limit", int_range(0, 8)),
     "STEAM_TOKEN": ("steam_token", clearable),
     "MAP_ROTATION_MINUTES": ("map_rotation_minutes", non_negative),
     "MAX_PLAYERS": ("max_players", as_int),
