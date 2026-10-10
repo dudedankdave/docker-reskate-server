@@ -211,6 +211,7 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `PARTIES` | `true` / `false` | Let players form parties. Default `true`. |
 | `PARTY_SIZE` | 2-8 | Most players in one party. Default `8`. |
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
+| `ANNOUNCE_KICKS` | `true` / `false` | Tell everyone in chat when an admin kicks or bans a player ("Server: Name was kicked."). ReSkate itself only tells the admin. Done by the image, not the server: it types `say` into the server console, which `docker attach` still reaches. Default `true`. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |

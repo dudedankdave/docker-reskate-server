@@ -636,6 +636,10 @@ func entrypointMain(serverArgs []string) {
 	if v, ok := env("DISCORD_CONSOLE"); ok {
 		asBool("DISCORD_CONSOLE", v)
 	}
+	announce := true
+	if v, ok := env("ANNOUNCE_KICKS"); ok {
+		announce = asBool("ANNOUNCE_KICKS", v)
+	}
 	_, bot := env("DISCORD_BOT_TOKEN")
 	_, channel := env("DISCORD_APPROVAL_CHANNEL")
 	if mode == "auto" && policy == "ask" && !(bot && channel) {
@@ -656,5 +660,8 @@ func entrypointMain(serverArgs []string) {
 	}
 	sup := newSupervisor(folder, serverArgs)
 	newNotifier(sup, mode, imageVersion).start()
+	if announce {
+		go announcer(sup)
+	}
 	sup.run()
 }

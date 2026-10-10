@@ -12,6 +12,7 @@ itself would), so the env vars below always land in one place. Bans live in data
 MODS / MODS_UPDATE install Thunderstore mods before the server starts, see mods.py.
 UPDATE_* and DISCORD_* are not server settings: see updater.py, notifier.py and supervisor.py.
 The server is not exec'd: supervisor.py runs it as a child so updates can restart it.
+ANNOUNCE_KICKS (default true) starts announcer.py, which says admin kicks and bans in chat.
 """
 import json
 import os
@@ -430,6 +431,7 @@ for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
             sys.exit(f"{var}: expected Discord ids (digits), got {item!r}")
 if (value := env("DISCORD_CONSOLE")) is not None:
     as_bool("DISCORD_CONSOLE", value)
+announce_kicks = as_bool("ANNOUNCE_KICKS", env("ANNOUNCE_KICKS") or "true")
 if mode == "auto" and policy == "ask" and not (env("DISCORD_BOT_TOKEN") and env("DISCORD_APPROVAL_CHANNEL")):
     print("[update] UPDATE_POLICY=ask needs DISCORD_BOT_TOKEN and DISCORD_APPROVAL_CHANNEL; "
           "until then a new release waits for `update` in the console", flush=True)
@@ -444,4 +446,7 @@ if mode == "auto":
         mode = "pinned"
 sup = supervisor.Supervisor(folder, sys.argv[1:])
 notifier.Notifier(sup, mode, image_version).start()
+if announce_kicks:
+    import announcer
+    announcer.start(sup.send)
 sup.run()

@@ -24,7 +24,7 @@ VERSION_FILE = ".version"
 REPO = "Dingo-Shenanigans/ReSkate"
 LAUNCHER = f"https://github.com/{REPO}/releases/latest/download/launcher.json"
 OURS = {"entrypoint.py", "healthcheck.py", "notifier.py", "mods.py", "updater.py", "supervisor.py",
-        "reskate", "__pycache__"}
+        "announcer.py", "reskate", "__pycache__"}
 KEEP = {"ReSkateServer.json", "ReSkateServer.log", "Mods", "world-layers.json"}   # /data links, never replaced
 
 
