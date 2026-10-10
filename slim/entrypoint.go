@@ -86,7 +86,7 @@ func clearable(_, v string) any {
 func nonNegative(name, v string) any {
 	n := asInt(name, v)
 	if n < 0 {
-		die("%s: expected 0 (off) or more minutes, got %q", name, v)
+		die("%s: expected 0 (off) or a positive number, got %q", name, v)
 	}
 	return n
 }
@@ -421,6 +421,7 @@ func entrypointMain(serverArgs []string) {
 		{"SEND_RATE", "network", "send_rate", intRange(128, 16384)},
 		{"CROWD_BUDGET", "network", "crowd_budget", intRange(0, 1000000)},
 		{"PACK_MS", "network", "pack_ms", intRange(0, 50)},
+		{"THREADS", "network", "threads", intRange(0, 64)},
 		{"FINGER_DISTANCE", "network", "finger_distance", intRange(0, 100000)},
 		{"STEAM_DEBUG", "network", "steam_debug", boolConv},
 	}
@@ -457,12 +458,46 @@ func entrypointMain(serverArgs []string) {
 	for _, p := range []struct{ prefix, key string }{
 		{"VOTE_MAP", "map"}, {"VOTE_KICK", "kick"}, {"VOTE_TIME_OF_DAY", "time_of_day"},
 	} {
-		if v, ok := env(p.prefix + "_ENABLED"); ok {
-			sub(votes, p.key)["enabled"] = asBool(p.prefix+"_ENABLED", v)
+		for _, f := range []struct {
+			suffix, field string
+			c             conv
+		}{
+			{"_ENABLED", "enabled", boolConv},
+			{"_PERCENT", "percent", intConv},
+			{"_SECONDS", "seconds", nonNegative},
+			{"_COOLDOWN_SECONDS", "cooldown_seconds", nonNegative},
+			{"_MIN_PLAYERS", "min_players", intRange(1, 249)},
+		} {
+			if v, ok := env(p.prefix + f.suffix); ok {
+				sub(votes, p.key)[f.field] = f.c(p.prefix+f.suffix, v)
+			}
 		}
-		if v, ok := env(p.prefix + "_PERCENT"); ok {
-			sub(votes, p.key)["percent"] = asInt(p.prefix+"_PERCENT", v)
+	}
+	if v, ok := env("VOTE_STARTER_YES"); ok {
+		votes["starter_votes_yes"] = asBool("VOTE_STARTER_YES", v)
+	}
+	if v, ok := env("POLLS"); ok {
+		votes["polls"] = choice("off", "admins", "everyone")("POLLS", v)
+	}
+	if v, ok := env("POLL_SECONDS"); ok {
+		votes["poll_seconds"] = intRange(1, 86400)("POLL_SECONDS", v)
+	}
+	// VOTES_CUSTOM=[{"name": "restart", "command": "map {map}", "percent": 60}]  (JSON, pins the list; off = none)
+	if v, ok := env("VOTES_CUSTOM"); ok {
+		custom := []any{}
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			dec := json.NewDecoder(strings.NewReader(v))
+			dec.UseNumber()
+			if err := dec.Decode(&custom); err != nil {
+				die("VOTES_CUSTOM: expected a JSON list of votes, %v", err)
+			}
+			for _, c := range custom {
+				if _, ok := c.(map[string]any); !ok {
+					die(`VOTES_CUSTOM: expected a JSON list of votes like [{"name": ..., "command": ...}]`)
+				}
+			}
 		}
+		votes["custom"] = custom
 	}
 	if v, ok := env("VOTE_SECONDS"); ok {
 		votes["seconds"] = asInt("VOTE_SECONDS", v)
@@ -472,6 +507,25 @@ func entrypointMain(serverArgs []string) {
 	}
 	if len(votes) == 0 {
 		delete(cfg, "votes")
+	}
+
+	// ANNOUNCEMENTS=First line|Second line  (| separated, chat lines contain commas; pins the list; off = none)
+	if v, ok := env("ANNOUNCEMENTS"); ok {
+		messages := []any{}
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			for _, m := range strings.Split(v, "|") {
+				if m = strings.TrimSpace(m); m != "" {
+					messages = append(messages, m)
+				}
+			}
+		}
+		sub(cfg, "announcements")["messages"] = messages
+	}
+	if v, ok := env("ANNOUNCEMENT_INTERVAL_MINUTES"); ok {
+		sub(cfg, "announcements")["interval_minutes"] = nonNegative("ANNOUNCEMENT_INTERVAL_MINUTES", v)
+	}
+	if v, ok := env("ANNOUNCEMENT_CARD"); ok {
+		sub(cfg, "announcements")["card"] = asBool("ANNOUNCEMENT_CARD", v)
 	}
 
 	// LAYERS=key=on,other_key=off

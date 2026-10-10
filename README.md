@@ -54,11 +54,11 @@ volumes:
 | Console | `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q) |
 | Status | `docker ps` (`healthy` once the log reports `... is up on <map>`) |
 | Update | `docker compose pull && docker compose up -d` |
-| Pin a version | `RESKATE_VERSION=2.0.0 docker compose up -d` (default `latest`) |
+| Pin a version | `RESKATE_VERSION=2.0.2 docker compose up -d` (default `latest`) |
 
 <br/>
 
-Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `2.0.0`, `2.0`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
+Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `2.0.2`, `2.0`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 
 Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join code**. Either way a restart disconnects the players.
 
@@ -74,9 +74,9 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | Tag | What it is | Size on disk (download) |
 |---|---|---|
 | `latest` | Newest ReSkate release, default image (Debian slim) | 172 MB (64 MB) |
-| `2.0.0`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
+| `2.0.2`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
-| `2.0.0-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `2.0.2-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
 
 The version in a tag is the ReSkate release of the server inside. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available.
 
@@ -85,7 +85,7 @@ The version in a tag is the ReSkate release of the server inside. It has to matc
 
 ### Dependencies
 
-| | Default (`latest`, `2.0.0`) | `slim` |
+| | Default (`latest`, `2.0.2`) | `slim` |
 |---|---|---|
 | Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
 | ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
@@ -241,6 +241,7 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `CROWD_BUDGET` | number, `0` = no limit | Most position updates per second one player is sent (default `600`). Only matters in crowds (about 30 players): the farthest drop to 10 and 5 updates a second. |
 | `PACK_MS` | 0-50 | ms a message may wait to share a packet (default `10`, `0` = send at once). |
 | `FINGER_DISTANCE` | metres | Beyond this a player's fingers aren't sent (default `25`, `0` = always). |
+| `THREADS` | 0-64 | Threads that build each player's updates (default `0` = one per processor but one, up to 8; `1` = single thread). The log says how many on start. |
 | `STEAM_DEBUG` | `true` / `false` | Log Steam networking details (connection problems). Verbose. |
 | `DISTANCE_FULL_RATE_RETURN` | metres | Players closer than this are back at the full update rate. |
 | `DISTANCE_HALF_RATE_START` | metres | Players farther than this update at half rate. |
@@ -260,6 +261,22 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `VOTE_TIME_OF_DAY_PERCENT` | number | Share of connected players whose yes passes a time-of-day vote. |
 | `VOTE_SECONDS` | seconds | How long a vote runs. Default `30`. |
 | `VOTE_COOLDOWN_SECONDS` | seconds | How long a player waits before starting another vote. Default `60`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_SECONDS` | seconds, `0` | That vote's own run time. `0` (default) = `VOTE_SECONDS`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_COOLDOWN_SECONDS` | seconds, `0` | That vote's own cooldown. `0` (default) = `VOTE_COOLDOWN_SECONDS`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_MIN_PLAYERS` | 1-249 | Players who must be on before anyone can start that vote. Default `1`. |
+| `VOTE_STARTER_YES` | `true` / `false` | Whoever starts a vote has voted yes. Default `true`. |
+| `VOTES_CUSTOM` | JSON list, `off` | Votes of your own, each running a server command when it passes, e.g. `[{"name": "restart", "description": "Reload the map", "command": "map {map}", "percent": 60}]`. `{map}` = current map, `{arg}` = the choice picked from `"choices"`. Players use `/vote restart`, `/vote list`. Up to 16, names 1-16 of `a-z 0-9 - _`. Each takes `enabled`, `percent`, `seconds`, `cooldown_seconds`, `min_players`. Pins the list; `off` clears it. Single-quote the value in env files. |
+| `POLLS` | `off` `admins` `everyone` | Who may ask everyone a question (`/poll Next map? \| Grom \| Stadium`, answers with `/1`, `/2`...). Default `admins`. |
+| `POLL_SECONDS` | seconds | How long a poll runs. Default `60`. |
+
+
+### Announcements
+
+| Variable | Values | Description |
+|---|---|---|
+| `ANNOUNCEMENTS` | `\|`-separated lines, `off` | Chat lines the server posts in turn while players are on, e.g. `Join the Discord: discord.gg/xyz\|Be nice`. Pins the list (console `announcements add` is replaced on restart); `off` clears it. |
+| `ANNOUNCEMENT_INTERVAL_MINUTES` | minutes, `0` = off | Minutes between announcements. Default `0`. |
+| `ANNOUNCEMENT_CARD` | `true` / `false` | Also show each announcement as a card at the top of every player's screen. Default `true`. |
 
 
 ### Parks and layers
@@ -327,7 +344,7 @@ Two webhooks per server, so admins and players can have their own channels. Eith
 
 ## Slim image
 
-`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.0-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.2-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
 
 ```yaml
     image: dudedankdave/reskate-server:slim
@@ -336,7 +353,7 @@ Two webhooks per server, so admins and players can have their own channels. Eith
 <br/>
 
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
-- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.0 -t dudedankdave/reskate-server:slim .`
+- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.2 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once its `slim` tag is refreshed.
 
 <br/>
@@ -419,7 +436,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 The server binaries are proprietary and not part of this repo. Download `ReSkateServer-Linux-<version>.tar.gz` from a [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) and copy `ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so` and `steamclient.so` into `./Server/`, then:
 
 ```bash
-docker build --build-arg VERSION=2.0.0 -t dudedankdave/reskate-server:2.0.0 .
+docker build --build-arg VERSION=2.0.2 -t dudedankdave/reskate-server:2.0.2 .
 ```
 
 <br/>
@@ -433,5 +450,6 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `notifier.py` | Discord console forwarding and update announcements |
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
+| `hub-readme.py` | README for Docker Hub (env tables replaced by a link, 25 KB limit) |
 | `slim/` | Source and Dockerfile of the slim (distroless) image |
 | `example.env`, `docker-compose.yml` | Starting point for your own setup |

@@ -57,7 +57,7 @@ def choice(*allowed):
 def non_negative(name, value):
     n = as_int(name, value)
     if n < 0:
-        sys.exit(f"{name}: expected 0 (off) or more minutes, got {value!r}")
+        sys.exit(f"{name}: expected 0 (off) or a positive number, got {value!r}")
     return n
 
 
@@ -267,6 +267,7 @@ SIMPLE = {
     "SEND_RATE": ("network", "send_rate", int_range(128, 16384)),
     "CROWD_BUDGET": ("network", "crowd_budget", int_range(0, 1000000)),
     "PACK_MS": ("network", "pack_ms", int_range(0, 50)),
+    "THREADS": ("network", "threads", int_range(0, 64)),
     "FINGER_DISTANCE": ("network", "finger_distance", int_range(0, 100000)),
     "STEAM_DEBUG": ("network", "steam_debug", as_bool),
 }
@@ -300,16 +301,45 @@ for var, key in {"PARK_CONSTRUCTION": "construction", "PARK_HISTORIC": "historic
 
 votes = cfg.setdefault("votes", {})
 for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_DAY", "time_of_day")):
-    if (value := env(prefix + "_ENABLED")) is not None:
-        votes.setdefault(key, {})["enabled"] = as_bool(prefix + "_ENABLED", value)
-    if (value := env(prefix + "_PERCENT")) is not None:
-        votes.setdefault(key, {})["percent"] = as_int(prefix + "_PERCENT", value)
+    for suffix, field, convert in (("_ENABLED", "enabled", as_bool), ("_PERCENT", "percent", as_int),
+                                   ("_SECONDS", "seconds", non_negative),
+                                   ("_COOLDOWN_SECONDS", "cooldown_seconds", non_negative),
+                                   ("_MIN_PLAYERS", "min_players", int_range(1, 249))):
+        if (value := env(prefix + suffix)) is not None:
+            votes.setdefault(key, {})[field] = convert(prefix + suffix, value)
+if (value := env("VOTE_STARTER_YES")) is not None:
+    votes["starter_votes_yes"] = as_bool("VOTE_STARTER_YES", value)
+if (value := env("POLLS")) is not None:
+    votes["polls"] = choice("off", "admins", "everyone")("POLLS", value)
+if (value := env("POLL_SECONDS")) is not None:
+    votes["poll_seconds"] = int_range(1, 86400)("POLL_SECONDS", value)
+# VOTES_CUSTOM=[{"name": "restart", "command": "map {map}", "percent": 60}]  (JSON, pins the list; off = none)
+if (value := env("VOTES_CUSTOM")) is not None:
+    if value.lower() in ("off", "none"):
+        votes["custom"] = []
+    else:
+        try:
+            custom = json.loads(value)
+        except ValueError as exc:
+            sys.exit(f"VOTES_CUSTOM: expected a JSON list of votes, {exc}")
+        if not isinstance(custom, list) or not all(isinstance(v, dict) for v in custom):
+            sys.exit("VOTES_CUSTOM: expected a JSON list of votes like [{\"name\": ..., \"command\": ...}]")
+        votes["custom"] = custom
 if (value := env("VOTE_SECONDS")) is not None:
     votes["seconds"] = as_int("VOTE_SECONDS", value)
 if (value := env("VOTE_COOLDOWN_SECONDS")) is not None:
     votes["cooldown_seconds"] = as_int("VOTE_COOLDOWN_SECONDS", value)
 if not votes:
     del cfg["votes"]
+
+# ANNOUNCEMENTS=First line|Second line  (| separated, chat lines contain commas; pins the list; off = none)
+if (value := env("ANNOUNCEMENTS")) is not None:
+    messages = [] if value.lower() in ("off", "none") else [m.strip() for m in value.split("|") if m.strip()]
+    setting("announcements", "messages", messages)
+if (value := env("ANNOUNCEMENT_INTERVAL_MINUTES")) is not None:
+    setting("announcements", "interval_minutes", non_negative("ANNOUNCEMENT_INTERVAL_MINUTES", value))
+if (value := env("ANNOUNCEMENT_CARD")) is not None:
+    setting("announcements", "card", as_bool("ANNOUNCEMENT_CARD", value))
 
 # LAYERS=key=on,other_key=off
 if (value := env("LAYERS")) is not None:
