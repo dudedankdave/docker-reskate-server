@@ -619,7 +619,7 @@ func entrypointMain(serverArgs []string) {
 		}
 	}
 	for _, v := range []string{"DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER",
-		"DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC"} {
+		"DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC", "DISCORD_WEBHOOK_CHAT"} {
 		if h, ok := env(v); ok && !strings.HasPrefix(h, "https://") && !strings.HasPrefix(h, "http://") {
 			die("%s: expected a webhook URL starting with https://", v)
 		}

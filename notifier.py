@@ -2,12 +2,13 @@
 nothing here may disturb the server: every failure is swallowed and written to
 /data/DiscordWebhook.log instead.
 
-Three webhooks, each optional:
+Four webhooks, each optional:
   DISCORD_WEBHOOK_ESSENTIALS  what an admin has to know: server up + join code, config problems,
                               warnings/errors, crashes, releases, update approvals and results,
                               mod updates. The only feed that pings (DISCORD_MENTION_IDS).
   DISCORD_WEBHOOK_LOG         the whole console as code blocks.
   DISCORD_WEBHOOK_PUBLIC      for players: joins, leaves, throwdowns, server up, update countdowns.
+  DISCORD_WEBHOOK_CHAT        in-game chat only.
 Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log (log off with
 DISCORD_CONSOLE=false), DISCORD_WEBHOOK_USER = public.
 
@@ -151,6 +152,14 @@ def public_line(line):
     return None
 
 
+def chat_line(line):
+    """An in-game chat line without its [chat] tag, or None for anything else."""
+    m = LINE.match(line)
+    if not m or not m.group(2).startswith("[chat] "):
+        return None
+    return f"[{m.group(1)}] {m.group(2)[7:]}"
+
+
 def essential_line(line):
     """Server up, the join code, config problems, warnings and errors; never chat or players."""
     m = LINE.match(line)
@@ -246,6 +255,7 @@ class Notifier:
             log = legacy
         self.log = Hook(log, name)
         self.public = Hook((os.environ.get("DISCORD_WEBHOOK_PUBLIC") or os.environ.get("DISCORD_WEBHOOK_USER") or "").strip(), name)
+        self.chat = Hook(os.environ.get("DISCORD_WEBHOOK_CHAT", "").strip(), name)
         self.policy = (os.environ.get("UPDATE_POLICY") or "timed").strip().lower()
         self.countdown = int(os.environ.get("UPDATE_COUNTDOWN") or 10)
         self.schedule = parse_schedule(os.environ["UPDATE_SCHEDULE"]) if self.policy == "scheduled" else None
@@ -273,7 +283,7 @@ class Notifier:
 
     def console_loop(self):
         feeds = [Feed(h, c) for h, c in ((self.essentials, essential_line), (self.log, None),
-                                         (self.public, public_line)) if h.url]
+                                         (self.public, public_line), (self.chat, chat_line)) if h.url]
         try:
             st = os.stat(LOG)
             state = {"ino": st.st_ino, "pos": st.st_size}   # only what the server writes from now on

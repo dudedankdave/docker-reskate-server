@@ -6,6 +6,7 @@ package main
 //	DISCORD_WEBHOOK_ESSENTIALS  server up + join code, problems, crashes, releases, approvals, mods (pings)
 //	DISCORD_WEBHOOK_LOG         the whole console
 //	DISCORD_WEBHOOK_PUBLIC      joins, leaves, throwdowns, server up, update countdowns
+//	DISCORD_WEBHOOK_CHAT        in-game chat only
 //
 // Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log (DISCORD_CONSOLE=false: no
 // log), DISCORD_WEBHOOK_USER = public. UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
@@ -219,6 +220,15 @@ func publicLine(line string) string {
 	return ""
 }
 
+// chatLine is an in-game chat line without its [chat] tag, or "" for anything else.
+func chatLine(line string) string {
+	m := lineRe.FindStringSubmatch(line)
+	if m == nil || !strings.HasPrefix(m[2], "[chat] ") {
+		return ""
+	}
+	return fmt.Sprintf("[%s] %s", m[1], strings.TrimPrefix(m[2], "[chat] "))
+}
+
 // essentialLine: server up, the join code, config problems, warnings and errors; never chat or players.
 func essentialLine(line string) string {
 	text := lineText(line)
@@ -395,6 +405,7 @@ type notifier struct {
 	sup                     *supervisor
 	mode, imageVersion      string
 	essentials, log, public *hook
+	chat                    *hook
 	mentions                []string
 	policy                  string
 	countdown               int
@@ -437,6 +448,7 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 		essentials: &hook{first(os.Getenv("DISCORD_WEBHOOK_ESSENTIALS"), legacy), name, mentions},
 		log:        &hook{logURL, name, nil},
 		public:     &hook{first(os.Getenv("DISCORD_WEBHOOK_PUBLIC"), os.Getenv("DISCORD_WEBHOOK_USER")), name, nil},
+		chat:       &hook{first(os.Getenv("DISCORD_WEBHOOK_CHAT")), name, nil},
 		policy:     strings.ToLower(first(os.Getenv("UPDATE_POLICY"), "timed")),
 		countdown:  10,
 		bot:        first(os.Getenv("DISCORD_BOT_TOKEN")),
@@ -483,7 +495,7 @@ func (n *notifier) track(line string) {
 
 func (n *notifier) consoleLoop() {
 	var feeds []*feed
-	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log}, {h: n.public, convert: publicLine}} {
+	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
 		if f.h.url != "" {
 			feeds = append(feeds, f)
 		}
