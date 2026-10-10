@@ -13,8 +13,11 @@ built only on what the vanilla server logs:
   chat while players are on, and the top 10 to Discord (LEADERBOARD_WEBHOOK, else the public
   feed) when the board changed since the last post.
 
-LEADERBOARD_FILE (default /data/leaderboard.json) can point at a folder several servers share:
-the file is locked while it is changed, and one of them posts to Discord per interval.
+LEADERBOARD_SCOPE picks whose points are counted: "shared" (default) keeps one board for every
+server that mounts the same folder at /shared (/shared/leaderboard.json); without that mount it
+falls back to "server", this server's own board in /data/leaderboard.json. The shared file is
+locked while it is changed, and one server posts it to Discord per interval. LEADERBOARD_FILE
+overrides the file in either scope.
 """
 import json
 import os
@@ -108,7 +111,14 @@ class Leaderboard:
     def __init__(self, send, post):
         """send(console line) types into the server; post(text) goes to Discord (or None)."""
         self.send, self.post = send, post
-        self.board = Board(env("LEADERBOARD_FILE", "/data/leaderboard.json"))
+        self.pool = env("LEADERBOARD_SCOPE", "shared").lower() != "server"
+        path = env("LEADERBOARD_FILE", "/shared/leaderboard.json" if self.pool else "/data/leaderboard.json")
+        if self.pool and not os.path.isdir(os.path.dirname(path) or "."):
+            print(f"[leaderboard] {os.path.dirname(path)} is not mounted, so the leaderboard is this server's own "
+                  "(LEADERBOARD_SCOPE=server); mount one folder there on every server to share it", flush=True)
+            self.pool, path = False, "/data/leaderboard.json"
+        self.board = Board(path)
+        self.label = "all servers" if self.pool else "this server"
         self.interval = 60 * max(1, int(env("LEADERBOARD_INTERVAL", "60")))
         self.size = max(1, min(10, int(env("LEADERBOARD_SIZE", "5"))))
         self.points = [int(x) for x in env("LEADERBOARD_POINTS", "10,6,4,2").split(",") if x.strip()]
@@ -227,7 +237,7 @@ class Leaderboard:
             return
         entries = [f"{i}. {p['name']} {p['points']}" for i, p in enumerate(rows, 1)]
         self.send("announce " + fit("Leaderboard: " + " | ".join(entries[:3])))
-        line = "Leaderboard (ranked throwdowns):"
+        line = f"Leaderboard ({self.label}, ranked throwdowns):"
         for entry in entries:
             if len((line + "  " + entry).encode("utf-8")) > CHAT_MAX:
                 self.send("say " + line)
@@ -255,7 +265,7 @@ class Leaderboard:
         width = max(len(p["name"]) for p in rows)
         lines = [f"{i:>2}. {p['name']:<{width}}  {p['points']:>5} pts  "
                  f"{p.get('wins', 0)} won / {p.get('played', 0)} played" for i, p in enumerate(rows, 1)]
-        self.post("**Leaderboard** (ranked throwdowns)\n```\n" + "\n".join(lines).replace("```", "'''") + "\n```")
+        self.post(f"**Leaderboard** ({self.label}, ranked throwdowns)\n```\n" + "\n".join(lines).replace("```", "'''") + "\n```")
 
     def loop(self):
         while True:

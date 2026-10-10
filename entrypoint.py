@@ -431,6 +431,7 @@ for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
 if (value := env("DISCORD_CONSOLE")) is not None:
     as_bool("DISCORD_CONSOLE", value)
 if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
+    choice("shared", "server")("LEADERBOARD_SCOPE", env("LEADERBOARD_SCOPE") or "shared")
     int_range(1, 1440)("LEADERBOARD_INTERVAL", env("LEADERBOARD_INTERVAL") or "60")
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
     for item in as_list(env("LEADERBOARD_POINTS") or ""):

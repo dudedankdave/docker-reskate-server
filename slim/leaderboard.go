@@ -3,12 +3,14 @@ package main
 // Ranked play and the leaderboard (LEADERBOARD=true), as leaderboard.py: players are told by DM
 // whether they are ranked (no scoring/physics mods, no sped-up game this session), finished
 // throwdowns with two or more players give points by place, and the board goes to chat and
-// Discord every LEADERBOARD_INTERVAL minutes. LEADERBOARD_FILE may be shared by several servers.
+// Discord every LEADERBOARD_INTERVAL minutes. LEADERBOARD_SCOPE=shared (default) keeps one board in
+// /shared for every server that mounts it there (else this server's own); server: /data only.
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -60,7 +62,7 @@ type lbResult struct {
 type leaderboard struct {
 	send             func(string) bool
 	post             func(string)
-	path             string
+	path, label      string
 	interval         time.Duration
 	size             int
 	points           []int
@@ -106,12 +108,24 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	}
 	b := &leaderboard{
 		send: send, post: post,
-		path:     lbEnv("LEADERBOARD_FILE", "/data/leaderboard.json"),
+		path: "/data/leaderboard.json", label: "this server",
 		interval: 60 * time.Minute, size: 5,
 		ranked: lbEnv("RANKED_MESSAGE", rankedText), unranked: lbEnv("UNRANKED_MESSAGE", unrankedMods),
 		online: map[string]string{}, waiting: map[string]time.Time{}, modded: map[string]string{},
 		speeding: map[string]bool{}, told: map[string]bool{},
 		chatAt: time.Now(), postAt: time.Now(),
+	}
+	if strings.ToLower(lbEnv("LEADERBOARD_SCOPE", "shared")) != "server" {
+		path := lbEnv("LEADERBOARD_FILE", "/shared/leaderboard.json")
+		dir := filepath.Dir(path)
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			b.path, b.label = path, "all servers"
+		} else {
+			fmt.Printf("[leaderboard] %s is not mounted, so the leaderboard is this server's own "+
+				"(LEADERBOARD_SCOPE=server); mount one folder there on every server to share it\n", dir)
+		}
+	} else {
+		b.path = lbEnv("LEADERBOARD_FILE", b.path)
 	}
 	if v, err := strconv.Atoi(lbEnv("LEADERBOARD_INTERVAL", "60")); err == nil && v > 0 {
 		b.interval = time.Duration(v) * time.Minute
@@ -372,7 +386,7 @@ func (b *leaderboard) postChat() {
 		entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, p.Name, p.Points))
 	}
 	b.send("announce " + fit("Leaderboard: "+strings.Join(entries[:min(3, len(entries))], " | "), chatMax))
-	line := "Leaderboard (ranked throwdowns):"
+	line := "Leaderboard (" + b.label + ", ranked throwdowns):"
 	for _, e := range entries {
 		if len(line)+2+len(e) > chatMax {
 			b.send("say " + line)
@@ -414,7 +428,7 @@ func (b *leaderboard) postDiscord(now time.Time) {
 	for i, p := range rows {
 		lines = append(lines, fmt.Sprintf("%2d. %-*s  %5d pts  %d won / %d played", i+1, width, p.Name, p.Points, p.Wins, p.Played))
 	}
-	b.post("**Leaderboard** (ranked throwdowns)\n```\n" + strings.ReplaceAll(strings.Join(lines, "\n"), "```", "'''") + "\n```")
+	b.post("**Leaderboard** (" + b.label + ", ranked throwdowns)\n```\n" + strings.ReplaceAll(strings.Join(lines, "\n"), "```", "'''") + "\n```")
 }
 
 func (b *leaderboard) loop() {
