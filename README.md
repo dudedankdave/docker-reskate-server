@@ -509,6 +509,7 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
+| `rollover/` | Host-side service: starts a copy on a new ReSkate release while players are on, stops the old server once empty |
 | `hub-readme.py` | README for Docker Hub (env tables replaced by a link, 25 KB limit) |
 | `slim/` | Source and Dockerfile of the slim (distroless) image |
 | `example.env`, `docker-compose.yml` | Starting point for your own setup |

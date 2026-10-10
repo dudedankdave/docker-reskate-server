@@ -1,0 +1,88 @@
+{
+  "dry_run": true,
+  "check_minutes": 5,
+  "drain_grace_minutes": 10,
+  "image": "dudedankdave/reskate-server",
+  "container_prefix": "reskate-server-",
+  "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",
+  "protect": [
+    "reskate-server-3"
+  ],
+  "yards": {
+    "1": {
+      "role": "Main",
+      "slots": {
+        "a": {
+          "port": 12400,
+          "query_port": 12401,
+          "volume": "reskate_reskate-data"
+        },
+        "b": {
+          "port": 12500,
+          "query_port": 12501,
+          "volume": "reskate-203_data-1"
+        }
+      }
+    },
+    "2": {
+      "role": "Skate 2",
+      "slots": {
+        "a": {
+          "port": 12410,
+          "query_port": 12411,
+          "volume": "reskate_reskate-data-2"
+        },
+        "b": {
+          "port": 12510,
+          "query_port": 12511,
+          "volume": "reskate-203_data-2"
+        }
+      }
+    },
+    "3": {
+      "role": "Skate 3",
+      "slots": {
+        "a": {
+          "port": 12420,
+          "query_port": 12421,
+          "volume": "reskate_reskate-data-3"
+        },
+        "b": {
+          "port": 12520,
+          "query_port": 12521,
+          "volume": "reskate-203_data-3"
+        }
+      }
+    },
+    "4": {
+      "role": "Local",
+      "slots": {
+        "a": {
+          "port": 12430,
+          "query_port": 12431,
+          "volume": "reskate_reskate-data-4"
+        },
+        "b": {
+          "port": 12530,
+          "query_port": 12531,
+          "volume": "reskate-203_data-4"
+        }
+      }
+    },
+    "5": {
+      "role": "Spotlight",
+      "slots": {
+        "a": {
+          "port": 12440,
+          "query_port": 12441,
+          "volume": "reskate_reskate-data-5"
+        },
+        "b": {
+          "port": 12540,
+          "query_port": 12541,
+          "volume": "reskate-203_data-5"
+        }
+      }
+    }
+  }
+}
