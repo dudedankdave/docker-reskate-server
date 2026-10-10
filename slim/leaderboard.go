@@ -1,7 +1,8 @@
 package main
 
 // Ranked play and the leaderboard (LEADERBOARD=true), as leaderboard.py: players are told by DM
-// whether they are ranked (no scoring/physics mods, no sped-up game this session), finished
+// whether they are ranked (no scoring/physics mods, no sped-up game this session, and the server
+// not letting players skate with their own physics tuning, which it cannot check), finished
 // throwdowns with two or more players give points by place, and the board goes to chat and
 // Discord every LEADERBOARD_INTERVAL minutes. LEADERBOARD_SCOPE=shared (default) keeps one board in
 // /shared for every server that mounts it there (else this server's own); server: /data only.
@@ -26,7 +27,9 @@ const (
 	rankedText     = "You are RANKED: your throwdown results count for the leaderboard."
 	unrankedMods   = "You are NOT ranked: your mods change scoring or physics ({mods}). " +
 		"Restart Skate without them to earn leaderboard points."
-	unrankedSpeed = "You are NOT ranked until you rejoin: your game ran faster than normal."
+	unrankedSpeed  = "You are NOT ranked until you rejoin: your game ran faster than normal."
+	unrankedTuning = "Nobody is ranked right now: this server lets players skate with their own physics tuning. " +
+		"Points count again once it is back on the game's own."
 )
 
 var (
@@ -37,6 +40,7 @@ var (
 	lbFinishedRe = regexp.MustCompile(`^\[throwdown\] .+'s (Jam|Spot Battle|S\.K\.A\.T\.E\.|throwdown) has finished: (.+)$`)
 	lbEntryRe    = regexp.MustCompile(`^(.+) (-?\d{1,3}(?:,\d{3})*)( \(quit\))?$`)
 	lbTriedRe    = regexp.MustCompile(`(?: \d+ landed / \d+ missed)( \(quit\))?(?:, |$)`)
+	lbTuningRe   = regexp.MustCompile(`^Players skate with (the game's|their) own physics tuning\.$`)
 )
 
 type lbPlayer struct {
@@ -74,6 +78,7 @@ type leaderboard struct {
 	modded   map[string]string
 	speeding map[string]bool
 	told     map[string]bool
+	free     bool // own physics tuning allowed: nobody is ranked
 	chatAt   time.Time
 	postAt   time.Time
 }
@@ -101,6 +106,20 @@ func utf8ValidEnd(s string) bool {
 	return strings.ToValidUTF8(s, "�") == s
 }
 
+// freeTuning: the config lets players skate with their own physics tuning (enforce_tuning off).
+func freeTuning() bool {
+	var cfg struct {
+		AntiCheat struct {
+			EnforceTuning *bool `json:"enforce_tuning"`
+		} `json:"anti_cheat"`
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil || json.Unmarshal(raw, &cfg) != nil {
+		return false
+	}
+	return cfg.AntiCheat.EnforceTuning != nil && !*cfg.AntiCheat.EnforceTuning
+}
+
 // newLeaderboard starts the leaderboard when LEADERBOARD is on; nil otherwise.
 func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	if !truthy(os.Getenv("LEADERBOARD"), false) {
@@ -112,7 +131,7 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		interval: 60 * time.Minute, size: 5,
 		ranked: lbEnv("RANKED_MESSAGE", rankedText), unranked: lbEnv("UNRANKED_MESSAGE", unrankedMods),
 		online: map[string]string{}, waiting: map[string]time.Time{}, modded: map[string]string{},
-		speeding: map[string]bool{}, told: map[string]bool{},
+		speeding: map[string]bool{}, told: map[string]bool{}, free: freeTuning(),
 		chatAt: time.Now(), postAt: time.Now(),
 	}
 	if strings.ToLower(lbEnv("LEADERBOARD_SCOPE", "shared")) != "server" {
@@ -213,6 +232,7 @@ func (b *leaderboard) feed(line string) {
 	if upRe.MatchString(text) {
 		b.online, b.waiting, b.modded = map[string]string{}, map[string]time.Time{}, map[string]string{}
 		b.speeding, b.told = map[string]bool{}, map[string]bool{}
+		b.free = freeTuning()
 	} else if m := lbJoinedRe.FindStringSubmatch(text); m != nil {
 		forget(m[1])
 		b.online[m[1]] = m[2]
@@ -231,12 +251,17 @@ func (b *leaderboard) feed(line string) {
 		b.tell(m[1])
 	} else if m := lbFinishedRe.FindStringSubmatch(text); m != nil {
 		b.score(lbResults(m[1], m[2]))
+	} else if m := lbTuningRe.FindStringSubmatch(text); m != nil {
+		b.free = m[1] == "their"
+		for name := range b.online {
+			b.tell(name)
+		}
 	}
 }
 
 func (b *leaderboard) isRanked(name string) bool {
 	_, modded := b.modded[name]
-	return !modded && !b.speeding[name]
+	return !modded && !b.speeding[name] && !b.free
 }
 
 // tell DMs the player whether they are ranked, unless the join check is pending or nothing changed.
@@ -257,6 +282,8 @@ func (b *leaderboard) tell(name string) {
 				mods = "your mods"
 			}
 			text = strings.ReplaceAll(b.unranked, "{mods}", mods)
+		} else if b.free {
+			text = unrankedTuning
 		} else {
 			text = unrankedSpeed
 		}

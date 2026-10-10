@@ -3,7 +3,9 @@ built only on what the vanilla server logs:
 
 * Ranked: a player whose game reports no mods that change scoring or physics, and who has not
   been caught with a sped-up game this session. Each player is told by DM shortly after joining
-  (the mod report arrives after the join line), and again when that changes.
+  (the mod report arrives after the join line), and again when that changes. While the server
+  lets players skate with their own physics tuning (enforce_tuning off, or `tuning-enforce off`
+  in the console), nobody is ranked: the server cannot tell who edited theirs.
 * Points: only from finished throwdowns with at least two players who did not quit (the
   server's "[throwdown] ... has finished: ..." line, so activity_log must be on). Jam and Spot
   Battle by place (LEADERBOARD_POINTS, default 10,6,4,2: the last value for every later place),
@@ -40,6 +42,7 @@ SPEEDING = re.compile(r"^\[anticheat\] (.+)'s game is running at [\d.]+x speed")
 FINISHED = re.compile(r"^\[throwdown\] .+'s (Jam|Spot Battle|S\.K\.A\.T\.E\.|throwdown) has finished: (.+)$")
 PLACED = re.compile(r"(\d+)\. (.+?) (-?\d{1,3}(?:,\d{3})*)( \(quit\))?(?=, \d+\. |$)")
 TRIED = re.compile(r"(?:^|, )(.+?) \d+ landed / \d+ missed( \(quit\))?(?=, |$)")
+TUNING = re.compile(r"^Players skate with (the game's|their) own physics tuning\.$")
 
 CHECK_AFTER = 15      # seconds after joining before the mod report is taken as complete
 CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
@@ -48,6 +51,9 @@ RANKED = "You are RANKED: your throwdown results count for the leaderboard."
 UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods}). "
                  "Restart Skate without them to earn leaderboard points.")
 UNRANKED_SPEED = "You are NOT ranked until you rejoin: your game ran faster than normal."
+UNRANKED_TUNING = ("Nobody is ranked right now: this server lets players skate with their own physics tuning. "
+                   "Points count again once it is back on the game's own.")
+CONFIG = "/data/ReSkateServer.json"
 
 
 def env(name, default=""):
@@ -56,6 +62,15 @@ def env(name, default=""):
 
 def truthy(value):
     return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def free_tuning():
+    """True when the config lets players skate with their own physics tuning (enforce_tuning off)."""
+    try:
+        with open(CONFIG, encoding="utf-8") as f:
+            return (json.load(f).get("anti_cheat") or {}).get("enforce_tuning", True) is False
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def fit(text, limit=CHAT_MAX):
@@ -130,6 +145,7 @@ class Leaderboard:
         self.modded = {}       # name -> the mods the server named
         self.speeding = set()  # caught this session: unranked until they rejoin
         self.told = {}         # name -> what they were told last (True = ranked)
+        self.free_tuning = free_tuning()  # own physics tuning allowed: nobody is ranked
         self.chat_at = self.discord_at = time.time()
 
     # ---- log lines ------------------------------------------------------------------
@@ -140,6 +156,7 @@ class Leaderboard:
             if UP.match(text):
                 self.online.clear(), self.waiting.clear(), self.modded.clear()
                 self.speeding.clear(), self.told.clear()
+                self.free_tuning = free_tuning()
             elif j := JOINED.match(text):
                 name = j.group(1)
                 self.online[name] = j.group(2)
@@ -160,9 +177,13 @@ class Leaderboard:
                 self.tell(fast.group(1))
             elif done := FINISHED.match(text):
                 self.score(done.group(1), done.group(2))
+            elif tuning := TUNING.match(text):
+                self.free_tuning = tuning.group(1) == "their"
+                for name in list(self.online):
+                    self.tell(name)
 
     def ranked(self, name):
-        return name not in self.modded and name not in self.speeding
+        return name not in self.modded and name not in self.speeding and not self.free_tuning
 
     def tell(self, name):
         """DM the player whether they are ranked, unless the join check is still pending or
@@ -177,6 +198,8 @@ class Leaderboard:
             text = self.ranked_text
         elif name in self.modded:
             text = self.unranked_text.replace("{mods}", self.modded[name] or "your mods")
+        elif self.free_tuning:
+            text = UNRANKED_TUNING
         else:
             text = UNRANKED_SPEED
         self.send(fit(f"msg {self.online[name]} {text}", CHAT_MAX + 30))
