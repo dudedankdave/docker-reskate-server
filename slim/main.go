@@ -1,8 +1,8 @@
 // reskate is the single static binary of the distroless image. It replaces the Python
 // entrypoint/notifier/healthcheck and the curl the server shells out to:
 //
-//	reskate              env vars -> /data/ReSkateServer.json, Discord sidecar, exec server
-//	reskate notifier     Discord sidecar (started by the entrypoint)
+//	reskate              env vars -> /data/ReSkateServer.json, then runs the server under the
+//	                     supervisor with the Discord feeds and updater beside it
 //	reskate mods         install the MODS from Thunderstore now (docker exec ... /app/reskate mods)
 //	reskate healthcheck  container health from /data/ReSkateServer.log
 //	curl ...             (symlink) the small subset of curl the server uses
@@ -25,9 +25,6 @@ func main() {
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "notifier":
-			notifierMain()
-			return
 		case "mods":
 			update := true
 			if u, ok := env("MODS_UPDATE"); ok {

@@ -10,8 +10,8 @@ several. A file from an older version is moved to that layout here first (as the
 itself would), so the env vars below always land in one place. Bans live in data/bans.json.
 
 MODS / MODS_UPDATE install Thunderstore mods before the server starts, see mods.py.
-DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK (older name) / DISCORD_WEBHOOK_USER (+ DISCORD_MENTION_IDS, DISCORD_CONSOLE, DISCORD_USERNAME) are not server
-settings: they start notifier.py, see there.
+UPDATE_* and DISCORD_* are not server settings: see updater.py, notifier.py and supervisor.py.
+The server is not exec'd: supervisor.py runs it as a child so updates can restart it.
 """
 import json
 import os
@@ -238,7 +238,6 @@ SIMPLE = {
     "PORT": ("server", "port", as_int),
     "QUERY_PORT": ("server", "query_port", as_int),
     "STEAM_TOKEN": ("server", "steam_token", clearable),
-    "AUTO_UPDATE": ("server", "auto_update", as_bool),
     "ACTIVITY_LOG": ("server", "activity_log", as_bool),
     "CHAT_COLOR": ("server", "chat_color", color),
     "CHAT_TEXT_COLOR": ("server", "chat_text_color", color),
@@ -383,6 +382,7 @@ if (value := env("BANS")) is not None:
     if len(merge_bans(bans, new)) != count or not os.path.exists(BANS_FILE):
         write_bans(bans)
 
+setting("server", "auto_update", False)   # the server's own updater would replace /app, see below
 tmp = CONFIG + ".tmp"
 with open(tmp, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
@@ -401,36 +401,47 @@ if (value := env("MODS")) is not None:
 
 warn_unknown_maps(cfg)
 
-# Discord sidecar (console forwarding + update announcements). It is forked off before the
-# server is exec'd, so the server keeps the console for `docker attach`.
-hooks = [(v, env(v)) for v in ("DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER")]
-hooks = [(v, h) for v, h in hooks if h is not None]
-if hooks:
-    for var, hook in hooks:
-        if not hook.startswith(("https://", "http://")):
-            sys.exit(f"{var}: expected a webhook URL starting with https://")
-    for var in ("DISCORD_MENTION_IDS",):
-        for item in as_list(env(var) or ""):
-            if not item.isdigit():
-                sys.exit(f"{var}: expected Discord user ids (digits), got {item!r}")
-    if (value := env("DISCORD_CONSOLE")) is not None:
-        as_bool("DISCORD_CONSOLE", value)
-    if os.fork() == 0:
-        try:
-            os.setsid()
-            devnull = os.open(os.devnull, os.O_RDWR)
-            for fd in (0, 1, 2):
-                os.dup2(devnull, fd)
-            sys.path.insert(0, "/app")
-            import notifier
-            notifier.main()
-        finally:
-            os._exit(0)
+# Updates: UPDATE_MODE=pinned runs the server in the image (/app); auto runs it from /data/server,
+# where notifier.py installs new releases by UPDATE_POLICY. The server's own updater stays off
+# either way (it would replace /app, lost on recreate). AUTO_UPDATE=true is the older name of auto.
+mode = (env("UPDATE_MODE") or ("auto" if as_bool("AUTO_UPDATE", env("AUTO_UPDATE") or "false") else "pinned")).lower()
+choice("pinned", "auto")("UPDATE_MODE", mode)
+policy = choice("instant", "timed", "ask", "scheduled")("UPDATE_POLICY", env("UPDATE_POLICY") or "timed")
+for var in ("UPDATE_COUNTDOWN", "UPDATE_CHECK_MINUTES"):
+    if (value := env(var)) is not None:
+        int_range(0 if var == "UPDATE_COUNTDOWN" else 5, 1440)(var, value)
+sys.path.insert(0, "/app")
+import notifier
+import supervisor
+import updater
+if policy == "scheduled" and mode == "auto":
+    try:
+        notifier.parse_schedule(env("UPDATE_SCHEDULE") or "")
+    except ValueError:
+        sys.exit(f"UPDATE_SCHEDULE: expected a UTC time like 04:00 or sat,sun 04:00, got {env('UPDATE_SCHEDULE')!r}")
 
-# ReSkate 1.1.4+ can replace its own binary. In a container that drifts from the image tag and is
-# lost when the container is recreated, so it stays off unless AUTO_UPDATE=true is set explicitly.
-auto = (env("AUTO_UPDATE") or "").lower() in ("1", "true", "yes", "on")
-no_update = [] if auto or "--no-update" in sys.argv[1:] else ["--no-update"]
-args = ["/app/ReSkateServer", "--config", CONFIG] + no_update + sys.argv[1:]
-os.chdir("/app")
-os.execv(args[0], args)
+for var in ("DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER",
+            "DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC"):
+    if (hook := env(var)) is not None and not hook.startswith(("https://", "http://")):
+        sys.exit(f"{var}: expected a webhook URL starting with https://")
+for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
+    for item in as_list(env(var) or ""):
+        if not item.isdigit():
+            sys.exit(f"{var}: expected Discord ids (digits), got {item!r}")
+if (value := env("DISCORD_CONSOLE")) is not None:
+    as_bool("DISCORD_CONSOLE", value)
+if mode == "auto" and policy == "ask" and not (env("DISCORD_BOT_TOKEN") and env("DISCORD_APPROVAL_CHANNEL")):
+    print("[update] UPDATE_POLICY=ask needs DISCORD_BOT_TOKEN and DISCORD_APPROVAL_CHANNEL; "
+          "until then a new release waits for `update` in the console", flush=True)
+
+image_version = os.environ.get("RESKATE_IMAGE_VERSION", "")
+folder = updater.IMAGE
+if mode == "auto":
+    try:
+        folder = updater.prepare(image_version, lambda m: print(m, flush=True))
+    except OSError as exc:  # the server must start even if this breaks
+        print(f"[update] cannot use {updater.DIR} ({exc}), running the image's server without updates", flush=True)
+        mode = "pinned"
+sup = supervisor.Supervisor(folder, sys.argv[1:])
+notifier.Notifier(sup, mode, image_version).start()
+sup.run()

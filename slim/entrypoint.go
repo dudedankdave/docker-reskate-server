@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 const configPath = "/data/ReSkateServer.json"
@@ -392,7 +390,6 @@ func entrypointMain(serverArgs []string) {
 		{"PORT", "server", "port", intConv},
 		{"QUERY_PORT", "server", "query_port", intConv},
 		{"STEAM_TOKEN", "server", "steam_token", clearable},
-		{"AUTO_UPDATE", "server", "auto_update", boolConv},
 		{"ACTIVITY_LOG", "server", "activity_log", boolConv},
 		{"CHAT_COLOR", "server", "chat_color", color},
 		{"CHAT_TEXT_COLOR", "server", "chat_text_color", color},
@@ -582,6 +579,7 @@ func entrypointMain(serverArgs []string) {
 		}
 	}
 
+	sub(cfg, "server")["auto_update"] = false // the server's own updater would replace /app, see below
 	writeJSON(configPath, cfg)
 
 	// Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
@@ -595,53 +593,68 @@ func entrypointMain(serverArgs []string) {
 
 	warnUnknownMaps(cfg)
 
-	// Discord sidecar (console forwarding + update announcements): a child process that
-	// outlives the exec below, so the server keeps the console for `docker attach`.
-	var hooks [][2]string
-	for _, v := range []string{"DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER"} {
-		if h, ok := env(v); ok {
-			hooks = append(hooks, [2]string{v, h})
+	// Updates: UPDATE_MODE=pinned runs the server in the image (/app); auto runs it from /data/server,
+	// where the notifier installs new releases by UPDATE_POLICY. The server's own updater stays off
+	// either way (it would replace /app, lost on recreate). AUTO_UPDATE=true is the older name of auto.
+	mode := "pinned"
+	if v, ok := env("AUTO_UPDATE"); ok && asBool("AUTO_UPDATE", v) {
+		mode = "auto"
+	}
+	if v, ok := env("UPDATE_MODE"); ok {
+		mode = choice("pinned", "auto")("UPDATE_MODE", v).(string)
+	}
+	policy := "timed"
+	if v, ok := env("UPDATE_POLICY"); ok {
+		policy = choice("instant", "timed", "ask", "scheduled")("UPDATE_POLICY", v).(string)
+	}
+	if v, ok := env("UPDATE_COUNTDOWN"); ok {
+		intRange(0, 1440)("UPDATE_COUNTDOWN", v)
+	}
+	if v, ok := env("UPDATE_CHECK_MINUTES"); ok {
+		intRange(5, 1440)("UPDATE_CHECK_MINUTES", v)
+	}
+	if mode == "auto" && policy == "scheduled" {
+		if v, _ := env("UPDATE_SCHEDULE"); !func() bool { _, ok := parseSchedule(v); return ok }() {
+			die("UPDATE_SCHEDULE: expected a UTC time like 04:00 or sat,sun 04:00, got %q", v)
 		}
 	}
-	if len(hooks) > 0 {
-		for _, h := range hooks {
-			if !strings.HasPrefix(h[1], "https://") && !strings.HasPrefix(h[1], "http://") {
-				die("%s: expected a webhook URL starting with https://", h[0])
-			}
+	for _, v := range []string{"DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER",
+		"DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC"} {
+		if h, ok := env(v); ok && !strings.HasPrefix(h, "https://") && !strings.HasPrefix(h, "http://") {
+			die("%s: expected a webhook URL starting with https://", v)
 		}
-		if v, ok := env("DISCORD_MENTION_IDS"); ok {
+	}
+	for _, name := range []string{"DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"} {
+		if v, ok := env(name); ok {
 			for _, item := range asList(v) {
 				if _, err := strconv.ParseUint(item, 10, 64); err != nil {
-					die("DISCORD_MENTION_IDS: expected Discord user ids (digits), got %q", item)
+					die("%s: expected Discord ids (digits), got %q", name, item)
 				}
 			}
 		}
-		if v, ok := env("DISCORD_CONSOLE"); ok {
-			asBool("DISCORD_CONSOLE", v)
-		}
-		if self, err := os.Executable(); err == nil {
-			cmd := exec.Command(self, "notifier") // stdin/stdout/stderr = /dev/null
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-			_ = cmd.Start()
-		}
+	}
+	if v, ok := env("DISCORD_CONSOLE"); ok {
+		asBool("DISCORD_CONSOLE", v)
+	}
+	_, bot := env("DISCORD_BOT_TOKEN")
+	_, channel := env("DISCORD_APPROVAL_CHANNEL")
+	if mode == "auto" && policy == "ask" && !(bot && channel) {
+		fmt.Println("[update] UPDATE_POLICY=ask needs DISCORD_BOT_TOKEN and DISCORD_APPROVAL_CHANNEL; " +
+			"until then a new release waits for `update` in the console")
 	}
 
-	// ReSkate 1.1.4+ can replace its own binary. In a container that drifts from the image tag and is
-	// lost when the container is recreated, so it stays off unless AUTO_UPDATE=true is set explicitly.
-	args := []string{"/app/ReSkateServer", "--config", configPath}
-	au, _ := env("AUTO_UPDATE")
-	if l := strings.ToLower(au); l != "1" && l != "true" && l != "yes" && l != "on" {
-		skip := false
-		for _, a := range serverArgs {
-			skip = skip || a == "--no-update"
-		}
-		if !skip {
-			args = append(args, "--no-update")
+	imageVersion := os.Getenv("RESKATE_IMAGE_VERSION")
+	folder := imageDir
+	if mode == "auto" {
+		f, err := prepareServer(imageVersion)
+		if err != nil { // the server must start even if this breaks
+			fmt.Printf("[update] cannot use %s (%v), running the image's server without updates\n", serverDir, err)
+			mode = "pinned"
+		} else {
+			folder = f
 		}
 	}
-	args = append(args, serverArgs...)
-	if err := os.Chdir("/app"); err != nil {
-		die("chdir /app: %v", err)
-	}
-	die("cannot start server: %v", syscall.Exec(args[0], args, os.Environ()))
+	sup := newSupervisor(folder, serverArgs)
+	newNotifier(sup, mode, imageVersion).start()
+	sup.run()
 }

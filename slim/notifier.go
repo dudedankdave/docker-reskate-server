@@ -1,9 +1,14 @@
 package main
 
-// Discord webhook sidecar: forwards the server console (the lines the server also writes
-// to /data/ReSkateServer.log) as batched code blocks, and announces new ReSkate releases
-// once, mentioning DISCORD_MENTION_IDS. Only the update message can ping anyone.
-// Nothing here may disturb the server: failures go to /data/DiscordWebhook.log.
+// Discord feeds and the ReSkate update policy (as notifier.py), running as goroutines next to
+// the supervisor. Nothing here may disturb the server: failures go to /data/DiscordWebhook.log.
+//
+//	DISCORD_WEBHOOK_ESSENTIALS  server up + join code, problems, crashes, releases, approvals, mods (pings)
+//	DISCORD_WEBHOOK_LOG         the whole console
+//	DISCORD_WEBHOOK_PUBLIC      joins, leaves, throwdowns, server up, update countdowns
+//
+// Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log (DISCORD_CONSOLE=false: no
+// log), DISCORD_WEBHOOK_USER = public. UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
 
 import (
 	"bytes"
@@ -11,10 +16,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -22,25 +30,35 @@ import (
 
 const (
 	logPath        = "/data/ReSkateServer.log"
-	statePath      = "/data/.discord-update-notified"
 	notesPath      = "/data/DiscordWebhook.log"
 	modsState      = "/data/.discord-mods-notified"
 	repo           = "Dingo-Shenanigans/ReSkate"
 	hub            = "dudedankdave/reskate-server"
-	checkEvery     = 3 * time.Hour
+	discordAPI     = "https://discord.com/api/v10"
+	yesEmoji       = "\u2705"
+	noEmoji        = "\u274c"
 	modsCheckEvery = time.Hour // Thunderstore mods are checked hourly
 	flushAfter     = 3 * time.Second
 	maxPending     = 300
 )
 
 var (
-	dateRe    = regexp.MustCompile(`^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2})\]`)
-	badNameRe = regexp.MustCompile(`(?i)\S*(discord|clyde)\S*`)
-	spacesRe  = regexp.MustCompile(`\s+`)
-	trailRe   = regexp.MustCompile(`(\s*\|\s*)+$`)
-	versionRe = regexp.MustCompile(`^\d+(\.\d+)+$`)
-	digitsRe  = regexp.MustCompile(`\d+`)
-	client    = &http.Client{Timeout: 20 * time.Second}
+	updateState = "/data/.update-state.json"
+	pinnedState = "/data/.discord-update-notified"
+	tailPath    = logPath
+	dateRe      = regexp.MustCompile(`^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2})\]`)
+	badNameRe   = regexp.MustCompile(`(?i)\S*(discord|clyde)\S*`)
+	spacesRe    = regexp.MustCompile(`\s+`)
+	trailRe     = regexp.MustCompile(`(\s*\|\s*)+$`)
+	versionRe   = regexp.MustCompile(`^\d+(\.\d+)+$`)
+	digitsRe    = regexp.MustCompile(`\d+`)
+	scheduleRe  = regexp.MustCompile(`^(?:([a-z]{3}(?:,[a-z]{3})*) )?(\d{1,2}):(\d{2})$`)
+	essentialRe = regexp.MustCompile(`(?i)\bcode\b|Config problem|\bWARNING\b|\bERROR\b|\bfailed\b`)
+	// Console commands whose answer is posted to the log feed as its own titled block.
+	infoCommands = map[string]bool{"help": true, "status": true, "players": true, "reserved": true, "net": true,
+		"bans": true, "maps": true, "map-pool": true, "rotation": true, "votes": true, "parties": true,
+		"score-check": true, "score-allow": true, "announcements": true, "objects": true, "admin": true}
+	client = &http.Client{Timeout: 20 * time.Second}
 )
 
 func note(format string, a ...any) {
@@ -62,17 +80,43 @@ func trunc(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
-func post(url string, payload map[string]any) bool {
-	data, _ := json.Marshal(payload)
+func truthy(v string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "":
+		return def
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// request sends JSON (payload may be nil) with Discord's rate limits honoured; the reply is
+// unmarshalled into out when given. False on failure.
+func request(method, u string, payload any, headers []string, out any) bool {
+	var data []byte
+	if payload != nil {
+		data, _ = json.Marshal(payload)
+	}
 	for i := 0; i < 4; i++ {
-		resp, err := client.Post(url, "application/json", bytes.NewReader(data))
+		req, _ := http.NewRequest(method, u, bytes.NewReader(data))
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		for _, h := range headers {
+			k, v, _ := strings.Cut(h, ": ")
+			req.Header.Set(k, v)
+		}
+		resp, err := client.Do(req)
 		if err != nil {
-			note("webhook post failed: %v", err)
+			note("%s failed: %v", method, err)
 			return false
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if out != nil && len(bytes.TrimSpace(body)) > 0 {
+				_ = json.Unmarshal(body, out)
+			}
 			return true
 		}
 		if resp.StatusCode == 429 {
@@ -86,10 +130,11 @@ func post(url string, payload map[string]any) bool {
 			time.Sleep(time.Duration(min(max(wait, 1), 30) * float64(time.Second)))
 			continue
 		}
-		note("webhook post failed: HTTP %d %s", resp.StatusCode, trunc(string(body), 200))
+		path, _, _ := strings.Cut(u, "?")
+		note("%s %s failed: HTTP %d %s", method, trunc(path, 60), resp.StatusCode, trunc(string(body), 200))
 		return false
 	}
-	note("webhook post failed: still rate limited after retries")
+	note("still rate limited after retries")
 	return false
 }
 
@@ -109,37 +154,32 @@ func username() string {
 	return trunc(name, 80)
 }
 
-func sendConsole(url, name string, lines []string) {
-	var chunk []string
-	size := 0
-	flush := func() {
-		if len(chunk) > 0 {
-			post(url, map[string]any{"username": name, "content": "```\n" + strings.Join(chunk, "\n") + "\n```",
-				"allowed_mentions": map[string]any{"parse": []string{}}})
-		}
+type hook struct {
+	url, name string
+	mentions  []string
+}
+
+func (h *hook) send(text string, ping bool) bool {
+	if h.url == "" {
+		return true
 	}
-	for _, line := range lines {
-		n := utf8.RuneCountInString(line) + 1
-		if size+n <= 1850 {
-			chunk = append(chunk, line)
-			size += n
-			continue
+	users := []string{}
+	if ping && len(h.mentions) > 0 {
+		users = h.mentions
+		var tags []string
+		for _, id := range users {
+			tags = append(tags, "<@"+id+">")
 		}
-		flush()
-		chunk, size = []string{line}, n
+		text = strings.Join(tags, " ") + " " + text
 	}
-	flush()
+	return request("POST", h.url, map[string]any{"username": h.name, "content": trunc(text, 2000),
+		"allowed_mentions": map[string]any{"parse": []string{}, "users": users}}, nil, nil)
 }
 
 func clean(line string) string {
 	line = strings.TrimRight(line, "\r")
 	line = dateRe.ReplaceAllString(line, "[$1]")
 	return trunc(strings.ReplaceAll(line, "```", "'''"), 500)
-}
-
-type tailState struct {
-	ino uint64
-	pos int64
 }
 
 var (
@@ -150,9 +190,15 @@ var (
 	lineRe   = regexp.MustCompile(`^\[(\d\d:\d\d:\d\d)\] (.*)$`)
 )
 
-// userLine is the player-facing version of a cleaned console line, or "" when it is admin-only:
-// joins and leaves (no Steam IDs, no leave reasons), throwdowns and the server-up line.
-func userLine(line string) string {
+func lineText(line string) string {
+	if m := lineRe.FindStringSubmatch(line); m != nil {
+		return m[2]
+	}
+	return line
+}
+
+// publicLine is the player-facing version of a cleaned console line, or "" when it is admin-only.
+func publicLine(line string) string {
 	m := lineRe.FindStringSubmatch(line)
 	if m == nil {
 		return ""
@@ -173,12 +219,24 @@ func userLine(line string) string {
 	return ""
 }
 
+// essentialLine: server up, the join code, config problems, warnings and errors; never chat or players.
+func essentialLine(line string) string {
+	text := lineText(line)
+	if taggedRe.MatchString(text) || joinedRe.MatchString(text) || leftRe.MatchString(text) || strings.HasPrefix(text, "[throwdown] ") {
+		return ""
+	}
+	if upRe.MatchString(text) || essentialRe.MatchString(text) {
+		return line
+	}
+	return ""
+}
+
 // feed batches console lines for one webhook; convert filters/rewrites them (nil = every line).
 type feed struct {
-	url, name string
-	convert   func(string) string
-	pending   []string
-	first     time.Time
+	h       *hook
+	convert func(string) string
+	pending []string
+	first   time.Time
 }
 
 func (f *feed) add(lines []string) {
@@ -206,15 +264,38 @@ func (f *feed) flushIfDue() {
 	for _, l := range f.pending {
 		total += len(l)
 	}
-	if len(f.pending) > 0 && (time.Since(f.first) >= flushAfter || total > 1700) {
-		batch := f.pending
-		f.pending = nil
-		sendConsole(f.url, f.name, batch)
+	if len(f.pending) == 0 || (time.Since(f.first) < flushAfter && total <= 1700) {
+		return
 	}
+	batch := f.pending
+	f.pending = nil
+	var chunk []string
+	size := 0
+	flush := func() {
+		if len(chunk) > 0 {
+			f.h.send("```\n"+strings.Join(chunk, "\n")+"\n```", false)
+		}
+	}
+	for _, line := range batch {
+		n := utf8.RuneCountInString(line) + 1
+		if size+n <= 1850 {
+			chunk = append(chunk, line)
+			size += n
+			continue
+		}
+		flush()
+		chunk, size = []string{line}, n
+	}
+	flush()
+}
+
+type tailState struct {
+	ino uint64
+	pos int64
 }
 
 func readNew(s *tailState) []string {
-	st, err := os.Stat(logPath)
+	st, err := os.Stat(tailPath)
 	if err != nil {
 		return nil
 	}
@@ -225,7 +306,7 @@ func readNew(s *tailState) []string {
 	if st.Size() == s.pos {
 		return nil
 	}
-	f, err := os.Open(logPath)
+	f, err := os.Open(tailPath)
 	if err != nil {
 		return nil
 	}
@@ -247,21 +328,6 @@ func readNew(s *tailState) []string {
 	return out
 }
 
-func consoleLoop(feeds []*feed) {
-	s := &tailState{}
-	if st, err := os.Stat(logPath); err == nil { // only what the server writes from now on
-		s.ino, s.pos = st.Sys().(*syscall.Stat_t).Ino, st.Size()
-	}
-	for {
-		nw := readNew(s)
-		for _, f := range feeds {
-			f.add(nw)
-			f.flushIfDue()
-		}
-		time.Sleep(time.Second)
-	}
-}
-
 func numbers(v string) []int {
 	var out []int
 	for _, m := range digitsRe.FindAllString(v, 4) {
@@ -271,89 +337,507 @@ func numbers(v string) []int {
 	return out
 }
 
-// newer reports whether version a is greater than b (tuple comparison, like Python).
-func newer(a, b string) bool {
-	x, y := numbers(a), numbers(b)
-	for i := 0; i < len(x) && i < len(y); i++ {
-		if x[i] != y[i] {
-			return x[i] > y[i]
+type schedule struct {
+	days         map[time.Weekday]bool // nil = every day
+	hour, minute int
+}
+
+// parseSchedule reads "04:00" or "sat,sun 04:00" (UTC).
+func parseSchedule(v string) (schedule, bool) {
+	m := scheduleRe.FindStringSubmatch(strings.ToLower(strings.TrimSpace(v)))
+	if m == nil {
+		return schedule{}, false
+	}
+	s := schedule{}
+	s.hour, _ = strconv.Atoi(m[2])
+	s.minute, _ = strconv.Atoi(m[3])
+	if s.hour > 23 || s.minute > 59 {
+		return schedule{}, false
+	}
+	if m[1] != "" {
+		names := map[string]time.Weekday{"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
+		s.days = map[time.Weekday]bool{}
+		for _, d := range strings.Split(m[1], ",") {
+			wd, ok := names[d]
+			if !ok {
+				return schedule{}, false
+			}
+			s.days[wd] = true
 		}
 	}
-	return len(x) > len(y)
+	return s, true
 }
 
-type notified struct {
-	Version   string `json:"version"`
-	Published bool   `json:"published"`
+type updState struct {
+	Version    string `json:"version,omitempty"`
+	Announced  bool   `json:"announced,omitempty"`
+	Declined   bool   `json:"declined,omitempty"`
+	AskMessage string `json:"ask_message,omitempty"`
+	Installed  string `json:"installed,omitempty"`
 }
 
-func checkOnce(url, name string, mentions []string, running string) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/releases/latest", nil)
-	req.Header.Set("User-Agent", "reskate-server-image")
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := client.Do(req)
+func readState() updState {
+	var s updState
+	if raw, err := os.ReadFile(updateState); err == nil {
+		_ = json.Unmarshal(raw, &s)
+	}
+	return s
+}
+
+func writeState(s updState) {
+	raw, _ := json.Marshal(s)
+	if err := os.WriteFile(updateState+".tmp", raw, 0o644); err == nil {
+		_ = os.Rename(updateState+".tmp", updateState)
+	}
+}
+
+type notifier struct {
+	sup                     *supervisor
+	mode, imageVersion      string
+	essentials, log, public *hook
+	mentions                []string
+	policy                  string
+	countdown               int
+	sched                   schedule
+	checkEvery              time.Duration
+	bot, channel            string
+	mu                      sync.Mutex
+	players                 map[string]bool
+	busy                    string
+	installing              sync.Mutex
+	installingHeld          bool
+}
+
+func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
+	legacy := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_ADMIN"))
+	if legacy == "" {
+		legacy = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
+	}
+	name := username()
+	var mentions []string
+	for _, id := range strings.Split(os.Getenv("DISCORD_MENTION_IDS"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			mentions = append(mentions, id)
+		}
+	}
+	first := func(vs ...string) string {
+		for _, v := range vs {
+			if v = strings.TrimSpace(v); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	logURL := first(os.Getenv("DISCORD_WEBHOOK_LOG"))
+	if logURL == "" && legacy != "" && truthy(os.Getenv("DISCORD_CONSOLE"), true) {
+		logURL = legacy
+	}
+	n := &notifier{
+		sup: sup, mode: mode, imageVersion: imageVersion, mentions: mentions,
+		essentials: &hook{first(os.Getenv("DISCORD_WEBHOOK_ESSENTIALS"), legacy), name, mentions},
+		log:        &hook{logURL, name, nil},
+		public:     &hook{first(os.Getenv("DISCORD_WEBHOOK_PUBLIC"), os.Getenv("DISCORD_WEBHOOK_USER")), name, nil},
+		policy:     strings.ToLower(first(os.Getenv("UPDATE_POLICY"), "timed")),
+		countdown:  10,
+		bot:        first(os.Getenv("DISCORD_BOT_TOKEN")),
+		channel:    first(os.Getenv("DISCORD_APPROVAL_CHANNEL")),
+		players:    map[string]bool{},
+	}
+	if v, err := strconv.Atoi(first(os.Getenv("UPDATE_COUNTDOWN"))); err == nil {
+		n.countdown = v
+	}
+	n.sched, _ = parseSchedule(os.Getenv("UPDATE_SCHEDULE"))
+	every := 180
+	if mode == "auto" {
+		every = 30
+	}
+	if v, err := strconv.Atoi(first(os.Getenv("UPDATE_CHECK_MINUTES"))); err == nil {
+		every = v
+	}
+	n.checkEvery = time.Duration(every) * time.Minute
+	sup.notify = n.event
+	if mode == "auto" {
+		sup.onUpdate = func() { guarded(func() { n.check(true) }) }
+	}
+	return n
+}
+
+func (n *notifier) playersOn() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.players) > 0
+}
+
+func (n *notifier) track(line string) {
+	text := lineText(line)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if upRe.MatchString(text) {
+		n.players = map[string]bool{}
+	} else if j := joinedRe.FindStringSubmatch(text); j != nil {
+		n.players[j[1]] = true
+	} else if l := leftRe.FindStringSubmatch(text); l != nil {
+		delete(n.players, l[1])
+	}
+}
+
+func (n *notifier) consoleLoop() {
+	var feeds []*feed
+	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log}, {h: n.public, convert: publicLine}} {
+		if f.h.url != "" {
+			feeds = append(feeds, f)
+		}
+	}
+	s := &tailState{}
+	if st, err := os.Stat(tailPath); err == nil { // only what the server writes from now on
+		s.ino, s.pos = st.Sys().(*syscall.Stat_t).Ino, st.Size()
+	}
+	var answer []string
+	answered := ""
+	for {
+		nw := readNew(s)
+		for _, l := range nw {
+			n.track(l)
+		}
+		n.sup.mu.Lock()
+		cmd, at := n.sup.lastCmd, n.sup.lastAt
+		n.sup.mu.Unlock()
+		word, _, _ := strings.Cut(cmd, " ")
+		if infoCommands[strings.ToLower(word)] && time.Since(at) < 3*time.Second {
+			answer, answered, nw = append(answer, nw...), cmd, nil
+		} else if len(answer) > 0 {
+			n.postAnswer(answered, answer)
+			answer = nil
+		}
+		for _, f := range feeds {
+			f.add(nw)
+			f.flushIfDue()
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// postAnswer posts a console command's answer as one titled block in the log feed
+// (essentials if there is no log feed).
+func (n *notifier) postAnswer(cmd string, lines []string) {
+	h := n.log
+	if h.url == "" {
+		h = n.essentials
+	}
+	title := "**Console:** `" + trunc(strings.ReplaceAll(cmd, "`", "'"), 100) + "`"
+	var chunk []string
+	size := 0
+	flush := func() {
+		if len(chunk) > 0 {
+			h.send(title+"\n```ini\n"+strings.Join(chunk, "\n")+"\n```", false)
+			title = "**Console:** `" + trunc(strings.ReplaceAll(cmd, "`", "'"), 100) + "` (continued)"
+		}
+	}
+	for _, l := range lines {
+		if size+len(l)+1 >= 1800 {
+			flush()
+			chunk, size = nil, 0
+		}
+		chunk = append(chunk, l)
+		size += len(l) + 1
+	}
+	flush()
+}
+
+func (n *notifier) releaseInstalling() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.installingHeld {
+		n.installingHeld = false
+		n.installing.Unlock()
+	}
+}
+
+// event handles what the supervisor reports.
+func (n *notifier) event(kind string, d map[string]string) {
+	if kind == "installed" || kind == "failed" {
+		n.releaseInstalling()
+	}
+	switch kind {
+	case "installed":
+		n.essentials.send(fmt.Sprintf("**UPDATED** to ReSkate **%s**, the server is starting again.", d["version"]), false)
+		n.public.send(fmt.Sprintf("The server is updated to ReSkate **%s** and starting again.", d["version"]), false)
+		st := readState()
+		st.Installed = d["version"]
+		writeState(st)
+	case "failed":
+		n.essentials.send(fmt.Sprintf("**UPDATE FAILED**: ReSkate %s: %s", d["version"], d["error"]), true)
+	case "rolled_back":
+		n.essentials.send(fmt.Sprintf("**ROLLED BACK**: ReSkate %s stopped (exit %s) right after the update, back on **%s**. "+
+			"It will not be installed again by itself; type `update` in the console to retry.", d["version"], d["code"], d["now"]), true)
+		st := readState()
+		st.Version, st.Declined = d["version"], true
+		writeState(st)
+	case "exited":
+		n.essentials.send(fmt.Sprintf("**SERVER STOPPED** (exit code %s). Docker restarts it if the restart policy allows.", d["code"]), d["code"] != "0")
+	}
+}
+
+func (n *notifier) running() string {
+	if v := versionOf(n.sup.folder); v != "" {
+		return v
+	}
+	return n.imageVersion
+}
+
+func (n *notifier) outdated(version string) bool { return cmpVersion(n.running(), version) < 0 }
+
+func (n *notifier) updateLoop() {
+	time.Sleep(time.Minute)
+	for {
+		n.check(false)
+		time.Sleep(n.checkEvery)
+	}
+}
+
+func (n *notifier) check(now bool) {
+	r, err := latestRelease()
 	if err != nil {
 		note("release check failed: %v", err)
+		if now {
+			fmt.Printf("[update] release check failed: %v\n", err)
+		}
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		note("release check failed: HTTP %d %s", resp.StatusCode, trunc(string(body), 200))
+	have := n.running()
+	if cmpVersion(r.Version, have) <= 0 {
+		if now {
+			fmt.Printf("[update] already on the latest ReSkate release (%s)\n", have)
+		}
 		return
 	}
-	var rel struct {
-		Tag string `json:"tag_name"`
-	}
-	if json.Unmarshal(body, &rel) != nil || rel.Tag == "" {
-		note("release check failed: unreadable response")
+	if n.mode != "auto" {
+		n.pinnedNotice(r.Version, have)
 		return
 	}
-	latest := strings.TrimPrefix(rel.Tag, "v")
-	if !newer(latest, running) {
+	if now {
+		guarded(func() { n.apply(r, 0) })
 		return
 	}
+	if st := readState(); st.Version == r.Version && st.Declined {
+		return
+	}
+	n.mu.Lock()
+	if n.busy == r.Version {
+		n.mu.Unlock()
+		return
+	}
+	n.busy = r.Version
+	n.mu.Unlock()
+	guarded(func() { n.handle(r, have) })
+}
+
+func (n *notifier) handle(r release, have string) {
+	defer func() {
+		n.mu.Lock()
+		if n.busy == r.Version {
+			n.busy = ""
+		}
+		n.mu.Unlock()
+	}()
+	st := readState()
+	if st.Version != r.Version {
+		st = updState{Version: r.Version}
+	}
+	how := map[string]string{
+		"instant":   "Installing it now.",
+		"timed":     fmt.Sprintf("Installing it in %d min (sooner if nobody is on).", n.countdown),
+		"scheduled": fmt.Sprintf("Installing it at the next update slot (%s UTC).", os.Getenv("UPDATE_SCHEDULE")),
+		"ask":       "Waiting for approval.",
+	}[n.policy]
+	if !st.Announced && n.essentials.send(fmt.Sprintf("**UPDATE AVAILABLE**: ReSkate **%s** is out, this server runs **%s**. %s "+
+		"`update` in the console installs it now.\nhttps://github.com/%s/releases/tag/v%s", r.Version, have, how, repo, r.Version), n.policy == "ask") {
+		st.Announced = true
+		writeState(st)
+	}
+	switch n.policy {
+	case "scheduled":
+		for n.outdated(r.Version) {
+			t := time.Now().UTC()
+			if (n.sched.days == nil || n.sched.days[t.Weekday()]) && t.Hour() == n.sched.hour && t.Minute() == n.sched.minute {
+				break
+			}
+			time.Sleep(20 * time.Second)
+		}
+	case "ask":
+		if !n.approved(r, have, &st) {
+			return
+		}
+	}
+	countdown := n.countdown
+	if n.policy == "instant" {
+		countdown = 0
+	}
+	if n.outdated(r.Version) {
+		n.apply(r, countdown)
+	}
+}
+
+func (n *notifier) apply(r release, countdown int) {
+	if !n.outdated(r.Version) || !n.installing.TryLock() {
+		return // released by event() once the install is done or failed
+	}
+	n.mu.Lock()
+	n.installingHeld = true
+	n.mu.Unlock()
+	fmt.Printf("[update] downloading ReSkate %s\n", r.Version)
+	staged, err := stageRelease(r)
+	if err != nil {
+		fmt.Printf("[update] ReSkate %s not installed: %v\n", r.Version, err)
+		n.event("failed", map[string]string{"version": r.Version, "error": err.Error()})
+		return
+	}
+	seen := map[int]bool{}
+	var marks []int
+	for _, m := range []int{countdown, 5, 1} {
+		if m > 0 && m <= countdown && !seen[m] {
+			seen[m] = true
+			marks = append(marks, m)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(marks)))
+	deadline := time.Now().Add(time.Duration(countdown) * time.Minute)
+	for i, minutes := range marks {
+		if !n.playersOn() {
+			break
+		}
+		n.sup.send(fmt.Sprintf("announce Server restarts in %d min to update ReSkate to %s", minutes, r.Version))
+		n.public.send(fmt.Sprintf("Restarting in **%d min** to update ReSkate to **%s**.", minutes, r.Version), false)
+		if i == 0 {
+			n.essentials.send(fmt.Sprintf("Countdown started: installing ReSkate **%s** in %d min.", r.Version, minutes), false)
+		}
+		next := 0
+		if i+1 < len(marks) {
+			next = marks[i+1]
+		}
+		until := deadline.Add(-time.Duration(next) * time.Minute)
+		for time.Now().Before(until) && n.playersOn() {
+			time.Sleep(5 * time.Second)
+		}
+	}
+	if n.playersOn() {
+		n.sup.send(fmt.Sprintf("announce Restarting now for ReSkate %s, rejoin in a minute!", r.Version))
+		time.Sleep(5 * time.Second)
+	}
+	n.public.send(fmt.Sprintf("Restarting now to update ReSkate to **%s**.", r.Version), false)
+	n.essentials.send(fmt.Sprintf("Installing ReSkate **%s** (was %s).", r.Version, n.running()), false)
+	n.sup.install(staged, r.Version)
+}
+
+// approved (ask policy): true once an approver reacted ✅, false on ❌ (that version is skipped).
+func (n *notifier) approved(r release, have string, st *updState) bool {
+	waitConsole := func() bool {
+		for n.outdated(r.Version) {
+			time.Sleep(time.Minute)
+		}
+		return false
+	}
+	if n.bot == "" || n.channel == "" {
+		note("UPDATE_POLICY=ask without DISCORD_BOT_TOKEN/DISCORD_APPROVAL_CHANNEL: waiting for `update` in the console")
+		return waitConsole()
+	}
+	auth := []string{"Authorization: Bot " + n.bot, "User-Agent: DiscordBot (reskate-server-image, 1)"}
+	base := discordAPI + "/channels/" + n.channel + "/messages"
+	if st.AskMessage == "" {
+		var tags []string
+		for _, id := range n.mentions {
+			tags = append(tags, "<@"+id+">")
+		}
+		users := n.mentions
+		if users == nil {
+			users = []string{}
+		}
+		var reply struct {
+			ID string `json:"id"`
+		}
+		text := strings.TrimSpace(fmt.Sprintf("%s **APPROVE UPDATE?** %s: ReSkate **%s** (running %s). React %s to install (with a %d min "+
+			"countdown for players) or %s to skip this version.", strings.Join(tags, " "), username(), r.Version, have, yesEmoji, n.countdown, noEmoji))
+		if !request("POST", base, map[string]any{"content": text, "allowed_mentions": map[string]any{"parse": []string{}, "users": users}}, auth, &reply) || reply.ID == "" {
+			n.essentials.send("**APPROVAL FAILED**: the bot could not post in DISCORD_APPROVAL_CHANNEL (see /data/DiscordWebhook.log). "+
+				"`update` in the console installs it.", true)
+			return waitConsole()
+		}
+		st.AskMessage = reply.ID
+		writeState(*st)
+		for _, e := range []string{yesEmoji, noEmoji} {
+			request("PUT", base+"/"+st.AskMessage+"/reactions/"+url.PathEscape(e)+"/@me", nil, auth, nil)
+			time.Sleep(time.Second)
+		}
+	}
+	allowed := map[string]bool{}
+	for _, id := range n.mentions {
+		allowed[id] = true
+	}
+	for n.outdated(r.Version) {
+		for _, e := range []struct {
+			emoji   string
+			verdict bool
+		}{{yesEmoji, true}, {noEmoji, false}} {
+			var users []struct {
+				ID  string `json:"id"`
+				Bot bool   `json:"bot"`
+			}
+			request("GET", base+"/"+st.AskMessage+"/reactions/"+url.PathEscape(e.emoji)+"?limit=100", nil, auth, &users)
+			for _, u := range users {
+				if u.Bot || (len(allowed) > 0 && !allowed[u.ID]) {
+					continue
+				}
+				word := "Approved"
+				if !e.verdict {
+					word = "Skipped"
+				}
+				request("PATCH", base+"/"+st.AskMessage, map[string]any{"content": fmt.Sprintf("**%s** by <@%s>: ReSkate **%s**.", word, u.ID, r.Version),
+					"allowed_mentions": map[string]any{"parse": []string{}}}, auth, nil)
+				if !e.verdict {
+					st.Declined = true
+					writeState(*st)
+				}
+				return e.verdict
+			}
+		}
+		time.Sleep(20 * time.Second)
+	}
+	return false
+}
+
+func (n *notifier) pinnedNotice(latest, running string) {
 	published := false
 	if r, err := client.Get("https://hub.docker.com/v2/repositories/" + hub + "/tags/" + latest); err == nil {
 		r.Body.Close()
 		published = r.StatusCode == 200
 	}
-	var st notified
-	if raw, err := os.ReadFile(statePath); err == nil {
+	var st struct {
+		Version   string `json:"version"`
+		Published bool   `json:"published"`
+	}
+	if raw, err := os.ReadFile(pinnedState); err == nil {
 		_ = json.Unmarshal(raw, &st)
 	}
 	if st.Version == latest && (st.Published || !published) {
 		return // already announced, nothing new to say
 	}
-	var tags []string
-	for _, id := range mentions {
-		tags = append(tags, "<@"+id+">")
+	how := "Update with `docker compose pull && docker compose up -d`, or set `UPDATE_MODE=auto`. The restart kicks everyone and changes the join code."
+	if !published {
+		how = fmt.Sprintf("`%s:%s` is not on Docker Hub yet; `UPDATE_MODE=auto` would install it without a new image.", hub, latest)
 	}
-	var how string
-	if published {
-		how = "Update with `docker compose pull && docker compose up -d`. The restart kicks everyone and changes the join code."
-	} else {
-		how = fmt.Sprintf("`%s:%s` is not on Docker Hub yet, the image has to be built first.", hub, latest)
-	}
-	var text string
+	text := fmt.Sprintf("**UPDATE AVAILABLE**: ReSkate **%s** is out, this server is pinned to **%s**. Players on the new version can't join until the server is updated.\n%s\nhttps://github.com/%s/releases/tag/v%s",
+		latest, running, how, repo, latest)
 	if st.Version == latest { // earlier message said "not published yet"
-		text = fmt.Sprintf("%s **Image available**: `%s:%s` is on Docker Hub now. %s", strings.Join(tags, " "), hub, latest, how)
-	} else {
-		text = fmt.Sprintf("%s **UPDATE AVAILABLE**: ReSkate **%s** is out, this server runs **%s**. Players on the new version can't join until the server is updated.\n%s\nhttps://github.com/%s/releases/tag/v%s",
-			strings.Join(tags, " "), latest, running, how, repo, latest)
+		text = fmt.Sprintf("**Image available**: `%s:%s` is on Docker Hub now. %s", hub, latest, how)
 	}
-	users := mentions
-	if users == nil {
-		users = []string{}
-	}
-	if post(url, map[string]any{"username": name, "content": strings.TrimSpace(text),
-		"allowed_mentions": map[string]any{"parse": []string{}, "users": users}}) {
-		raw, _ := json.Marshal(notified{Version: latest, Published: published})
-		_ = os.WriteFile(statePath, raw, 0o644)
+	if n.essentials.send(text, true) {
+		st.Version, st.Published = latest, published
+		raw, _ := json.Marshal(st)
+		_ = os.WriteFile(pinnedState, raw, 0o644)
 	}
 }
 
-func postModEvents(url, name string) {
+func (n *notifier) postModEvents() {
 	raw, err := os.ReadFile(modsEvents)
 	if err != nil {
 		return
@@ -379,27 +863,15 @@ func postModEvents(url, name string) {
 		if e.From != "" {
 			text = fmt.Sprintf("**MOD UPDATED**: %s %s to **%s**.%s", label, e.From, e.To, maps)
 		}
-		post(url, map[string]any{"username": name, "content": text,
-			"allowed_mentions": map[string]any{"parse": []string{}}})
+		n.essentials.send(text, false)
 	}
 }
 
-func checkMods(url, name string, mentions []string) {
-	update := true
-	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MODS_UPDATE"))); v == "0" || v == "false" || v == "no" || v == "off" {
-		update = false
-	}
+func (n *notifier) checkMods() {
+	update := truthy(os.Getenv("MODS_UPDATE"), true)
 	seen := map[string]string{}
 	if raw, err := os.ReadFile(modsState); err == nil {
 		_ = json.Unmarshal(raw, &seen)
-	}
-	var tags []string
-	for _, id := range mentions {
-		tags = append(tags, "<@"+id+">")
-	}
-	users := mentions
-	if users == nil {
-		users = []string{}
 	}
 	for _, u := range pendingModUpdates(os.Getenv("MODS")) {
 		key := u.owner + "-" + u.name
@@ -410,10 +882,8 @@ func checkMods(url, name string, mentions []string) {
 		if !update {
 			how = "`MODS_UPDATE` is false, so it will not be installed automatically."
 		}
-		text := fmt.Sprintf("%s **MOD UPDATE AVAILABLE**: %s **%s** is out, this server has **%s**. %s\nhttps://thunderstore.io/c/reskate/p/%s/%s/",
-			strings.Join(tags, " "), key, u.latest, u.have, how, u.owner, u.name)
-		if post(url, map[string]any{"username": name, "content": strings.TrimSpace(text),
-			"allowed_mentions": map[string]any{"parse": []string{}, "users": users}}) {
+		if n.essentials.send(fmt.Sprintf("**MOD UPDATE AVAILABLE**: %s **%s** is out, this server has **%s**. %s\nhttps://thunderstore.io/c/reskate/p/%s/%s/",
+			key, u.latest, u.have, how, u.owner, u.name), true) {
 			seen[key] = u.latest
 			raw, _ := json.Marshal(seen)
 			_ = os.WriteFile(modsState, raw, 0o644)
@@ -421,63 +891,33 @@ func checkMods(url, name string, mentions []string) {
 	}
 }
 
-func modsLoop(url, name string, mentions []string) {
+func (n *notifier) modsLoop() {
 	time.Sleep(5 * time.Second)
-	postModEvents(url, name)
+	n.postModEvents()
 	time.Sleep(85 * time.Second)
 	for {
-		checkMods(url, name, mentions)
+		n.checkMods()
 		time.Sleep(modsCheckEvery)
 	}
 }
 
-func updateLoop(url, name string, mentions []string, running string) {
-	time.Sleep(time.Minute)
-	for {
-		checkOnce(url, name, mentions, running)
-		time.Sleep(checkEvery)
-	}
+func guarded(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				note("notifier: %v", r)
+			}
+		}()
+		fn()
+	}()
 }
 
-func notifierMain() {
-	// DISCORD_WEBHOOK_ADMIN (DISCORD_WEBHOOK is its older name): everything, plus the update messages.
-	// DISCORD_WEBHOOK_USER: the player-facing lines only.
-	admin := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_ADMIN"))
-	if admin == "" {
-		admin = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
+func (n *notifier) start() {
+	guarded(n.consoleLoop)
+	if n.essentials.url != "" && strings.TrimSpace(os.Getenv("MODS")) != "" {
+		guarded(n.modsLoop)
 	}
-	user := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_USER"))
-	if admin == "" && user == "" {
-		return
+	if n.mode == "auto" || (n.essentials.url != "" && versionRe.MatchString(n.imageVersion)) {
+		guarded(n.updateLoop)
 	}
-	name := username()
-	var mentions []string
-	for _, id := range strings.Split(os.Getenv("DISCORD_MENTION_IDS"), ",") {
-		if id = strings.TrimSpace(id); id != "" {
-			mentions = append(mentions, id)
-		}
-	}
-	running := os.Getenv("RESKATE_IMAGE_VERSION")
-	var feeds []*feed
-	if admin != "" {
-		if strings.TrimSpace(os.Getenv("MODS")) != "" {
-			go modsLoop(admin, name, mentions)
-		}
-		if versionRe.MatchString(running) {
-			go updateLoop(admin, name, mentions, running)
-		} else {
-			note("update check off: image version %q is not a release number", running)
-		}
-		switch strings.ToLower(strings.TrimSpace(os.Getenv("DISCORD_CONSOLE"))) {
-		case "", "1", "true", "yes", "on":
-			feeds = append(feeds, &feed{url: admin, name: name})
-		}
-	}
-	if user != "" {
-		feeds = append(feeds, &feed{url: user, name: name, convert: userLine})
-	}
-	if len(feeds) > 0 {
-		consoleLoop(feeds)
-	}
-	select {}
 }

@@ -10,7 +10,8 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 
 - **Configured with environment variables.** They are written to `/data/ReSkateServer.json` on every start (older configs are moved to the 1.1.7 layout first). Unset or empty variables leave the existing value alone, so changes made in-game or from the console survive restarts.
 - **Multi-server support:** run several servers on one host, each with its own data volume.
-- **Discord webhook:** forwards the console and announces new ReSkate releases.
+- **Updates:** pinned to the image, or installed automatically (instant, countdown, scheduled or approved in Discord).
+- **Discord webhooks:** essentials, full console log and a public player feed.
 - **Healthcheck** that reports `healthy` once the server is up on its map.
 
 > **The server must run the same ReSkate version as the players.** If it falls behind, it can vanish from the in-game list and join codes time out, even though the container is `healthy`. See [Keeping up to date](#keeping-up-to-date).
@@ -302,7 +303,17 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 
 | Variable | Values | Description |
 |---|---|---|
-| `AUTO_UPDATE` | `true` / `false` | ReSkate 1.1.4+ can replace its own binary. The image passes `--no-update` unless this is `true`: a self-updated binary is lost on recreate, so pull a new image instead. The slim image cannot self-update (no `tar`). |
+| `UPDATE_MODE` | `pinned` / `auto` | `pinned` (default): the server in the image runs, the image tag is the version; the essentials feed says when a newer release is out. `auto`: the server runs from `/data/server` and new ReSkate releases are installed there (they survive a recreate; a newer image replaces them). `AUTO_UPDATE=true` is the older name of `auto`. |
+| `UPDATE_POLICY` | `instant` / `timed` / `ask` / `scheduled` | When `auto` installs a new release. `instant`: right away. `timed` (default): in-game `announce` countdown of `UPDATE_COUNTDOWN` minutes, then install. `scheduled`: at `UPDATE_SCHEDULE`, then the countdown. `ask`: a Discord bot asks for approval (below), then the countdown. The countdown is skipped while nobody is on. |
+| `UPDATE_COUNTDOWN` | minutes, `0`-`1440` | Countdown before the restart (default `10`), announced at the start, 5 and 1 min. |
+| `UPDATE_SCHEDULE` | `HH:MM` or `days HH:MM` (UTC) | For `scheduled`, e.g. `04:00` or `sat,sun 04:00`. |
+| `UPDATE_CHECK_MINUTES` | `5`-`1440` | How often the release is checked (default `30` in `auto`, `180` in `pinned`). |
+| `DISCORD_BOT_TOKEN` | bot token | For `ask`: a Discord bot (no intents needed) in your server that can post, react and read reactions in `DISCORD_APPROVAL_CHANNEL`. Keep it private. |
+| `DISCORD_APPROVAL_CHANNEL` | channel id | Where the bot asks. It adds ✅ and ❌; the first reaction by one of `DISCORD_MENTION_IDS` (anyone, if unset) decides. ❌ skips that version. |
+
+- Typing `update` in the console (`docker attach`) installs the latest release at once, in any policy.
+- Downloads come from the release's `launcher.json` and are checked against its SHA-256 before anything is replaced. The previous version is kept in `/data/server.old`; if the new server stops within 3 minutes it is rolled back and the essentials feed says so.
+- The container keeps running through an update: the entrypoint runs the server as a child and restarts it. Console input is passed through as before.
 
 <br/>
 
@@ -316,26 +327,29 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 
 ## Discord webhook
 
-Two webhooks per server, so admins and players can have their own channels. Either one works alone.
+Three webhooks per server, each optional, so every channel gets only what belongs there:
 
-- **Admin feed** (`DISCORD_WEBHOOK_ADMIN`): everything the server prints, as code blocks: joins with Steam IDs, leaves with reasons, `[admin]`, `[chat]`, `[objects]`, `[join]` problems, throwdowns, config problems and the start-up lines including the **join code**. `docker attach` keeps working. It also gets the **update messages**: **UPDATE AVAILABLE** per new ReSkate release (checked every 3 hours, and again when the Docker Hub image is published), and for [Thunderstore mods](#custom-maps-and-mods) **MOD UPDATE AVAILABLE** per new version (hourly) plus **MOD INSTALLED** / **MOD UPDATED** after a start. Only update messages can mention anyone.
-- **User feed** (`DISCORD_WEBHOOK_USER`): only what players should see, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdown lines and the "is up on" line. No Steam IDs, no leave reasons, no chat, no admin commands, no join code.
+- **Essentials** (`DISCORD_WEBHOOK_ESSENTIALS`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**, and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). The only feed that pings `DISCORD_MENTION_IDS`.
+- **Log** (`DISCORD_WEBHOOK_LOG`): the whole console as code blocks: joins with Steam IDs, leaves with reasons, `[admin]`, `[chat]`, `[objects]`, `[join]`, throwdowns. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
+- **Public** (`DISCORD_WEBHOOK_PUBLIC`): for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.3"). No Steam IDs, chat, admin commands or join code.
 
 <br/>
 
 | Variable | Meaning |
 |---|---|
-| `DISCORD_WEBHOOK_ADMIN` | Webhook URL for the admin feed (Discord: channel settings, Integrations, Webhooks). Unset = no admin feed and no update messages. Older name: `DISCORD_WEBHOOK`. |
-| `DISCORD_WEBHOOK_USER` | Webhook URL for the user feed. Unset = no user feed. |
-| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids to mention in the update messages of the admin feed, e.g. `123456789012345678,234567890123456789`. |
-| `DISCORD_CONSOLE` | `false` = no console lines in the admin feed, only the update messages (default `true`). The user feed is not affected. |
+| `DISCORD_WEBHOOK_ESSENTIALS` | Webhook URL for the essentials feed (Discord: channel settings, Integrations, Webhooks). |
+| `DISCORD_WEBHOOK_LOG` | Webhook URL for the console log. |
+| `DISCORD_WEBHOOK_PUBLIC` | Webhook URL for the player feed. |
+| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the essentials feed (releases, failures, approvals) and allowed to approve updates. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
+
+Older names still work: `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = essentials + log (`DISCORD_CONSOLE=false` drops the log), `DISCORD_WEBHOOK_USER` = public. Update approval needs a bot, see [Updates](#updates).
 
 <br/>
 
-- Player names and chat can never ping anyone: all console posts disable mentions.
-- Each server sends its own update messages. If several servers share one admin webhook, set `DISCORD_MENTION_IDS` on one of them only.
-- The admin feed contains the **join code**, Steam IDs and chat. Use a channel only people you trust can read. The user feed is safe for a public channel.
+- Player names and chat can never ping anyone: console posts disable mentions.
+- If several servers share one essentials webhook, set `DISCORD_MENTION_IDS` on one of them only.
+- Essentials and log contain the **join code**; the log also has Steam IDs and chat. The public feed is safe for a public channel.
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
 
 <br/>
@@ -395,9 +409,10 @@ Run one container per server from the same image. Each needs its **own** data vo
 
 ReSkate releases often and the game client updates itself, so the server has to follow.
 
-- The server binary is baked into the image. ReSkate 1.1.4+ can update itself, but a self-updated binary is lost when the container is recreated, so this image keeps that off (see `AUTO_UPDATE`). Updating means a new image.
+- The server binary is baked into the image. ReSkate 1.1.4+ can update itself, but a self-updated binary is lost when the container is recreated, so the image keeps it off and does it itself: `UPDATE_MODE=auto` installs releases into `/data/server` (see [Updates](#updates)). With the default `pinned`, updating means a new image.
 - **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
-- **Get told about releases:** set `DISCORD_WEBHOOK`, see [Discord webhook](#discord-webhook).
+- **Automatic updates:** `UPDATE_MODE=auto`, see [Updates](#updates).
+- **Get told about releases:** set `DISCORD_WEBHOOK_ESSENTIALS`, see [Discord webhook](#discord-webhook).
 - **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
 <br/>
@@ -447,7 +462,9 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 |---|---|
 | `Dockerfile` | Image build (Debian slim, tini, curl, minimal Python) |
 | `entrypoint.py` | Env vars to `ReSkateServer.json`, starts the Discord sidecar, then the server |
-| `notifier.py` | Discord console forwarding and update announcements |
+| `notifier.py` | Discord feeds and the update policy |
+| `updater.py` | `/data/server`, downloading and verifying releases |
+| `supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
 | `hub-readme.py` | README for Docker Hub (env tables replaced by a link, 25 KB limit) |

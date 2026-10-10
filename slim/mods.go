@@ -158,7 +158,7 @@ func pendingModUpdates(spec string) []modUpdate {
 			continue
 		}
 		have := manifestVersion(filepath.Join(modsDir, p[2]))
-		if have != "" && newer(m.Version, have) {
+		if have != "" && cmpVersion(m.Version, have) > 0 {
 			out = append(out, modUpdate{p[1], p[2], m.Version, have})
 		}
 	}
@@ -342,7 +342,7 @@ func ensureMod(owner, name, version string, update, dependency bool, seen map[st
 		mlog("%s: %s/%s (%s) was not installed by MODS, leaving it alone", label, modsDir, name, have)
 	case exists && have != "" && dependency:
 		mlog("%s: needs %s, %s is installed, leaving it", label, want, have)
-	case exists && have != "" && version == "" && newer(have, want):
+	case exists && have != "" && version == "" && cmpVersion(have, want) > 0:
 		mlog("%s: %s installed, Thunderstore reports older %s (stale?), leaving it", label, have, want)
 	case exists && have != "" && version == "" && !update:
 		mlog("%s: %s installed, newer %s available (MODS_UPDATE=false)", label, have, want)
