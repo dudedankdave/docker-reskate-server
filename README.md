@@ -327,31 +327,39 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 
 ## Discord webhook
 
-Four webhooks per server, each optional, so every channel gets only what belongs there:
+Any number of webhooks, each set with two variables that share a suffix: `WEBHOOK_URL_<n>` and `WEBHOOK_SCOPE_<n>`. The suffix can be anything (`1`, `2`, `admin`, ...), so add as many pairs as you need. The scope says what the webhook gets, several comma-separated:
 
-- **Essentials** (`DISCORD_WEBHOOK_ESSENTIALS`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**, and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). The only feed that pings `DISCORD_MENTION_IDS`.
-- **Log** (`DISCORD_WEBHOOK_LOG`): the whole console as code blocks: joins with Steam IDs, leaves with reasons, `[admin]`, `[chat]`, `[objects]`, `[join]`, throwdowns. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
-- **Public** (`DISCORD_WEBHOOK_PUBLIC`): for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.3"). No Steam IDs, chat, admin commands or join code.
-- **Chat** (`DISCORD_WEBHOOK_CHAT`): only the in-game chat, as `[12:34:56] Name: message`.
+- **`admin`** (or `essentials`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**, and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). The only scope that pings `DISCORD_MENTION_IDS`.
+- **`log`** (or `console`): the whole console as code blocks: joins with Steam IDs, leaves with reasons, `[admin]`, `[chat]`, `[objects]`, `[join]`, throwdowns. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
+- **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.3"). No Steam IDs, chat, admin commands or join code.
+- **`chat`**: only the in-game chat, as `[12:34:56] Name: message`.
+- **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
+
+```yaml
+      WEBHOOK_URL_1: https://discord.com/api/webhooks/<id>/<token>
+      WEBHOOK_SCOPE_1: admin,log
+      WEBHOOK_URL_2: https://discord.com/api/webhooks/<id>/<token>
+      WEBHOOK_SCOPE_2: chat
+      WEBHOOK_URL_3: https://discord.com/api/webhooks/<id>/<token>
+      WEBHOOK_SCOPE_3: public,leaderboard
+```
 
 <br/>
 
 | Variable | Meaning |
 |---|---|
-| `DISCORD_WEBHOOK_ESSENTIALS` | Webhook URL for the essentials feed (Discord: channel settings, Integrations, Webhooks). |
-| `DISCORD_WEBHOOK_LOG` | Webhook URL for the console log. |
-| `DISCORD_WEBHOOK_PUBLIC` | Webhook URL for the player feed. |
-| `DISCORD_WEBHOOK_CHAT` | Webhook URL for the in-game chat. |
-| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the essentials feed (releases, failures, approvals) and allowed to approve updates. |
+| `WEBHOOK_URL_<n>` | A webhook URL (Discord: channel settings, Integrations, Webhooks). |
+| `WEBHOOK_SCOPE_<n>` | What it gets: `admin`, `log`, `public`, `chat`, `leaderboard`, comma-separated. |
+| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the `admin` scope (releases, failures, approvals) and allowed to approve updates. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
-Older names still work: `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = essentials + log (`DISCORD_CONSOLE=false` drops the log), `DISCORD_WEBHOOK_USER` = public. Update approval needs a bot, see [Updates](#updates).
+The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` = admin, `DISCORD_WEBHOOK_LOG` = log, `DISCORD_WEBHOOK_PUBLIC` = public, `DISCORD_WEBHOOK_CHAT` = chat, `LEADERBOARD_WEBHOOK` = leaderboard, `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = admin + log (`DISCORD_CONSOLE=false` drops the log), `DISCORD_WEBHOOK_USER` = public. Update approval needs a bot, see [Updates](#updates).
 
 <br/>
 
 - Player names and chat can never ping anyone: console posts disable mentions.
-- If several servers share one essentials webhook, set `DISCORD_MENTION_IDS` on one of them only.
-- Essentials and log contain the **join code**; the log also has Steam IDs and chat. The public feed is safe for a public channel.
+- If several servers share one admin webhook, set `DISCORD_MENTION_IDS` on one of them only.
+- The admin and log scopes contain the **join code**; the log also has Steam IDs and chat. The public scope is safe for a public channel.
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
 
 <br/>
@@ -364,7 +372,7 @@ Older names still work: `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = essentials
 
 - **Ranked:** a player is ranked when their game reports no mods that change scoring or physics (the server's `SCORE_CHECK`, default `warn`) and they have not been caught with a sped-up game this session (`SPEED_CHECK`). About 15 s after joining, every player gets a DM saying whether they are ranked, and another one when that changes.
 - **Points:** from finished throwdowns with at least two players who did not quit. Jam and Spot Battle by place (`LEADERBOARD_POINTS`, default `10,6,4,2`: 1st 10, 2nd 6, 3rd 4, everyone after 2); S.K.A.T.E. gives the last value to everyone who finished, because the log has no winner. Unranked players keep their place but get no points. Free skating earns nothing: the server never sees those tricks. Needs `ACTIVITY_LOG` on (the default).
-- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` posted in chat (only while players are on), and the top 10 go to Discord when the board changed since the last post.
+- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` posted in chat (only while players are on), and the top 10 go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when the board changed since the last post.
 
 <br/>
 
@@ -374,7 +382,6 @@ Older names still work: `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = essentials
 | `LEADERBOARD_INTERVAL` | Minutes between posts, 1-1440 (default 60). |
 | `LEADERBOARD_SIZE` | Players listed in chat, 1-10 (default 5). |
 | `LEADERBOARD_POINTS` | Points per place, comma-separated; the last value is for every later place (default `10,6,4,2`). |
-| `LEADERBOARD_WEBHOOK` | Discord webhook for the board. Default: `DISCORD_WEBHOOK_PUBLIC`; neither set, no Discord post. |
 | `LEADERBOARD_SCOPE` | `shared` (default): one board for every server that mounts the same folder at `/shared`, e.g. `- /root/reskate/shared:/shared` on each one (writable by uid 1000). Without that mount the server keeps its own board and says so in its log. `server`: always this server's own board, in `/data`. |
 | `LEADERBOARD_FILE` | Use another file than `/shared/leaderboard.json` / `/data/leaderboard.json`. The shared file is locked while changed, and only one server posts it to Discord per interval. |
 | `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
@@ -439,7 +446,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - The server binary is baked into the image. ReSkate 1.1.4+ can update itself, but a self-updated binary is lost when the container is recreated, so the image keeps it off and does it itself: `UPDATE_MODE=auto` installs releases into `/data/server` (see [Updates](#updates)). With the default `pinned`, updating means a new image.
 - **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
 - **Automatic updates:** `UPDATE_MODE=auto`, see [Updates](#updates).
-- **Get told about releases:** set `DISCORD_WEBHOOK_ESSENTIALS`, see [Discord webhook](#discord-webhook).
+- **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=admin`, see [Discord webhook](#discord-webhook).
 - **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
 <br/>

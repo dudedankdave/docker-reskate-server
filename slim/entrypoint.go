@@ -624,6 +624,32 @@ func entrypointMain(serverArgs []string) {
 			die("%s: expected a webhook URL starting with https://", v)
 		}
 	}
+	for _, kv := range os.Environ() {
+		key := strings.SplitN(kv, "=", 2)[0]
+		var suffix string
+		if strings.HasPrefix(key, "WEBHOOK_URL_") {
+			suffix = strings.TrimPrefix(key, "WEBHOOK_URL_")
+		} else if strings.HasPrefix(key, "WEBHOOK_SCOPE_") {
+			suffix = strings.TrimPrefix(key, "WEBHOOK_SCOPE_")
+		}
+		if _, set := env(key); suffix == "" || !set {
+			continue
+		}
+		u, hasURL := env("WEBHOOK_URL_" + suffix)
+		scope, hasScope := env("WEBHOOK_SCOPE_" + suffix)
+		if !hasURL || !hasScope {
+			die("WEBHOOK_URL_%s and WEBHOOK_SCOPE_%s go together; one of them is not set", suffix, suffix)
+		}
+		if !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+			die("WEBHOOK_URL_%s: expected a webhook URL starting with https://", suffix)
+		}
+		for _, item := range strings.Split(strings.ToLower(scope), ",") {
+			if _, ok := webhookScopes[strings.TrimSpace(item)]; !ok {
+				die("WEBHOOK_SCOPE_%s: expected scopes from admin, essentials, log, console, public, chat, leaderboard, got %q",
+					suffix, strings.TrimSpace(item))
+			}
+		}
+	}
 	for _, name := range []string{"DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"} {
 		if v, ok := env(name); ok {
 			for _, item := range asList(v) {

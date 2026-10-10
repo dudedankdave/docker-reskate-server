@@ -424,6 +424,16 @@ for var in ("DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER",
             "DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC", "DISCORD_WEBHOOK_CHAT"):
     if (hook := env(var)) is not None and not hook.startswith(("https://", "http://")):
         sys.exit(f"{var}: expected a webhook URL starting with https://")
+for var in sorted(os.environ):
+    if (m := re.match(r"^WEBHOOK_(URL|SCOPE)_(.+)$", var)) and env(var) is not None:
+        url, scope = env("WEBHOOK_URL_" + m.group(2)), env("WEBHOOK_SCOPE_" + m.group(2))
+        if url is None or scope is None:
+            sys.exit(f"WEBHOOK_URL_{m.group(2)} and WEBHOOK_SCOPE_{m.group(2)} go together; one of them is not set")
+        if not url.startswith(("https://", "http://")):
+            sys.exit(f"WEBHOOK_URL_{m.group(2)}: expected a webhook URL starting with https://")
+        for item in scope.lower().split(","):
+            if item.strip() not in notifier.SCOPES:
+                sys.exit(f"WEBHOOK_SCOPE_{m.group(2)}: expected scopes from {', '.join(notifier.SCOPES)}, got {item.strip()!r}")
 for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
     for item in as_list(env(var) or ""):
         if not item.isdigit():

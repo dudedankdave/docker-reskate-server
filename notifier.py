@@ -2,7 +2,8 @@
 nothing here may disturb the server: every failure is swallowed and written to
 /data/DiscordWebhook.log instead.
 
-Four webhooks, each optional:
+Webhooks: any number of WEBHOOK_URL_<n> + WEBHOOK_SCOPE_<n> pairs (see webhooks()); the scopes are
+admin (= essentials), log, public, chat and leaderboard, and these older names map onto them:
   DISCORD_WEBHOOK_ESSENTIALS  what an admin has to know: server up + join code, config problems,
                               warnings/errors, crashes, releases, update approvals and results,
                               mod updates. The only feed that pings (DISCORD_MENTION_IDS).
@@ -200,18 +201,50 @@ class Feed:
                 chunk, size = ([line], len(line) + 1) if line is not None else ([], 0)
 
 
+# WEBHOOK_URL_<n> + WEBHOOK_SCOPE_<n>: any number of webhooks, <n> any name (1, 2, admin...),
+# each scope a comma-separated list of these (the older DISCORD_WEBHOOK_* names still work).
+SCOPES = {"admin": "essentials", "essentials": "essentials", "log": "log", "console": "log",
+          "public": "public", "chat": "chat", "leaderboard": "leaderboard"}
+WEBHOOK_URL = re.compile(r"^WEBHOOK_URL_(.+)$")
+
+
+def webhooks():
+    """scope -> webhook URLs, from WEBHOOK_URL_<n>/WEBHOOK_SCOPE_<n> and the older names."""
+    def get(name):
+        return (os.environ.get(name) or "").strip()
+    legacy = get("DISCORD_WEBHOOK_ADMIN") or get("DISCORD_WEBHOOK")
+    hooks = {
+        "essentials": [get("DISCORD_WEBHOOK_ESSENTIALS") or legacy],
+        "log": [get("DISCORD_WEBHOOK_LOG") or (legacy if truthy(os.environ.get("DISCORD_CONSOLE"), True) else "")],
+        "public": [get("DISCORD_WEBHOOK_PUBLIC") or get("DISCORD_WEBHOOK_USER")],
+        "chat": [get("DISCORD_WEBHOOK_CHAT")],
+        "leaderboard": [get("LEADERBOARD_WEBHOOK")],
+    }
+    for key in sorted(os.environ):
+        m = WEBHOOK_URL.match(key)
+        if m and get(key):
+            for scope in get("WEBHOOK_SCOPE_" + m.group(1)).lower().split(","):
+                if scope.strip() in SCOPES:
+                    hooks[SCOPES[scope.strip()]].append(get(key))
+    return {scope: list(dict.fromkeys(u for u in urls if u)) for scope, urls in hooks.items()}
+
+
 class Hook:
-    def __init__(self, url, name, mentions=()):
-        self.url, self.name, self.mentions = url, name, list(mentions)
+    """One feed: posts to every webhook URL given for its scope."""
+
+    def __init__(self, urls, name, mentions=()):
+        self.urls, self.name, self.mentions = list(urls), name, list(mentions)
+        self.url = self.urls[0] if self.urls else ""
 
     def send(self, text, ping=False):
-        if not self.url:
-            return True
         users = self.mentions if ping else []
         if users:
             text = " ".join(f"<@{i}>" for i in users) + " " + text
-        return request(self.url, {"username": self.name, "content": text[:2000],
-                                  "allowed_mentions": {"parse": [], "users": users}}) is not None
+        ok = True
+        for url in self.urls:
+            ok = request(url, {"username": self.name, "content": text[:2000],
+                               "allowed_mentions": {"parse": [], "users": users}}) is not None and ok
+        return ok
 
 
 def read_json(path):
@@ -247,16 +280,13 @@ def parse_schedule(value):
 class Notifier:
     def __init__(self, sup, mode, image_version):
         self.sup, self.mode, self.image_version = sup, mode, image_version
-        legacy = (os.environ.get("DISCORD_WEBHOOK_ADMIN") or os.environ.get("DISCORD_WEBHOOK") or "").strip()
         name = username()
         self.mentions = [i.strip() for i in os.environ.get("DISCORD_MENTION_IDS", "").split(",") if i.strip()]
-        self.essentials = Hook(os.environ.get("DISCORD_WEBHOOK_ESSENTIALS", "").strip() or legacy, name, self.mentions)
-        log = os.environ.get("DISCORD_WEBHOOK_LOG", "").strip()
-        if not log and legacy and truthy(os.environ.get("DISCORD_CONSOLE"), True):
-            log = legacy
-        self.log = Hook(log, name)
-        self.public = Hook((os.environ.get("DISCORD_WEBHOOK_PUBLIC") or os.environ.get("DISCORD_WEBHOOK_USER") or "").strip(), name)
-        self.chat = Hook(os.environ.get("DISCORD_WEBHOOK_CHAT", "").strip(), name)
+        hooks = webhooks()
+        self.essentials = Hook(hooks["essentials"], name, self.mentions)
+        self.log = Hook(hooks["log"], name)
+        self.public = Hook(hooks["public"], name)
+        self.chat = Hook(hooks["chat"], name)
         self.policy = (os.environ.get("UPDATE_POLICY") or "timed").strip().lower()
         self.countdown = int(os.environ.get("UPDATE_COUNTDOWN") or 10)
         self.schedule = parse_schedule(os.environ["UPDATE_SCHEDULE"]) if self.policy == "scheduled" else None
@@ -267,7 +297,7 @@ class Notifier:
         self.busy = None             # release version being handled
         self.lock = threading.Lock()
         self.installing = threading.Lock()
-        board_hook = Hook(os.environ.get("LEADERBOARD_WEBHOOK", "").strip() or self.public.url, name)
+        board_hook = Hook(hooks["leaderboard"] or hooks["public"], name)
         self.leaderboard = leaderboard.create(sup.send, board_hook.send if board_hook.url else None)
         sup.notify = self.event
         if mode == "auto":
