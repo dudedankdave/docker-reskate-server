@@ -624,6 +624,32 @@ func entrypointMain(serverArgs []string) {
 			die("%s: expected a webhook URL starting with https://", v)
 		}
 	}
+	for _, kv := range os.Environ() {
+		key := strings.SplitN(kv, "=", 2)[0]
+		var suffix string
+		if strings.HasPrefix(key, "WEBHOOK_URL_") {
+			suffix = strings.TrimPrefix(key, "WEBHOOK_URL_")
+		} else if strings.HasPrefix(key, "WEBHOOK_SCOPE_") {
+			suffix = strings.TrimPrefix(key, "WEBHOOK_SCOPE_")
+		}
+		if _, set := env(key); suffix == "" || !set {
+			continue
+		}
+		u, hasURL := env("WEBHOOK_URL_" + suffix)
+		scope, hasScope := env("WEBHOOK_SCOPE_" + suffix)
+		if !hasURL || !hasScope {
+			die("WEBHOOK_URL_%s and WEBHOOK_SCOPE_%s go together; one of them is not set", suffix, suffix)
+		}
+		if !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+			die("WEBHOOK_URL_%s: expected a webhook URL starting with https://", suffix)
+		}
+		for _, item := range strings.Split(strings.ToLower(scope), ",") {
+			if _, ok := webhookScopes[strings.TrimSpace(item)]; !ok {
+				die("WEBHOOK_SCOPE_%s: expected scopes from admin, essentials, log, console, public, chat, leaderboard, got %q",
+					suffix, strings.TrimSpace(item))
+			}
+		}
+	}
 	for _, name := range []string{"DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"} {
 		if v, ok := env(name); ok {
 			for _, item := range asList(v) {
@@ -639,6 +665,34 @@ func entrypointMain(serverArgs []string) {
 	announce := true
 	if v, ok := env("ANNOUNCE_KICKS"); ok {
 		announce = asBool("ANNOUNCE_KICKS", v)
+	}
+	if v, ok := env("LEADERBOARD"); ok && asBool("LEADERBOARD", v) {
+		if v, ok := env("LEADERBOARD_SCOPE"); ok {
+			choice("shared", "server")("LEADERBOARD_SCOPE", v)
+		}
+		if v, ok := env("LEADERBOARD_INTERVAL"); ok {
+			intRange(1, 1440)("LEADERBOARD_INTERVAL", v)
+		}
+		if v, ok := env("LEADERBOARD_SIZE"); ok {
+			intRange(1, 10)("LEADERBOARD_SIZE", v)
+		}
+		if v, ok := env("LEADERBOARD_POINTS"); ok {
+			for _, item := range asList(v) {
+				if _, err := strconv.ParseUint(item, 10, 31); err != nil {
+					die("LEADERBOARD_POINTS: expected points per place like 10,6,4,2, got %q", item)
+				}
+			}
+		}
+		if h, ok := env("LEADERBOARD_WEBHOOK"); ok && !strings.HasPrefix(h, "https://") && !strings.HasPrefix(h, "http://") {
+			die("LEADERBOARD_WEBHOOK: expected a webhook URL starting with https://")
+		}
+		section := func(key string) map[string]any { m, _ := cfg[key].(map[string]any); return m }
+		if v, _ := section("anti_cheat")["modified_scoring"].(string); v == "off" {
+			fmt.Println("[leaderboard] SCORE_CHECK is off, so modded players cannot be told apart: everyone counts as ranked")
+		}
+		if v, ok := section("server")["activity_log"].(bool); ok && !v {
+			fmt.Println("[leaderboard] ACTIVITY_LOG is off, so no throwdown results are logged and nobody gets points")
+		}
 	}
 	_, bot := env("DISCORD_BOT_TOKEN")
 	_, channel := env("DISCORD_APPROVAL_CHANNEL")

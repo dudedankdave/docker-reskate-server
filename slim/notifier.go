@@ -155,9 +155,78 @@ func username() string {
 	return trunc(name, 80)
 }
 
+// hook is one feed; it posts to every webhook URL given for its scope (url is the first, more the rest).
 type hook struct {
 	url, name string
 	mentions  []string
+	more      []string
+}
+
+func newHook(urls []string, name string, mentions []string) *hook {
+	h := &hook{name: name, mentions: mentions}
+	if len(urls) > 0 {
+		h.url, h.more = urls[0], urls[1:]
+	}
+	return h
+}
+
+// webhookScopes maps WEBHOOK_SCOPE_<n> names to feeds.
+var (
+	webhookScopes = map[string]string{"admin": "essentials", "essentials": "essentials", "log": "log",
+		"console": "log", "public": "public", "chat": "chat", "leaderboard": "leaderboard"}
+	webhookURLRe = regexp.MustCompile(`^WEBHOOK_URL_(.+)$`)
+)
+
+// webhooks: feed -> URLs, from WEBHOOK_URL_<n>/WEBHOOK_SCOPE_<n> (any number, <n> any name, scopes
+// comma-separated) and the older DISCORD_WEBHOOK_* names.
+func webhooks() map[string][]string {
+	get := func(name string) string { return strings.TrimSpace(os.Getenv(name)) }
+	or := func(a, b string) string {
+		if a != "" {
+			return a
+		}
+		return b
+	}
+	legacy := or(get("DISCORD_WEBHOOK_ADMIN"), get("DISCORD_WEBHOOK"))
+	logURL := get("DISCORD_WEBHOOK_LOG")
+	if logURL == "" && truthy(os.Getenv("DISCORD_CONSOLE"), true) {
+		logURL = legacy
+	}
+	hooks := map[string][]string{
+		"essentials":  {or(get("DISCORD_WEBHOOK_ESSENTIALS"), legacy)},
+		"log":         {logURL},
+		"public":      {or(get("DISCORD_WEBHOOK_PUBLIC"), get("DISCORD_WEBHOOK_USER"))},
+		"chat":        {get("DISCORD_WEBHOOK_CHAT")},
+		"leaderboard": {get("LEADERBOARD_WEBHOOK")},
+	}
+	var keys []string
+	for _, kv := range os.Environ() {
+		keys = append(keys, strings.SplitN(kv, "=", 2)[0])
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		m := webhookURLRe.FindStringSubmatch(key)
+		if m == nil || get(key) == "" {
+			continue
+		}
+		for _, scope := range strings.Split(strings.ToLower(get("WEBHOOK_SCOPE_"+m[1])), ",") {
+			if feed, ok := webhookScopes[strings.TrimSpace(scope)]; ok {
+				hooks[feed] = append(hooks[feed], get(key))
+			}
+		}
+	}
+	for feed, urls := range hooks {
+		var out []string
+		seen := map[string]bool{}
+		for _, u := range urls {
+			if u != "" && !seen[u] {
+				seen[u] = true
+				out = append(out, u)
+			}
+		}
+		hooks[feed] = out
+	}
+	return hooks
 }
 
 func (h *hook) send(text string, ping bool) bool {
@@ -173,8 +242,12 @@ func (h *hook) send(text string, ping bool) bool {
 		}
 		text = strings.Join(tags, " ") + " " + text
 	}
-	return request("POST", h.url, map[string]any{"username": h.name, "content": trunc(text, 2000),
-		"allowed_mentions": map[string]any{"parse": []string{}, "users": users}}, nil, nil)
+	ok := true
+	for _, u := range append([]string{h.url}, h.more...) {
+		ok = request("POST", u, map[string]any{"username": h.name, "content": trunc(text, 2000),
+			"allowed_mentions": map[string]any{"parse": []string{}, "users": users}}, nil, nil) && ok
+	}
+	return ok
 }
 
 func clean(line string) string {
@@ -417,13 +490,10 @@ type notifier struct {
 	busy                    string
 	installing              sync.Mutex
 	installingHeld          bool
+	leaderboard             *leaderboard
 }
 
 func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
-	legacy := strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK_ADMIN"))
-	if legacy == "" {
-		legacy = strings.TrimSpace(os.Getenv("DISCORD_WEBHOOK"))
-	}
 	name := username()
 	var mentions []string
 	for _, id := range strings.Split(os.Getenv("DISCORD_MENTION_IDS"), ",") {
@@ -439,16 +509,13 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 		}
 		return ""
 	}
-	logURL := first(os.Getenv("DISCORD_WEBHOOK_LOG"))
-	if logURL == "" && legacy != "" && truthy(os.Getenv("DISCORD_CONSOLE"), true) {
-		logURL = legacy
-	}
+	hooks := webhooks()
 	n := &notifier{
 		sup: sup, mode: mode, imageVersion: imageVersion, mentions: mentions,
-		essentials: &hook{first(os.Getenv("DISCORD_WEBHOOK_ESSENTIALS"), legacy), name, mentions},
-		log:        &hook{logURL, name, nil},
-		public:     &hook{first(os.Getenv("DISCORD_WEBHOOK_PUBLIC"), os.Getenv("DISCORD_WEBHOOK_USER")), name, nil},
-		chat:       &hook{first(os.Getenv("DISCORD_WEBHOOK_CHAT")), name, nil},
+		essentials: newHook(hooks["essentials"], name, mentions),
+		log:        newHook(hooks["log"], name, nil),
+		public:     newHook(hooks["public"], name, nil),
+		chat:       newHook(hooks["chat"], name, nil),
 		policy:     strings.ToLower(first(os.Getenv("UPDATE_POLICY"), "timed")),
 		countdown:  10,
 		bot:        first(os.Getenv("DISCORD_BOT_TOKEN")),
@@ -467,6 +534,16 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 		every = v
 	}
 	n.checkEvery = time.Duration(every) * time.Minute
+	boardURLs := hooks["leaderboard"]
+	if len(boardURLs) == 0 {
+		boardURLs = hooks["public"]
+	}
+	boardHook := newHook(boardURLs, name, nil)
+	var post func(string)
+	if boardHook.url != "" {
+		post = func(text string) { boardHook.send(text, false) }
+	}
+	n.leaderboard = newLeaderboard(sup.send, post)
 	sup.notify = n.event
 	if mode == "auto" {
 		sup.onUpdate = func() { guarded(func() { n.check(true) }) }
@@ -481,6 +558,9 @@ func (n *notifier) playersOn() bool {
 }
 
 func (n *notifier) track(line string) {
+	if n.leaderboard != nil {
+		n.leaderboard.feed(line)
+	}
 	text := lineText(line)
 	n.mu.Lock()
 	defer n.mu.Unlock()

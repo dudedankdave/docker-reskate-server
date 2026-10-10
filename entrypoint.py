@@ -425,6 +425,16 @@ for var in ("DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER",
             "DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC", "DISCORD_WEBHOOK_CHAT"):
     if (hook := env(var)) is not None and not hook.startswith(("https://", "http://")):
         sys.exit(f"{var}: expected a webhook URL starting with https://")
+for var in sorted(os.environ):
+    if (m := re.match(r"^WEBHOOK_(URL|SCOPE)_(.+)$", var)) and env(var) is not None:
+        url, scope = env("WEBHOOK_URL_" + m.group(2)), env("WEBHOOK_SCOPE_" + m.group(2))
+        if url is None or scope is None:
+            sys.exit(f"WEBHOOK_URL_{m.group(2)} and WEBHOOK_SCOPE_{m.group(2)} go together; one of them is not set")
+        if not url.startswith(("https://", "http://")):
+            sys.exit(f"WEBHOOK_URL_{m.group(2)}: expected a webhook URL starting with https://")
+        for item in scope.lower().split(","):
+            if item.strip() not in notifier.SCOPES:
+                sys.exit(f"WEBHOOK_SCOPE_{m.group(2)}: expected scopes from {', '.join(notifier.SCOPES)}, got {item.strip()!r}")
 for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
     for item in as_list(env(var) or ""):
         if not item.isdigit():
@@ -432,6 +442,21 @@ for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
 if (value := env("DISCORD_CONSOLE")) is not None:
     as_bool("DISCORD_CONSOLE", value)
 announce_kicks = as_bool("ANNOUNCE_KICKS", env("ANNOUNCE_KICKS") or "true")
+if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
+    choice("shared", "server")("LEADERBOARD_SCOPE", env("LEADERBOARD_SCOPE") or "shared")
+    int_range(1, 1440)("LEADERBOARD_INTERVAL", env("LEADERBOARD_INTERVAL") or "60")
+    int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
+    for item in as_list(env("LEADERBOARD_POINTS") or ""):
+        if not item.isdigit():
+            sys.exit(f"LEADERBOARD_POINTS: expected points per place like 10,6,4,2, got {item!r}")
+    if (hook := env("LEADERBOARD_WEBHOOK")) is not None and not hook.startswith(("https://", "http://")):
+        sys.exit("LEADERBOARD_WEBHOOK: expected a webhook URL starting with https://")
+    if get("anti_cheat", "modified_scoring") == "off":
+        print("[leaderboard] SCORE_CHECK is off, so modded players cannot be told apart: everyone counts as ranked",
+              flush=True)
+    if get("server", "activity_log") is False:
+        print("[leaderboard] ACTIVITY_LOG is off, so no throwdown results are logged and nobody gets points",
+              flush=True)
 if mode == "auto" and policy == "ask" and not (env("DISCORD_BOT_TOKEN") and env("DISCORD_APPROVAL_CHANNEL")):
     print("[update] UPDATE_POLICY=ask needs DISCORD_BOT_TOKEN and DISCORD_APPROVAL_CHANNEL; "
           "until then a new release waits for `update` in the console", flush=True)
