@@ -302,6 +302,14 @@ func chatLine(line string) string {
 	return fmt.Sprintf("[%s] %s", m[1], strings.TrimPrefix(m[2], "[chat] "))
 }
 
+// logLine is a console line for the log scope with DISCORD_LOG_CHAT=false: every line but in-game chat.
+func logLine(line string) string {
+	if strings.HasPrefix(lineText(line), "[chat] ") {
+		return ""
+	}
+	return line
+}
+
 // essentialLine: server up, the join code, config problems, warnings and errors; never chat or players.
 func essentialLine(line string) string {
 	text := lineText(line)
@@ -575,7 +583,11 @@ func (n *notifier) track(line string) {
 
 func (n *notifier) consoleLoop() {
 	var feeds []*feed
-	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
+	logFeed := &feed{h: n.log}
+	if !truthy(os.Getenv("DISCORD_LOG_CHAT"), true) {
+		logFeed.convert = logLine
+	}
+	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, logFeed, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
 		if f.h.url != "" {
 			feeds = append(feeds, f)
 		}

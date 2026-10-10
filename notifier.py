@@ -162,6 +162,12 @@ def chat_line(line):
     return f"[{m.group(1)}] {m.group(2)[7:]}"
 
 
+def log_line(line):
+    """A console line for the log scope with DISCORD_LOG_CHAT=false: every line but in-game chat."""
+    m = LINE.match(line)
+    return None if (m.group(2) if m else line).startswith("[chat] ") else line
+
+
 def essential_line(line):
     """Server up, the join code, config problems, warnings and errors; never chat or players."""
     m = LINE.match(line)
@@ -317,7 +323,7 @@ class Notifier:
             self.players.discard(left.group(1))
 
     def console_loop(self):
-        feeds = [Feed(h, c) for h, c in ((self.essentials, essential_line), (self.log, None),
+        feeds = [Feed(h, c) for h, c in ((self.essentials, essential_line), (self.log, None if truthy(os.environ.get("DISCORD_LOG_CHAT"), True) else log_line),
                                          (self.public, public_line), (self.chat, chat_line)) if h.url]
         try:
             st = os.stat(LOG)

@@ -358,6 +358,7 @@ Any number of webhooks, each set with two variables that share a suffix: `WEBHOO
 | `WEBHOOK_URL_<n>` | A webhook URL (Discord: channel settings, Integrations, Webhooks). |
 | `WEBHOOK_SCOPE_<n>` | What it gets: `admin`, `log`, `public`, `chat`, `leaderboard`, comma-separated. |
 | `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the `admin` scope (releases, failures, approvals) and allowed to approve updates. |
+| `DISCORD_LOG_CHAT` | `false` leaves the in-game chat out of the `log` scope, e.g. to keep it in a public `chat` channel only. Default `true`. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
 The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` = admin, `DISCORD_WEBHOOK_LOG` = log, `DISCORD_WEBHOOK_PUBLIC` = public, `DISCORD_WEBHOOK_CHAT` = chat, `LEADERBOARD_WEBHOOK` = leaderboard, `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = admin + log (`DISCORD_CONSOLE=false` drops the log), `DISCORD_WEBHOOK_USER` = public. Update approval needs a bot, see [Updates](#updates).

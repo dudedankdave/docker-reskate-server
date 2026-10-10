@@ -470,8 +470,9 @@ for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):
     for item in as_list(env(var) or ""):
         if not item.isdigit():
             sys.exit(f"{var}: expected Discord ids (digits), got {item!r}")
-if (value := env("DISCORD_CONSOLE")) is not None:
-    as_bool("DISCORD_CONSOLE", value)
+for var in ("DISCORD_CONSOLE", "DISCORD_LOG_CHAT"):
+    if (value := env(var)) is not None:
+        as_bool(var, value)
 announce_kicks = as_bool("ANNOUNCE_KICKS", env("ANNOUNCE_KICKS") or "true")
 if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     choice("shared", "server")("LEADERBOARD_SCOPE", env("LEADERBOARD_SCOPE") or "shared")
