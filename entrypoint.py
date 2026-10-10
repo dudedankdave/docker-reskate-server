@@ -421,7 +421,7 @@ if policy == "scheduled" and mode == "auto":
         sys.exit(f"UPDATE_SCHEDULE: expected a UTC time like 04:00 or sat,sun 04:00, got {env('UPDATE_SCHEDULE')!r}")
 
 for var in ("DISCORD_WEBHOOK", "DISCORD_WEBHOOK_ADMIN", "DISCORD_WEBHOOK_USER",
-            "DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC"):
+            "DISCORD_WEBHOOK_ESSENTIALS", "DISCORD_WEBHOOK_LOG", "DISCORD_WEBHOOK_PUBLIC", "DISCORD_WEBHOOK_CHAT"):
     if (hook := env(var)) is not None and not hook.startswith(("https://", "http://")):
         sys.exit(f"{var}: expected a webhook URL starting with https://")
 for var in ("DISCORD_MENTION_IDS", "DISCORD_APPROVAL_CHANNEL"):

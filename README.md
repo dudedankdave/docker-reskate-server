@@ -11,7 +11,7 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 - **Configured with environment variables.** They are written to `/data/ReSkateServer.json` on every start (older configs are moved to the 1.1.7 layout first). Unset or empty variables leave the existing value alone, so changes made in-game or from the console survive restarts.
 - **Multi-server support:** run several servers on one host, each with its own data volume.
 - **Updates:** pinned to the image, or installed automatically (instant, countdown, scheduled or approved in Discord).
-- **Discord webhooks:** essentials, full console log and a public player feed.
+- **Discord webhooks:** essentials, full console log, a public player feed and in-game chat.
 - **Healthcheck** that reports `healthy` once the server is up on its map.
 
 > **The server must run the same ReSkate version as the players.** If it falls behind, it can vanish from the in-game list and join codes time out, even though the container is `healthy`. See [Keeping up to date](#keeping-up-to-date).
@@ -327,11 +327,12 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 
 ## Discord webhook
 
-Three webhooks per server, each optional, so every channel gets only what belongs there:
+Four webhooks per server, each optional, so every channel gets only what belongs there:
 
 - **Essentials** (`DISCORD_WEBHOOK_ESSENTIALS`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**, and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). The only feed that pings `DISCORD_MENTION_IDS`.
 - **Log** (`DISCORD_WEBHOOK_LOG`): the whole console as code blocks: joins with Steam IDs, leaves with reasons, `[admin]`, `[chat]`, `[objects]`, `[join]`, throwdowns. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
 - **Public** (`DISCORD_WEBHOOK_PUBLIC`): for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.3"). No Steam IDs, chat, admin commands or join code.
+- **Chat** (`DISCORD_WEBHOOK_CHAT`): only the in-game chat, as `[12:34:56] Name: message`.
 
 <br/>
 
@@ -340,6 +341,7 @@ Three webhooks per server, each optional, so every channel gets only what belong
 | `DISCORD_WEBHOOK_ESSENTIALS` | Webhook URL for the essentials feed (Discord: channel settings, Integrations, Webhooks). |
 | `DISCORD_WEBHOOK_LOG` | Webhook URL for the console log. |
 | `DISCORD_WEBHOOK_PUBLIC` | Webhook URL for the player feed. |
+| `DISCORD_WEBHOOK_CHAT` | Webhook URL for the in-game chat. |
 | `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the essentials feed (releases, failures, approvals) and allowed to approve updates. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
