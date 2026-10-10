@@ -626,6 +626,28 @@ func entrypointMain(serverArgs []string) {
 		}
 	}
 
+	// Kick and ban announcements (announcer.go): the server's console becomes a pipe that both the
+	// container's stdin and the announcer write into.
+	announce := true
+	if v, ok := env("ANNOUNCE_KICKS"); ok {
+		announce = asBool("ANNOUNCE_KICKS", v)
+	}
+	if announce {
+		if self, err := os.Executable(); err == nil {
+			if r, w, err := os.Pipe(); err == nil {
+				cmd := exec.Command(self, "announcer") // stdout/stderr = /dev/null
+				cmd.Stdin = os.Stdin
+				cmd.ExtraFiles = []*os.File{w}
+				cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+				if cmd.Start() == nil {
+					_ = syscall.Dup3(int(r.Fd()), 0, 0)
+				}
+				r.Close()
+				w.Close()
+			}
+		}
+	}
+
 	// ReSkate 1.1.4+ can replace its own binary. In a container that drifts from the image tag and is
 	// lost when the container is recreated, so it stays off unless AUTO_UPDATE=true is set explicitly.
 	args := []string{"/app/ReSkateServer", "--config", configPath}

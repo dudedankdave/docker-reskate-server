@@ -3,6 +3,7 @@
 //
 //	reskate              env vars -> /data/ReSkateServer.json, Discord sidecar, exec server
 //	reskate notifier     Discord sidecar (started by the entrypoint)
+//	reskate announcer    kick/ban announcements in chat (started by the entrypoint)
 //	reskate mods         install the MODS from Thunderstore now (docker exec ... /app/reskate mods)
 //	reskate healthcheck  container health from /data/ReSkateServer.log
 //	curl ...             (symlink) the small subset of curl the server uses
@@ -27,6 +28,9 @@ func main() {
 		switch os.Args[1] {
 		case "notifier":
 			notifierMain()
+			return
+		case "announcer":
+			announcerMain()
 			return
 		case "mods":
 			update := true

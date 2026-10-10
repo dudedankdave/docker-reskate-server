@@ -12,6 +12,7 @@ itself would), so the env vars below always land in one place. Bans live in data
 MODS / MODS_UPDATE install Thunderstore mods before the server starts, see mods.py.
 DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK (older name) / DISCORD_WEBHOOK_USER (+ DISCORD_MENTION_IDS, DISCORD_CONSOLE, DISCORD_USERNAME) are not server
 settings: they start notifier.py, see there.
+ANNOUNCE_KICKS (default true) starts announcer.py, which says admin kicks and bans in chat.
 """
 import json
 import os
@@ -426,6 +427,26 @@ if hooks:
             notifier.main()
         finally:
             os._exit(0)
+
+# Kick and ban announcements (announcer.py): the server's console becomes a pipe that both the
+# container's stdin and the announcer write into. Forked off before the server is exec'd.
+if as_bool("ANNOUNCE_KICKS", env("ANNOUNCE_KICKS") or "true"):
+    read_end, write_end = os.pipe()
+    if os.fork() == 0:
+        try:
+            os.setsid()
+            os.close(read_end)
+            devnull = os.open(os.devnull, os.O_RDWR)
+            for fd in (1, 2):
+                os.dup2(devnull, fd)
+            sys.path.insert(0, "/app")
+            import announcer
+            announcer.main(write_end)
+        finally:
+            os._exit(0)
+    os.dup2(read_end, 0)
+    os.close(read_end)
+    os.close(write_end)
 
 # ReSkate 1.1.4+ can replace its own binary. In a container that drifts from the image tag and is
 # lost when the container is recreated, so it stays off unless AUTO_UPDATE=true is set explicitly.

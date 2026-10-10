@@ -33,7 +33,7 @@ RUN apt-get update \
 WORKDIR /app
 # --chown on COPY avoids a second 49 MB layer from a recursive chown
 COPY --from=server --chown=reskate:reskate /out/ /app/
-COPY --chown=reskate:reskate entrypoint.py healthcheck.py notifier.py mods.py /app/
+COPY --chown=reskate:reskate entrypoint.py healthcheck.py notifier.py mods.py announcer.py /app/
 RUN ln -s /data/Mods /app/Mods \
  && ln -s /data/world-layers.json /app/world-layers.json \
  && ln -s /data/ReSkateServer.log /app/ReSkateServer.log \
