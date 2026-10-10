@@ -55,11 +55,13 @@ volumes:
 | Console | `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q) |
 | Status | `docker ps` (`healthy` once the log reports `... is up on <map>`) |
 | Update | `docker compose pull && docker compose up -d` |
-| Pin a version | `RESKATE_VERSION=2.0.2 docker compose up -d` (default `latest`) |
+| Pin a version | `RESKATE_VERSION=2.0.3 docker compose up -d` (default `latest`) |
 
 <br/>
 
-Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `2.0.2`, `2.0`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
+Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `2.0.3`, `2.0`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
+
+ReSkate 2.0.3 changed the multiplayer protocol: players and servers on 2.0.2 and 2.0.3 can't join each other, so update the servers together with the game.
 
 Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join code**. Either way a restart disconnects the players.
 
@@ -75,9 +77,9 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | Tag | What it is | Size on disk (download) |
 |---|---|---|
 | `latest` | Newest ReSkate release, default image (Debian slim) | 172 MB (64 MB) |
-| `2.0.2`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
+| `2.0.3`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
-| `2.0.2-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `2.0.3-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
 
 The version in a tag is the ReSkate release of the server inside. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available.
 
@@ -86,7 +88,7 @@ The version in a tag is the ReSkate release of the server inside. It has to matc
 
 ### Dependencies
 
-| | Default (`latest`, `2.0.2`) | `slim` |
+| | Default (`latest`, `2.0.3`) | `slim` |
 |---|---|---|
 | Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
 | ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
@@ -204,6 +206,7 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `OBJECT_LIMIT` | 0-1024 | Objects each player may have placed (default `100`), `0` = no limit. Admins are never limited. A player placing more than twice the limit plus 100 in a minute has their objects deleted. |
 | `OBJECT_SCALING` | `true` / `false` | Let players place objects bigger or smaller than their own size. Default `true`; admins can always resize. |
 | `BONE_SCALE_LIMIT` | 0-8 | How far mods may scale skater bones (big heads) for others. Default `2` (`1` also evens out height), `0` = no limit. |
+| `BONE_REACH_LIMIT` | 0.5-20, `0` | How far (metres) a bone of a skater's body or board may be from the one it hangs from, for the other players. Stops a hacked game from stretching its skater across the map; an ordinary player never gets near it. Default `1`, `0` = no limit. |
 | `NOCLIP` | `true` / `false` | Let players use noclip (and tp). Default `true`, admins always can. |
 | `NO_BAIL` | `true` / `false` | Let players use No Bail. Default `true`, admins always can. |
 | `BOOSTS` | `true` / `false` | Let players use the forward and up boosts. Default `true`, admins always can. |
@@ -212,6 +215,7 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `PARTY_SIZE` | 2-8 | Most players in one party. Default `8`. |
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
 | `ANNOUNCE_KICKS` | `true` / `false` | Tell everyone in chat when an admin kicks or bans a player ("Server: Name was kicked."). ReSkate itself only tells the admin. Done by the image, not the server: it types `say` into the server console, which `docker attach` still reaches. Default `true`. |
+| `WORD_WARNINGS` | 0-10 | Chat messages with a word from the ReSkate team's list are never passed on and their player is warned; after this many warnings the next one gets them kicked (they can rejoin). Warnings last until the server restarts. Default `3`, `0` = never warn or kick. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
@@ -278,7 +282,9 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 |---|---|---|
 | `ANNOUNCEMENTS` | `\|`-separated lines, `off` | Chat lines the server posts in turn while players are on, e.g. `Join the Discord: discord.gg/xyz\|Be nice`. Pins the list (console `announcements add` is replaced on restart); `off` clears it. |
 | `ANNOUNCEMENT_INTERVAL_MINUTES` | minutes, `0` = off | Minutes between announcements. Default `0`. |
-| `ANNOUNCEMENT_CARD` | `true` / `false` | Also show each announcement as a card at the top of every player's screen. Default `true`. |
+| `COMMANDS` | JSON list, `off` | Chat commands of your own, e.g. `[{"name": "discord", "reply": "Join us: discord.gg/xyz"}, {"name": "rules", "command": "announce-to {player} No griefing!"}]`. Each has a `name` (1-16 of `a-z 0-9 - _`) and a `reply` (chat line back), a `command` (server command or list of up to 8, run as the console; `{player}` = SteamID64, `{map}`, `{arg}`) or both, and `admin` (default `false`). Up to 32; not listed in `/help`. Pins the list; `off` clears it. Single-quote the value in env files. |
+
+ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `ANNOUNCEMENT_CARD` is ignored since then.
 
 
 ### Parks and layers
@@ -393,7 +399,7 @@ The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` =
 
 ## Slim image
 
-`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.2-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.3-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
 
 ```yaml
     image: dudedankdave/reskate-server:slim
@@ -402,7 +408,7 @@ The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` =
 <br/>
 
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
-- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.2 -t dudedankdave/reskate-server:slim .`
+- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.3 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once its `slim` tag is refreshed.
 
 <br/>
@@ -486,7 +492,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 The server binaries are proprietary and not part of this repo. Download `ReSkateServer-Linux-<version>.tar.gz` from a [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) and copy `ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so` and `steamclient.so` into `./Server/`, then:
 
 ```bash
-docker build --build-arg VERSION=2.0.2 -t dudedankdave/reskate-server:2.0.2 .
+docker build --build-arg VERSION=2.0.3 -t dudedankdave/reskate-server:2.0.3 .
 ```
 
 <br/>

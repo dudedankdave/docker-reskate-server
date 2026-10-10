@@ -141,6 +141,21 @@ func intRange(lo, hi int) conv {
 	}
 }
 
+// reach is metres from 0.5 to 20, or 0 / off for no limit.
+func reach(name, v string) any {
+	if strings.ToLower(strings.TrimSpace(v)) == "off" {
+		return 0
+	}
+	n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || (n != 0 && (n < 0.5 || n > 20)) {
+		die("%s: expected metres from 0.5 to 20 (0 = no limit), got %q", name, v)
+	}
+	if n == float64(int(n)) {
+		return int(n)
+	}
+	return n
+}
+
 func boolConv(name, v string) any { return asBool(name, v) }
 func intConv(name, v string) any  { return asInt(name, v) }
 
@@ -408,12 +423,14 @@ func entrypointMain(serverArgs []string) {
 		{"OBJECT_LIMIT", "players", "object_limit", intRange(0, 1024)},
 		{"ANNOUNCE_THROWDOWNS", "players", "announce_throwdowns", boolConv},
 		{"AFK_KICK_MINUTES", "players", "afk_kick_minutes", intRange(0, 1440)},
+		{"WORD_WARNINGS", "players", "word_warnings", intRange(0, 10)},
 		{"OBJECT_SCALING", "players", "allow_object_scaling", boolConv},
 		{"SYNC_EFFECTS", "players", "sync_effects", boolConv},
 		{"SPEED_CHECK", "anti_cheat", "speed_hack", choice("off", "warn", "kick")},
 		{"SCORE_CHECK", "anti_cheat", "modified_scoring", choice("off", "warn", "kick")},
 		{"ENFORCE_TUNING", "anti_cheat", "enforce_tuning", boolConv},
 		{"BONE_SCALE_LIMIT", "anti_cheat", "bone_scale_limit", intRange(0, 8)},
+		{"BONE_REACH_LIMIT", "anti_cheat", "bone_reach_limit", reach},
 		{"USE_STEAM_RELAY", "network", "use_steam_relay", boolConv},
 		{"SEND_RATE", "network", "send_rate", intRange(128, 16384)},
 		{"CROWD_BUDGET", "network", "crowd_budget", intRange(0, 1000000)},
@@ -521,8 +538,30 @@ func entrypointMain(serverArgs []string) {
 	if v, ok := env("ANNOUNCEMENT_INTERVAL_MINUTES"); ok {
 		sub(cfg, "announcements")["interval_minutes"] = nonNegative("ANNOUNCEMENT_INTERVAL_MINUTES", v)
 	}
-	if v, ok := env("ANNOUNCEMENT_CARD"); ok {
-		sub(cfg, "announcements")["card"] = asBool("ANNOUNCEMENT_CARD", v)
+	// ReSkate 2.0.3 always shows announcements as a card and dropped the "card" setting.
+	if a, ok := cfg["announcements"].(map[string]any); ok {
+		delete(a, "card")
+	}
+	if _, ok := env("ANNOUNCEMENT_CARD"); ok {
+		fmt.Println("[config] ANNOUNCEMENT_CARD is ignored: ReSkate 2.0.3+ always shows announcements as a card")
+	}
+
+	// COMMANDS=[{"name": "discord", "reply": "Join us: discord.gg/..."}]  (JSON, pins the list; off = none)
+	if v, ok := env("COMMANDS"); ok {
+		commands := []any{}
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			dec := json.NewDecoder(strings.NewReader(v))
+			dec.UseNumber()
+			if err := dec.Decode(&commands); err != nil {
+				die("COMMANDS: expected a JSON list of chat commands, %v", err)
+			}
+			for _, c := range commands {
+				if _, ok := c.(map[string]any); !ok {
+					die(`COMMANDS: expected a JSON list of chat commands like [{"name": ..., "reply": ...}]`)
+				}
+			}
+		}
+		cfg["commands"] = commands
 	}
 
 	// LAYERS=key=on,other_key=off

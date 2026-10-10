@@ -128,6 +128,19 @@ def int_range(lo, hi):
     return check
 
 
+def reach(name, value):
+    """Metres from 0.5 to 20, or 0 / off for no limit."""
+    if value.strip().lower() == "off":
+        return 0
+    try:
+        n = float(value)
+    except ValueError:
+        n = -1
+    if n != 0 and not 0.5 <= n <= 20:
+        sys.exit(f"{name}: expected metres from 0.5 to 20 (0 = no limit), got {value!r}")
+    return int(n) if n == int(n) else n
+
+
 def text(_name, value):
     return value
 
@@ -257,12 +270,14 @@ SIMPLE = {
     "OBJECT_LIMIT": ("players", "object_limit", int_range(0, 1024)),
     "ANNOUNCE_THROWDOWNS": ("players", "announce_throwdowns", as_bool),
     "AFK_KICK_MINUTES": ("players", "afk_kick_minutes", int_range(0, 1440)),
+    "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
     "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
     "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
     "SPEED_CHECK": ("anti_cheat", "speed_hack", choice("off", "warn", "kick")),
     "SCORE_CHECK": ("anti_cheat", "modified_scoring", choice("off", "warn", "kick")),
     "ENFORCE_TUNING": ("anti_cheat", "enforce_tuning", as_bool),
     "BONE_SCALE_LIMIT": ("anti_cheat", "bone_scale_limit", int_range(0, 8)),
+    "BONE_REACH_LIMIT": ("anti_cheat", "bone_reach_limit", reach),
     "USE_STEAM_RELAY": ("network", "use_steam_relay", as_bool),
     "SEND_RATE": ("network", "send_rate", int_range(128, 16384)),
     "CROWD_BUDGET": ("network", "crowd_budget", int_range(0, 1000000)),
@@ -338,8 +353,24 @@ if (value := env("ANNOUNCEMENTS")) is not None:
     setting("announcements", "messages", messages)
 if (value := env("ANNOUNCEMENT_INTERVAL_MINUTES")) is not None:
     setting("announcements", "interval_minutes", non_negative("ANNOUNCEMENT_INTERVAL_MINUTES", value))
-if (value := env("ANNOUNCEMENT_CARD")) is not None:
-    setting("announcements", "card", as_bool("ANNOUNCEMENT_CARD", value))
+# ReSkate 2.0.3 always shows announcements as a card and dropped the "card" setting.
+if isinstance(cfg.get("announcements"), dict):
+    cfg["announcements"].pop("card", None)
+if env("ANNOUNCEMENT_CARD") is not None:
+    print("[config] ANNOUNCEMENT_CARD is ignored: ReSkate 2.0.3+ always shows announcements as a card", flush=True)
+
+# COMMANDS=[{"name": "discord", "reply": "Join us: discord.gg/..."}]  (JSON, pins the list; off = none)
+if (value := env("COMMANDS")) is not None:
+    if value.lower() in ("off", "none"):
+        cfg["commands"] = []
+    else:
+        try:
+            commands = json.loads(value)
+        except ValueError as exc:
+            sys.exit(f"COMMANDS: expected a JSON list of chat commands, {exc}")
+        if not isinstance(commands, list) or not all(isinstance(c, dict) for c in commands):
+            sys.exit("COMMANDS: expected a JSON list of chat commands like [{\"name\": ..., \"reply\": ...}]")
+        cfg["commands"] = commands
 
 # LAYERS=key=on,other_key=off
 if (value := env("LAYERS")) is not None:
