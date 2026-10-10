@@ -29,6 +29,7 @@ import threading
 import time
 import urllib.parse
 
+import leaderboard
 import updater
 
 LOG = "/data/ReSkateServer.log"
@@ -266,12 +267,16 @@ class Notifier:
         self.busy = None             # release version being handled
         self.lock = threading.Lock()
         self.installing = threading.Lock()
+        board_hook = Hook(os.environ.get("LEADERBOARD_WEBHOOK", "").strip() or self.public.url, name)
+        self.leaderboard = leaderboard.create(sup.send, board_hook.send if board_hook.url else None)
         sup.notify = self.event
         if mode == "auto":
             sup.on_update = lambda: self.check(now=True)
 
     # ---- console ------------------------------------------------------------------
     def track(self, line):
+        if self.leaderboard:
+            self.leaderboard.feed(line)
         m = LINE.match(line)
         text = m.group(2) if m else line
         if UP.match(text):

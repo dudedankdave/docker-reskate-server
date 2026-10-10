@@ -417,6 +417,7 @@ type notifier struct {
 	busy                    string
 	installing              sync.Mutex
 	installingHeld          bool
+	leaderboard             *leaderboard
 }
 
 func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
@@ -467,6 +468,12 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 		every = v
 	}
 	n.checkEvery = time.Duration(every) * time.Minute
+	boardHook := &hook{first(os.Getenv("LEADERBOARD_WEBHOOK"), n.public.url), name, nil}
+	var post func(string)
+	if boardHook.url != "" {
+		post = func(text string) { boardHook.send(text, false) }
+	}
+	n.leaderboard = newLeaderboard(sup.send, post)
 	sup.notify = n.event
 	if mode == "auto" {
 		sup.onUpdate = func() { guarded(func() { n.check(true) }) }
@@ -481,6 +488,9 @@ func (n *notifier) playersOn() bool {
 }
 
 func (n *notifier) track(line string) {
+	if n.leaderboard != nil {
+		n.leaderboard.feed(line)
+	}
 	text := lineText(line)
 	n.mu.Lock()
 	defer n.mu.Unlock()

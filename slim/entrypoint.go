@@ -636,6 +636,31 @@ func entrypointMain(serverArgs []string) {
 	if v, ok := env("DISCORD_CONSOLE"); ok {
 		asBool("DISCORD_CONSOLE", v)
 	}
+	if v, ok := env("LEADERBOARD"); ok && asBool("LEADERBOARD", v) {
+		if v, ok := env("LEADERBOARD_INTERVAL"); ok {
+			intRange(1, 1440)("LEADERBOARD_INTERVAL", v)
+		}
+		if v, ok := env("LEADERBOARD_SIZE"); ok {
+			intRange(1, 10)("LEADERBOARD_SIZE", v)
+		}
+		if v, ok := env("LEADERBOARD_POINTS"); ok {
+			for _, item := range asList(v) {
+				if _, err := strconv.ParseUint(item, 10, 31); err != nil {
+					die("LEADERBOARD_POINTS: expected points per place like 10,6,4,2, got %q", item)
+				}
+			}
+		}
+		if h, ok := env("LEADERBOARD_WEBHOOK"); ok && !strings.HasPrefix(h, "https://") && !strings.HasPrefix(h, "http://") {
+			die("LEADERBOARD_WEBHOOK: expected a webhook URL starting with https://")
+		}
+		section := func(key string) map[string]any { m, _ := cfg[key].(map[string]any); return m }
+		if v, _ := section("anti_cheat")["modified_scoring"].(string); v == "off" {
+			fmt.Println("[leaderboard] SCORE_CHECK is off, so modded players cannot be told apart: everyone counts as ranked")
+		}
+		if v, ok := section("server")["activity_log"].(bool); ok && !v {
+			fmt.Println("[leaderboard] ACTIVITY_LOG is off, so no throwdown results are logged and nobody gets points")
+		}
+	}
 	_, bot := env("DISCORD_BOT_TOKEN")
 	_, channel := env("DISCORD_APPROVAL_CHANNEL")
 	if mode == "auto" && policy == "ask" && !(bot && channel) {

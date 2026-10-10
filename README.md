@@ -20,7 +20,7 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 
 ## Contents
 
-[Quick start](#quick-start) · [About](#about) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Multi-server support](#multi-server-support) · [Slim image](#slim-image) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
+[Quick start](#quick-start) · [About](#about) · [Configuration](#configuration) · [Discord webhook](#discord-webhook) · [Ranked and leaderboard](#ranked-and-leaderboard) · [Multi-server support](#multi-server-support) · [Slim image](#slim-image) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Building](#building)
 
 ---
 <br/>
@@ -358,6 +358,30 @@ Older names still work: `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = essentials
 
 ---
 
+## Ranked and leaderboard
+
+`LEADERBOARD=true` turns on ranked play and a points leaderboard, built only on what the server logs:
+
+- **Ranked:** a player is ranked when their game reports no mods that change scoring or physics (the server's `SCORE_CHECK`, default `warn`) and they have not been caught with a sped-up game this session (`SPEED_CHECK`). About 15 s after joining, every player gets a DM saying whether they are ranked, and another one when that changes.
+- **Points:** from finished throwdowns with at least two players who did not quit. Jam and Spot Battle by place (`LEADERBOARD_POINTS`, default `10,6,4,2`: 1st 10, 2nd 6, 3rd 4, everyone after 2); S.K.A.T.E. gives the last value to everyone who finished, because the log has no winner. Unranked players keep their place but get no points. Free skating earns nothing: the server never sees those tricks. Needs `ACTIVITY_LOG` on (the default).
+- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` posted in chat (only while players are on), and the top 10 go to Discord when the board changed since the last post.
+
+<br/>
+
+| Variable | Meaning |
+|---|---|
+| `LEADERBOARD` | `true` to turn it on (default off). |
+| `LEADERBOARD_INTERVAL` | Minutes between posts, 1-1440 (default 60). |
+| `LEADERBOARD_SIZE` | Players listed in chat, 1-10 (default 5). |
+| `LEADERBOARD_POINTS` | Points per place, comma-separated; the last value is for every later place (default `10,6,4,2`). |
+| `LEADERBOARD_WEBHOOK` | Discord webhook for the board. Default: `DISCORD_WEBHOOK_PUBLIC`; neither set, no Discord post. |
+| `LEADERBOARD_FILE` | Where the points are kept (default `/data/leaderboard.json`). Point several servers at one file in a shared volume for one board across all of them; it is locked while changed, and only one server posts it to Discord per interval. |
+| `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
+
+<br/>
+
+---
+
 ## Slim image
 
 `dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.2-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
@@ -467,6 +491,7 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `notifier.py` | Discord feeds and the update policy |
 | `updater.py` | `/data/server`, downloading and verifying releases |
 | `supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
+| `leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
 | `hub-readme.py` | README for Docker Hub (env tables replaced by a link, 25 KB limit) |
