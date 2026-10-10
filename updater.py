@@ -14,9 +14,7 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
-import tarfile
 
 IMAGE = "/app"
 DIR = "/data/server"
@@ -55,6 +53,11 @@ def sha256(path):
     return h.hexdigest()
 
 
+def rmtree(path):
+    """shutil is not in the image's python3-minimal, so rm does it."""
+    subprocess.run(["rm", "-rf", "--", path], check=False)
+
+
 def copy_tree(src, dst):
     os.makedirs(dst, exist_ok=True)
     for entry in os.listdir(src):
@@ -63,12 +66,12 @@ def copy_tree(src, dst):
         s, d = os.path.join(src, entry), os.path.join(dst, entry)
         if os.path.islink(s):
             if os.path.lexists(d):
-                os.remove(d) if not os.path.isdir(d) or os.path.islink(d) else shutil.rmtree(d)
+                rmtree(d)
             os.symlink(os.readlink(s), d)
         elif os.path.isdir(s):
             copy_tree(s, d)
         else:
-            shutil.copy2(s, d)
+            subprocess.run(["cp", "-p", "--", s, d], check=True)
 
 
 def prepare(image_version, say):
@@ -78,18 +81,18 @@ def prepare(image_version, say):
         if numbers(have) > numbers(image_version):
             say(f"[update] running ReSkate {have} from {DIR} (installed by the updater; the image has {image_version})")
         return DIR
-    shutil.rmtree(STAGING, ignore_errors=True)
+    rmtree(STAGING)
     copy_tree(IMAGE, STAGING)
     write_version(STAGING, image_version)
     swap_in(STAGING)
-    shutil.rmtree(OLD, ignore_errors=True)
+    rmtree(OLD)
     say(f"[update] {DIR} set up from the image, ReSkate {image_version}" + (f" (was {have})" if have else ""))
     return DIR
 
 
 def swap_in(staged):
     """staged -> /data/server, the previous one kept as /data/server.old for a rollback."""
-    shutil.rmtree(OLD, ignore_errors=True)
+    rmtree(OLD)
     if os.path.exists(DIR):
         os.rename(DIR, OLD)
     os.rename(staged, DIR)
@@ -98,10 +101,10 @@ def swap_in(staged):
 def rollback():
     if not os.path.exists(OLD):
         return False
-    shutil.rmtree(STAGING, ignore_errors=True)
+    rmtree(STAGING)
     os.rename(DIR, STAGING)
     os.rename(OLD, DIR)
-    shutil.rmtree(STAGING, ignore_errors=True)
+    rmtree(STAGING)
     return True
 
 
@@ -134,7 +137,7 @@ def stage(info):
     """Download, verify and unpack a release into /data/server.new (a copy of /data/server with
     the release unpacked over it). Raises with a readable message on any problem."""
     tgz = DIR + ".download.tar.gz"
-    shutil.rmtree(STAGING, ignore_errors=True)
+    rmtree(STAGING)
     try:
         curl(["-o", tgz, asset_url(info)], 600)
         if info.get("size") and os.path.getsize(tgz) != int(info["size"]):
@@ -142,23 +145,39 @@ def stage(info):
         if sha256(tgz) != info["sha256"].lower():
             raise RuntimeError("download does not match its SHA-256 in launcher.json")
         copy_tree(DIR, STAGING)
-        with tarfile.open(tgz, "r:gz") as tar:
-            for m in tar.getmembers():
-                parts = m.name.split("/", 1)                 # ReSkateServer-Linux-x.y.z/<path>
-                if len(parts) < 2 or not parts[1] or parts[1].split("/")[0] in KEEP:
+        unpacked = STAGING + ".unpack"                        # tarfile is not in python3-minimal either
+        rmtree(unpacked)
+        os.makedirs(unpacked)
+        run = subprocess.run(["tar", "-xzf", tgz, "-C", unpacked, "--no-same-owner", "--no-same-permissions"],
+                             capture_output=True)
+        if run.returncode != 0:
+            raise RuntimeError("unpacking failed: " + run.stderr.decode("utf-8", "replace").strip())
+        tops = os.listdir(unpacked)                           # ReSkateServer-Linux-x.y.z/<path>
+        if len(tops) != 1 or not os.path.isdir(os.path.join(unpacked, tops[0])):
+            raise RuntimeError(f"unexpected release layout: {tops}")
+        root = os.path.join(unpacked, tops[0])
+        for here, dirs, files in os.walk(root):
+            rel = os.path.relpath(here, root)
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(here, d))
+                       and not (rel == "." and d in KEEP)]
+            os.makedirs(os.path.join(STAGING, rel), exist_ok=True)
+            for f in files:
+                s = os.path.join(here, f)
+                if os.path.islink(s) or not os.path.isfile(s) or (rel == "." and f in KEEP):
                     continue
-                if not (m.isfile() or m.isdir()) or ".." in parts[1].split("/") or parts[1].startswith("/"):
-                    continue
-                m.name = parts[1]
-                tar.extract(m, STAGING, set_attrs=False, filter="data")
-                if m.isfile():
-                    os.chmod(os.path.join(STAGING, m.name), 0o755 if m.mode & 0o111 else 0o644)
+                d = os.path.normpath(os.path.join(STAGING, rel, f))
+                if os.path.lexists(d):
+                    rmtree(d)
+                os.chmod(s, 0o755 if os.stat(s).st_mode & 0o111 else 0o644)
+                os.rename(s, d)
+        rmtree(unpacked)
         exe = os.path.join(STAGING, "ReSkateServer")
         if info.get("exe_sha256") and sha256(exe) != info["exe_sha256"].lower():
             raise RuntimeError("unpacked ReSkateServer does not match exe_sha256 in launcher.json")
         write_version(STAGING, info["version"])
     except Exception:
-        shutil.rmtree(STAGING, ignore_errors=True)
+        rmtree(STAGING)
+        rmtree(STAGING + ".unpack")
         raise
     finally:
         try:
