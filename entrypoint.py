@@ -131,6 +131,12 @@ def text(_name, value):
     return value
 
 
+def color(name, value):
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+        sys.exit(f"{name}: expected a colour like #8E5CFF, got {value!r}")
+    return value.upper()
+
+
 # PASSWORD / WELCOME: "off" (or "none") clears them, since empty means "leave alone".
 def clearable(_name, value):
     return "" if value.lower() in ("off", "none") else value
@@ -234,6 +240,8 @@ SIMPLE = {
     "STEAM_TOKEN": ("server", "steam_token", clearable),
     "AUTO_UPDATE": ("server", "auto_update", as_bool),
     "ACTIVITY_LOG": ("server", "activity_log", as_bool),
+    "CHAT_COLOR": ("server", "chat_color", color),
+    "CHAT_TEXT_COLOR": ("server", "chat_text_color", color),
     "GLOBAL_BANS": ("access", "use_global_bans", as_bool),
     "MAP": ("maps", "map", text),
     "MAP_ROTATION_MINUTES": ("maps", "rotation_minutes", non_negative),
@@ -248,6 +256,9 @@ SIMPLE = {
     "OBJECT_PLACEMENT": ("players", "object_placement", choice("everyone", "admins", "nobody")),
     "OBJECT_LIMIT": ("players", "object_limit", int_range(0, 1024)),
     "ANNOUNCE_THROWDOWNS": ("players", "announce_throwdowns", as_bool),
+    "AFK_KICK_MINUTES": ("players", "afk_kick_minutes", int_range(0, 1440)),
+    "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
+    "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
     "SPEED_CHECK": ("anti_cheat", "speed_hack", choice("off", "warn", "kick")),
     "SCORE_CHECK": ("anti_cheat", "modified_scoring", choice("off", "warn", "kick")),
     "ENFORCE_TUNING": ("anti_cheat", "enforce_tuning", as_bool),

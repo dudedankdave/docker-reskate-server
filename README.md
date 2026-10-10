@@ -54,11 +54,11 @@ volumes:
 | Console | `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q) |
 | Status | `docker ps` (`healthy` once the log reports `... is up on <map>`) |
 | Update | `docker compose pull && docker compose up -d` |
-| Pin a version | `RESKATE_VERSION=1.1.8 docker compose up -d` (default `latest`) |
+| Pin a version | `RESKATE_VERSION=2.0.0 docker compose up -d` (default `latest`) |
 
 <br/>
 
-Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `1.1.8`, `1.1`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
+Image tags match the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases): `2.0.0`, `2.0`, `latest`, plus the smaller [`slim`](#slim-image) variant. The healthcheck turns `unhealthy` if the last startup event is a stuck Steam sign-in or a `Config problem`.
 
 Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join code**. Either way a restart disconnects the players.
 
@@ -74,9 +74,9 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | Tag | What it is | Size on disk (download) |
 |---|---|---|
 | `latest` | Newest ReSkate release, default image (Debian slim) | 172 MB (64 MB) |
-| `1.1.8`, `1.1` | That ReSkate release, pinned (`1.1` follows the newest `1.1.x`) | 172 MB (64 MB) |
+| `2.0.0`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
-| `1.1.8-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `2.0.0-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
 
 The version in a tag is the ReSkate release of the server inside. It has to match the players' game, see [Keeping up to date](#keeping-up-to-date). Older tags stay available.
 
@@ -85,7 +85,7 @@ The version in a tag is the ReSkate release of the server inside. It has to matc
 
 ### Dependencies
 
-| | Default (`latest`, `1.1.8`) | `slim` |
+| | Default (`latest`, `2.0.0`) | `slim` |
 |---|---|---|
 | Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
 | ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
@@ -190,6 +190,8 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `BANS` | `id[:name]` list | Comma-separated players who can never join. Merged into `/data/data/bans.json`. |
 | `GLOBAL_BANS` | `true` / `false` | Turn away players the ReSkate team banned. Default `true`. |
 | `WELCOME_MESSAGE` | text, `off` | Chat line sent to each player as they join. `off` clears it. |
+| `CHAT_COLOR` | `#RRGGBB` | Colour of the server's "Server" badge and name in chat (default `#8E5CFF`). |
+| `CHAT_TEXT_COLOR` | `#RRGGBB` | Colour of the text of the server's chat lines (default `#D9C8FF`). Pick one that reads on a dark background. |
 | `RESERVED` | SteamID64 list | Players with a reserved slot (merged). They and admins can join a full server, on top of `MAX_PLAYERS`. |
 
 
@@ -198,7 +200,8 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | Variable | Values | Description |
 |---|---|---|
 | `OBJECT_PLACEMENT` | `everyone` `admins` `nobody` | Who can build and place objects. |
-| `OBJECT_LIMIT` | 0-1024 | Objects each player may have placed (default `100`), `0` = no limit. Admins are never limited. |
+| `OBJECT_LIMIT` | 0-1024 | Objects each player may have placed (default `100`), `0` = no limit. Admins are never limited. A player placing more than twice the limit plus 100 in a minute has their objects deleted. |
+| `OBJECT_SCALING` | `true` / `false` | Let players place objects bigger or smaller than their own size. Default `true`; admins can always resize. |
 | `BONE_SCALE_LIMIT` | 0-8 | How far mods may scale skater bones (big heads) for others. Default `2` (`1` also evens out height), `0` = no limit. |
 | `NOCLIP` | `true` / `false` | Let players use noclip (and tp). Default `true`, admins always can. |
 | `NO_BAIL` | `true` / `false` | Let players use No Bail. Default `true`, admins always can. |
@@ -207,6 +210,8 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 | `PARTIES` | `true` / `false` | Let players form parties. Default `true`. |
 | `PARTY_SIZE` | 2-8 | Most players in one party. Default `8`. |
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
+| `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
+| `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
 
 
@@ -322,7 +327,7 @@ Two webhooks per server, so admins and players can have their own channels. Eith
 
 ## Slim image
 
-`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `1.1.8-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.0-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see [About](#about)). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
 
 ```yaml
     image: dudedankdave/reskate-server:slim
@@ -331,7 +336,7 @@ Two webhooks per server, so admins and players can have their own channels. Eith
 <br/>
 
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
-- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=1.1.8 -t dudedankdave/reskate-server:slim .`
+- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.0 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once its `slim` tag is refreshed.
 
 <br/>
@@ -414,7 +419,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 The server binaries are proprietary and not part of this repo. Download `ReSkateServer-Linux-<version>.tar.gz` from a [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) and copy `ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so` and `steamclient.so` into `./Server/`, then:
 
 ```bash
-docker build --build-arg VERSION=1.1.8 -t dudedankdave/reskate-server:1.1.8 .
+docker build --build-arg VERSION=2.0.0 -t dudedankdave/reskate-server:2.0.0 .
 ```
 
 <br/>

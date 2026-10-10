@@ -68,6 +68,15 @@ func choice(allowed ...string) conv {
 func text(_, v string) any { return v }
 
 // "off" (or "none") clears a value, since empty means "leave alone".
+var colorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+
+func color(name, v string) any {
+	if !colorRe.MatchString(v) {
+		die("%s: expected a colour like #8E5CFF, got %q", name, v)
+	}
+	return strings.ToUpper(v)
+}
+
 func clearable(_, v string) any {
 	if l := strings.ToLower(v); l == "off" || l == "none" {
 		return ""
@@ -385,6 +394,8 @@ func entrypointMain(serverArgs []string) {
 		{"STEAM_TOKEN", "server", "steam_token", clearable},
 		{"AUTO_UPDATE", "server", "auto_update", boolConv},
 		{"ACTIVITY_LOG", "server", "activity_log", boolConv},
+		{"CHAT_COLOR", "server", "chat_color", color},
+		{"CHAT_TEXT_COLOR", "server", "chat_text_color", color},
 		{"GLOBAL_BANS", "access", "use_global_bans", boolConv},
 		{"MAP", "maps", "map", text},
 		{"MAP_ROTATION_MINUTES", "maps", "rotation_minutes", nonNegative},
@@ -399,6 +410,9 @@ func entrypointMain(serverArgs []string) {
 		{"OBJECT_PLACEMENT", "players", "object_placement", choice("everyone", "admins", "nobody")},
 		{"OBJECT_LIMIT", "players", "object_limit", intRange(0, 1024)},
 		{"ANNOUNCE_THROWDOWNS", "players", "announce_throwdowns", boolConv},
+		{"AFK_KICK_MINUTES", "players", "afk_kick_minutes", intRange(0, 1440)},
+		{"OBJECT_SCALING", "players", "allow_object_scaling", boolConv},
+		{"SYNC_EFFECTS", "players", "sync_effects", boolConv},
 		{"SPEED_CHECK", "anti_cheat", "speed_hack", choice("off", "warn", "kick")},
 		{"SCORE_CHECK", "anti_cheat", "modified_scoring", choice("off", "warn", "kick")},
 		{"ENFORCE_TUNING", "anti_cheat", "enforce_tuning", boolConv},
