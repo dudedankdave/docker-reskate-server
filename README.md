@@ -337,7 +337,7 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 Any number of webhooks, each set with two variables that share a suffix: `WEBHOOK_URL_<n>` and `WEBHOOK_SCOPE_<n>`. The suffix can be anything (`1`, `2`, `admin`, ...), so add as many pairs as you need. The scope says what the webhook gets, several comma-separated:
 
 - **`admin`** (or `essentials`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**, and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). The only scope that pings `DISCORD_MENTION_IDS`.
-- **`log`** (or `console`): the whole console as code blocks: joins with Steam IDs, leaves with reasons, `[admin]`, `[chat]`, `[objects]`, `[join]`, throwdowns. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
+- **`log`** (or `console`): the whole console as code blocks except the in-game chat: joins with Steam IDs, leaves with reasons, `[admin]`, `[objects]`, `[join]`, throwdowns. Add `chat` to the same webhook to have the chat there too. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
 - **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.5"). No Steam IDs, chat, admin commands or join code.
 - **`chat`**: only the in-game chat, as `[12:34:56] Name: message`.
 - **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
@@ -358,10 +358,9 @@ Any number of webhooks, each set with two variables that share a suffix: `WEBHOO
 | `WEBHOOK_URL_<n>` | A webhook URL (Discord: channel settings, Integrations, Webhooks). |
 | `WEBHOOK_SCOPE_<n>` | What it gets: `admin`, `log`, `public`, `chat`, `leaderboard`, comma-separated. |
 | `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the `admin` scope (releases, failures, approvals) and allowed to approve updates. |
-| `DISCORD_LOG_CHAT` | `false` leaves the in-game chat out of the `log` scope, e.g. to keep it in a public `chat` channel only. Default `true`. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
-The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` = admin, `DISCORD_WEBHOOK_LOG` = log, `DISCORD_WEBHOOK_PUBLIC` = public, `DISCORD_WEBHOOK_CHAT` = chat, `LEADERBOARD_WEBHOOK` = leaderboard, `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = admin + log (`DISCORD_CONSOLE=false` drops the log), `DISCORD_WEBHOOK_USER` = public. Update approval needs a bot, see [Updates](#updates).
+The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` = admin, `DISCORD_WEBHOOK_LOG` = log + chat, `DISCORD_WEBHOOK_PUBLIC` = public, `DISCORD_WEBHOOK_CHAT` = chat, `LEADERBOARD_WEBHOOK` = leaderboard, `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = admin + log + chat (`DISCORD_CONSOLE=false` drops log and chat), `DISCORD_WEBHOOK_USER` = public. So the older names keep the chat in their console as before. Update approval needs a bot, see [Updates](#updates).
 
 <br/>
 

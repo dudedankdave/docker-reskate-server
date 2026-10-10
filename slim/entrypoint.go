@@ -698,10 +698,8 @@ func entrypointMain(serverArgs []string) {
 			}
 		}
 	}
-	for _, name := range []string{"DISCORD_CONSOLE", "DISCORD_LOG_CHAT"} {
-		if v, ok := env(name); ok {
-			asBool(name, v)
-		}
+	if v, ok := env("DISCORD_CONSOLE"); ok {
+		asBool("DISCORD_CONSOLE", v)
 	}
 	announce := true
 	if v, ok := env("ANNOUNCE_KICKS"); ok {

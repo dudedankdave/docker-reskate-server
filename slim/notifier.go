@@ -4,12 +4,13 @@ package main
 // the supervisor. Nothing here may disturb the server: failures go to /data/DiscordWebhook.log.
 //
 //	DISCORD_WEBHOOK_ESSENTIALS  server up + join code, problems, crashes, releases, approvals, mods (pings)
-//	DISCORD_WEBHOOK_LOG         the whole console
+//	DISCORD_WEBHOOK_LOG         the whole console (with the chat, as before)
 //	DISCORD_WEBHOOK_PUBLIC      joins, leaves, throwdowns, server up, update countdowns
 //	DISCORD_WEBHOOK_CHAT        in-game chat only
 //
-// Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log (DISCORD_CONSOLE=false: no
-// log), DISCORD_WEBHOOK_USER = public. UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
+// Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log + chat (DISCORD_CONSOLE=false:
+// no log or chat), DISCORD_WEBHOOK_USER = public. The log scope itself never has the in-game chat:
+// that is the chat scope. UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
 
 import (
 	"bytes"
@@ -196,7 +197,7 @@ func webhooks() map[string][]string {
 		"essentials":  {or(get("DISCORD_WEBHOOK_ESSENTIALS"), legacy)},
 		"log":         {logURL},
 		"public":      {or(get("DISCORD_WEBHOOK_PUBLIC"), get("DISCORD_WEBHOOK_USER"))},
-		"chat":        {get("DISCORD_WEBHOOK_CHAT")},
+		"chat":        {get("DISCORD_WEBHOOK_CHAT"), logURL}, // the older log names keep their chat
 		"leaderboard": {get("LEADERBOARD_WEBHOOK")},
 	}
 	var keys []string
@@ -302,7 +303,7 @@ func chatLine(line string) string {
 	return fmt.Sprintf("[%s] %s", m[1], strings.TrimPrefix(m[2], "[chat] "))
 }
 
-// logLine is a console line for the log scope with DISCORD_LOG_CHAT=false: every line but in-game chat.
+// logLine is a console line for the log scope: every line but in-game chat (the chat scope has that).
 func logLine(line string) string {
 	if strings.HasPrefix(lineText(line), "[chat] ") {
 		return ""
@@ -583,11 +584,7 @@ func (n *notifier) track(line string) {
 
 func (n *notifier) consoleLoop() {
 	var feeds []*feed
-	logFeed := &feed{h: n.log}
-	if !truthy(os.Getenv("DISCORD_LOG_CHAT"), true) {
-		logFeed.convert = logLine
-	}
-	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, logFeed, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
+	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log, convert: logLine}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
 		if f.h.url != "" {
 			feeds = append(feeds, f)
 		}
