@@ -122,4 +122,7 @@ class Supervisor:
             time.sleep(2)       # let the notifier post it
             break
         code = self.proc.returncode
-        sys.exit(128 - code if code < 0 else code)
+        # os._exit, not sys.exit: the relay thread is blocked reading stdin, and interpreter shutdown
+        # then aborts on the stdin lock ("Fatal Python error", exit 134) after the server stopped cleanly.
+        sys.stdout.flush()
+        os._exit(128 - code if code < 0 else code)
