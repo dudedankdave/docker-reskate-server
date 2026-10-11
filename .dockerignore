@@ -1,5 +1,6 @@
 .git
 README.md
+docs/
 *.env
 !example.env
 rollover/
