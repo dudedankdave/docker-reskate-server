@@ -131,7 +131,7 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - **`admin`** (or `essentials`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK** (these go to `updates-admin` instead once the server has one), and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). Pings `DISCORD_MENTION_IDS`.
 - **`log`** (or `console`): the whole console as code blocks except the in-game chat: joins with Steam IDs, leaves with reasons, `[admin]`, `[objects]`, `[join]`, throwdowns. Add `chat` to the same webhook to have the chat there too. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
 - **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.5"). No Steam IDs, chat, admin commands or join code.
-- **`chat`**: only the in-game chat, as `[12:34:56] Name: message`.
+- **`chat`**: only the in-game chat, as `Name: message`.
 - **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
 - **`updates`**: news, once per version: **ReSkate 2.0.6 is out.** (with the release link) and **New image** on Docker Hub: `dudedankdave/reskate-server:2.0.6` (also `2.0.6-slim`). No pings, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
 - **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **Image available**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
@@ -150,6 +150,7 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - Player names and chat can never ping anyone: console posts disable mentions.
 - If several servers share one admin webhook, set `DISCORD_MENTION_IDS` on one of them only.
 - The admin and log scopes contain the **join code**; the log also has Steam IDs and chat. The public scope is safe for a public channel.
+- Posts carry no server name or time of their own (Discord shows the webhook name and when it was posted), so the "is up on" line reads `Up on South Florida for 70 players.` Only the log scope keeps each line's `[HH:MM:SS]`.
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
 
 <br/>
