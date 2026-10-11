@@ -2,6 +2,8 @@
   "dry_run": true,
   "check_minutes": 5,
   "drain_grace_minutes": 10,
+  "copy_min_players": 1,
+  "copy_wait_minutes": 60,
   "image": "dudedankdave/reskate-server",
   "container_prefix": "reskate-server-",
   "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",

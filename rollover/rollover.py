@@ -4,7 +4,8 @@ Each server has two slots, A and B, each with its own ports, Steam token and /da
 them runs the server. When a newer ReSkate release is out:
 
 * nobody on the running server: it is replaced in its own slot (same token, so the same Steam ID).
-* players on it: a copy on the new version starts in the other slot. The old server keeps
+* players on it: a copy on the new version starts in the other slot. With fewer than
+  copy_min_players on, it first waits up to copy_wait_minutes for them to leave. The old server keeps
   running until it has been empty for DRAIN_GRACE minutes, then it is stopped (not removed,
   so it can be started again by hand).
 
@@ -175,6 +176,7 @@ class Rollover:
         self.repo = config.get("image", "dudedankdave/reskate-server")
         self.protect = set(config.get("protect", []))
         self.empty_since = {}          # container id -> first time it was seen empty
+        self.seen = {}                 # (server, release) -> when it was first seen as due
         self.waiting = set()           # messages already logged, so a waiting state is said once
 
     def once(self, key, message):
@@ -234,6 +236,14 @@ class Rollover:
             return self.once(("protect-new", newest.name, latest),
                              f"Server {number}: ReSkate {latest} is out, {newest.name} is protected, nothing started.")
         count = players(newest.info)
+        due = time.time() - self.seen.setdefault((number, latest), time.time())
+        least = int(setting(self.cfg, server, "copy_min_players", 1))
+        wait = float(setting(self.cfg, server, "copy_wait_minutes", 60)) * 60
+        if 0 < count < least and due < wait:           # a few players: wait for them to leave first
+            return self.once(("few", number, latest),
+                             f"Server {number}: ReSkate {latest} is out, {count} player(s) on {newest.name} "
+                             f"(fewer than {least}); replacing it once empty, or starting a copy after "
+                             f"{wait / 60:.0f} min.")
         if count == 0:
             slot = newest.slot                         # nobody on: replace it in place
         else:
@@ -356,6 +366,11 @@ class Rollover:
             say(f"installed ReSkate {version} into {volume}")
         finally:
             docker("DELETE", f"/containers/{made['Id']}?force=1")
+
+
+def setting(cfg, server, key, default):
+    """A server's own value for key, else the top-level one, else default."""
+    return server.get(key, cfg.get(key, default))
 
 
 def server_name(cfg, number, server, version):
