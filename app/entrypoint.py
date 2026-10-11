@@ -499,6 +499,8 @@ if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
     for item in as_list(env("LEADERBOARD_BOARDS") or ""):
         choice(*leaderboard.KINDS)("LEADERBOARD_BOARDS", item)
+    int_range(0, 1000)("LEADERBOARD_PROPS_PER_DAY", env("LEADERBOARD_PROPS_PER_DAY") or "5")
+    as_bool("LEADERBOARD_PROPS_ANNOUNCE", env("LEADERBOARD_PROPS_ANNOUNCE") or "true")
     for var in ("LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"):
         for item in as_list(env(var) or ""):
             kind, _, minutes = item.partition("=")

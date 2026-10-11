@@ -45,10 +45,10 @@ var lbKinds = []string{"general", "year", "month", "week", "event"}
 
 // Every board also has one per game mode: "All Time - Jam", "Week 41 - S.K.A.T.E.".
 var (
-	lbModeNames = map[string]string{"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
+	lbModeNames = map[string]string{"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E.", "props": "Props"}
 	lbModeOf    = map[string]string{"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
 	lbModeWords = map[string]string{"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate", "s.k.a.t.e.": "skate",
-		"game of skate": "skate", "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot"}
+		"game of skate": "skate", "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot", "props": "props", "prop": "props"}
 )
 
 // lbCommands are added to the server's "commands" (entrypoint.go): the reply is the header, the
@@ -57,6 +57,7 @@ var lbCommands = []map[string]any{
 	{"name": "top", "reply": lbRule},
 	{"name": "rank", "reply": lbRule},
 	{"name": "boards", "reply": lbRule},
+	{"name": "props", "reply": lbRule},
 	{"name": "lb", "admin": true, "reply": lbRule},
 }
 
@@ -110,6 +111,8 @@ type leaderboard struct {
 	kinds            map[string]bool
 	interval         time.Duration
 	size             int
+	propsPerDay      int             // /props: most a player gives in 24 hours; 0 = off
+	propsAnnounce    bool            // say who gave props to whom in chat
 	discordScopes    map[string]bool // boards Discord lists (LEADERBOARD_DISCORD)
 	discordGames     map[string]bool // and which game boards of them
 	points           []int
@@ -231,6 +234,10 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	if v, err := strconv.Atoi(lbEnv("LEADERBOARD_SIZE", "5")); err == nil {
 		b.size = max(1, min(10, v))
 	}
+	b.propsPerDay, b.propsAnnounce = 5, truthy(lbEnv("LEADERBOARD_PROPS_ANNOUNCE", "true"), true)
+	if v, err := strconv.Atoi(lbEnv("LEADERBOARD_PROPS_PER_DAY", "5")); err == nil && v >= 0 {
+		b.propsPerDay = v
+	}
 	b.chatEvery = lbIntervals("LEADERBOARD_INTERVALS", b.interval)
 	b.discordEvery = lbIntervals("LEADERBOARD_DISCORD_INTERVALS", b.interval)
 	for _, item := range asList(lbEnv("LEADERBOARD_POINTS", "10,6,4,2")) {
@@ -284,6 +291,9 @@ CREATE INDEX IF NOT EXISTS scores_by_points ON scores (board, points DESC);
 CREATE TABLE IF NOT EXISTS ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, board TEXT NOT NULL, steam_id TEXT NOT NULL,
   points INTEGER NOT NULL, reason TEXT NOT NULL, server TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS props_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, giver TEXT NOT NULL, receiver TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS props_by_giver ON props_log (giver, at);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
 
 func unixf(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
@@ -739,7 +749,7 @@ func (b *leaderboard) command(rest string) {
 	verb, arg = strings.ToLower(verb), strings.TrimSpace(arg)
 	steam := b.online[name]
 	now := time.Now()
-	if verb != "top" && verb != "rank" && verb != "boards" && verb != "lb" || now.Sub(b.asked[steam]) < lbAskEvery {
+	if verb != "top" && verb != "rank" && verb != "boards" && verb != "props" && verb != "lb" || now.Sub(b.asked[steam]) < lbAskEvery {
 		return
 	}
 	b.asked[steam] = now
@@ -751,14 +761,16 @@ func (b *leaderboard) command(rest string) {
 		title, lines = b.cmdRank(steam, arg, now)
 	case "boards":
 		title, lines = b.cmdBoards(now)
+	case "props":
+		title, lines = b.cmdProps(name, steam, arg, now)
 	case "lb":
 		if !b.admins[steam] {
 			return // the server logs only allowed commands; belt and braces
 		}
 		title, lines = "Leaderboard admin", b.admin(name, arg, now)
 	}
-	// the server's own reply was the first rule: the title, the rows and a closing rule follow
-	for _, l := range append(append([]string{title}, lines...), lbRule) {
+	// after the server's own rule: the board, then one row per line
+	for _, l := range append([]string{title}, lines...) {
 		b.send(fit("msg "+steam+" "+l, chatMax+30))
 	}
 }
@@ -783,7 +795,7 @@ func lbPack(head string, entries []string) []string {
 	return append(lines, line)
 }
 
-// lbRule goes above and below every answer to a chat command.
+// lbRule is the server's own reply to a chat command: the line that opens every answer.
 const lbRule = "------------------------------"
 
 const lbUnavailable = "The leaderboard is not available right now."
@@ -802,12 +814,11 @@ func (b *leaderboard) cmdTop(arg string, now time.Time) (string, []string) {
 			lines = []string{"Nobody has points yet."}
 			return nil
 		}
-		var entries []string
-		for i, r := range rows {
-			entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, r.name, r.points))
-		}
 		title = fmt.Sprintf("Top %d - %s", len(rows), bd.name)
-		lines = lbPack("", entries)
+		lines = nil
+		for i, r := range rows {
+			lines = append(lines, fmt.Sprintf("%d. %s  %d", i+1, r.name, r.points))
+		}
 		return nil
 	})
 	return title, lines
@@ -854,14 +865,113 @@ func (b *leaderboard) cmdBoards(now time.Time) (string, []string) {
 				if closed {
 					end = " (ended)"
 				}
-				entries = append(entries, fmt.Sprintf("%s%s: %d", name, end, n))
+				entries = append(entries, fmt.Sprintf("%s%s  -  %d players", name, end, n))
 			}
 		}
-		title = "Boards (players with points)"
-		lines = lbPack("", entries)
+		title = "Boards"
+		lines = entries
 		return nil
 	})
 	return title, lines
+}
+
+// lbFindOnline: the online player called text: the exact name, else the only name starting with it.
+func (b *leaderboard) findOnline(text string) (name, id string) {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return "", ""
+	}
+	var exact, starts [][2]string
+	for n, i := range b.online {
+		l := strings.ToLower(n)
+		if l == text {
+			exact = append(exact, [2]string{n, i})
+		}
+		if strings.HasPrefix(l, text) {
+			starts = append(starts, [2]string{n, i})
+		}
+	}
+	found := exact
+	if len(found) == 0 {
+		found = starts
+	}
+	if len(found) != 1 {
+		return "", ""
+	}
+	return found[0][0], found[0][1]
+}
+
+// cmdProps gives a prop to another player online: one per player per 24 hours, at most LEADERBOARD_PROPS_PER_DAY
+// a day. Props count on the Props boards (/top props), not on the points boards.
+func (b *leaderboard) cmdProps(giver, steam, arg string, now time.Time) (string, []string) {
+	const title = "Props"
+	if b.propsPerDay == 0 {
+		return title, []string{"Props are off on this server."}
+	}
+	if strings.TrimSpace(arg) == "" {
+		have := "You have no props yet."
+		b.run(func(tx *sql.Tx) error {
+			if bd, ok := lbFind(tx, "props", now); ok {
+				if rank, total, row, ok := lbRank(tx, bd.id, steam); ok {
+					have = fmt.Sprintf("You have %d props (#%d of %d).", row.points, rank, total)
+				}
+			}
+			return nil
+		})
+		return title, []string{have, "Give them with /props <player>. See /top props."}
+	}
+	name, target := b.findOnline(arg)
+	if target == "" {
+		return title, []string{"Nobody online is called '" + arg + "' (or several names start like that)."}
+	}
+	if target == steam {
+		return title, []string{"You can't give props to yourself."}
+	}
+	state, used, total := "", 0, 0
+	if !b.run(func(tx *sql.Tx) error {
+		since := unixf(now) - 86400
+		_ = tx.QueryRow(`SELECT COUNT(*) FROM props_log WHERE giver=? AND at>?`, steam, since).Scan(&used)
+		if used >= b.propsPerDay {
+			state = "limit"
+			return nil
+		}
+		var one int
+		if tx.QueryRow(`SELECT 1 FROM props_log WHERE giver=? AND receiver=? AND at>?`, steam, target, since).Scan(&one) == nil {
+			state = "again"
+			return nil
+		}
+		var boards []string
+		for _, base := range b.active(tx, now) {
+			var baseName string
+			_ = tx.QueryRow(`SELECT name FROM boards WHERE id=?`, base).Scan(&baseName)
+			lbBoardInsert(tx, base+":props", baseName+" - Props", "mode")
+			boards = append(boards, base+":props")
+		}
+		if err := b.add(tx, boards, []lbAward{{target, name, 1, 0, 0}}, "props:"+giver, now); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO props_log (at, giver, receiver) VALUES (?, ?, ?)`, unixf(now), steam, target); err != nil {
+			return err
+		}
+		used++
+		total = 1
+		_ = tx.QueryRow(`SELECT points FROM scores WHERE board=? AND steam_id=?`, boards[0], target).Scan(&total)
+		state = "ok"
+		return nil
+	}) {
+		return title, []string{lbUnavailable}
+	}
+	switch state {
+	case "limit":
+		return title, []string{fmt.Sprintf("You have given %d props in the last 24 hours, the most for now.", used)}
+	case "again":
+		return title, []string{"You gave " + name + " props in the last 24 hours already."}
+	}
+	b.send(fit(fmt.Sprintf("msg %s %s gave you props! You have %d now (/top props).", target, giver, total), chatMax+30))
+	if b.propsAnnounce {
+		b.send("say " + fit(giver+" gave props to "+name+"!", chatMax))
+	}
+	return title, []string{fmt.Sprintf("You gave props to %s. %d left in the next 24 hours.", name, b.propsPerDay-used)}
 }
 
 func (b *leaderboard) admin(by, arg string, now time.Time) []string {
@@ -1049,7 +1159,7 @@ func (b *leaderboard) final(bd lbBoard) {
 		b.send("say " + fit(l, chatMax))
 	}
 	if b.post != nil {
-		b.post("**Event finished: " + bd.name + "**\n```\n" + lbTable(rows) + "\n```")
+		b.post("**Event finished: " + bd.name + "**\n```\n" + lbTable(rows, false) + "\n```")
 	}
 }
 
@@ -1147,13 +1257,17 @@ func (b *leaderboard) postChat(now time.Time, kind string) {
 	}
 }
 
-func lbTable(rows []lbRow) string {
+func lbTable(rows []lbRow, props bool) string {
 	width := 0
 	for _, p := range rows {
 		width = max(width, len(p.name))
 	}
 	var lines []string
 	for i, p := range rows {
+		if props {
+			lines = append(lines, fmt.Sprintf("%2d. %-*s  %5d props", i+1, width, p.name, p.points))
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("%2d. %-*s  %5d pts  %d won / %d played", i+1, width, p.name, p.points, p.wins, p.played))
 	}
 	return strings.ReplaceAll(strings.Join(lines, "\n"), "```", "'''")
@@ -1209,7 +1323,12 @@ func (b *leaderboard) postDiscord(now time.Time) {
 		if s.board.kind == "general" {
 			n = 10
 		}
-		parts = append(parts, "**"+s.board.name+"** ("+b.label+", ranked throwdowns)\n```\n"+lbTable(s.rows[:min(len(s.rows), n)])+"\n```")
+		isProps := strings.HasSuffix(s.board.id, ":props")
+		what := "ranked throwdowns"
+		if isProps {
+			what = "props from players"
+		}
+		parts = append(parts, "**"+s.board.name+"** ("+b.label+", "+what+")\n```\n"+lbTable(s.rows[:min(len(s.rows), n)], isProps)+"\n```")
 	}
 	message := ""
 	for _, part := range parts { // Discord takes 2000 characters per message

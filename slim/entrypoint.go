@@ -770,6 +770,12 @@ func entrypointMain(serverArgs []string) {
 				choice(lbKinds...)("LEADERBOARD_BOARDS", item)
 			}
 		}
+		if v, ok := env("LEADERBOARD_PROPS_PER_DAY"); ok {
+			intRange(0, 1000)("LEADERBOARD_PROPS_PER_DAY", v)
+		}
+		if v, ok := env("LEADERBOARD_PROPS_ANNOUNCE"); ok {
+			asBool("LEADERBOARD_PROPS_ANNOUNCE", v)
+		}
 		for _, name := range []string{"LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"} {
 			if v, ok := env(name); ok {
 				for _, item := range asList(v) {
