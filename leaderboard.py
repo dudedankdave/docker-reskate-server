@@ -14,6 +14,7 @@ built only on what the vanilla server logs:
 * Boards (LEADERBOARD_BOARDS, default general,week,event): every award is counted on General (all
   time), on the current Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
   are started and ended by admins in the game (/lb event start <name>, /lb event end).
+* Every board also has one per game mode (Jam, Spot Battle, S.K.A.T.E.): /top skate, /top week jam.
 * The points live in a SQLite database (leaderboard.db), with every award kept in a ledger.
   A leaderboard.json from the earlier versions is imported into General once.
 * Chat commands (LEADERBOARD_COMMANDS, default on; added to the server's "commands"): /top [board],
@@ -63,6 +64,11 @@ CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
 ASK_EVERY = 3         # seconds between two answers to the same player
 KINDS = ("general", "week", "event")
 VERBS = ("top", "rank", "boards", "lb")
+# The game modes with a board of their own next to every board: "General:jam", "Week 41:skate".
+MODES = {"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
+MODE_OF = {"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
+MODE_WORDS = {"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate", "s.k.a.t.e.": "skate", "game of skate": "skate",
+              "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot"}
 
 RANKED = "You are RANKED: your throwdown results count for the leaderboard."
 UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods}). "
@@ -75,7 +81,7 @@ CONFIG = "/data/ReSkateServer.json"
 # The chat commands the image adds to the server's "commands" (entrypoint.py): the reply is the
 # header, the rows follow as a DM from this module.
 COMMANDS = [
-    {"name": "top", "reply": "Leaderboard (/top week, /top event, /boards):"},
+    {"name": "top", "reply": "Leaderboard (/top week, /top skate, /top week jam, /boards):"},
     {"name": "rank", "reply": "Your rank (/rank week, /rank event):"},
     {"name": "boards", "reply": "Leaderboards:"},
     {"name": "lb", "admin": True, "reply": "Leaderboard admin (/lb help):"},
@@ -254,7 +260,23 @@ class Store:
 
     @staticmethod
     def find(cur, spec, now):
-        """A board by what a player types: general, week, event, a week number, an id or (the start of) a name."""
+        """A board by what a player types: general, week, event, a week number, an id or (the start of) a name,
+        optionally followed by a game mode (jam, skate, spot): "week skate" is that mode's board of the week.
+        A mode board nobody scored on yet comes back as a plain dict."""
+        spec = spec.strip().lower()
+        for word in sorted(MODE_WORDS, key=len, reverse=True):
+            if spec == word or spec.endswith(" " + word):
+                base = Store.find_base(cur, spec[:-len(word)], now)
+                if not base:
+                    return None
+                mode = MODE_WORDS[word]
+                row = cur.execute("SELECT * FROM boards WHERE id=?", (f"{base['id']}:{mode}",)).fetchone()
+                return row or {"id": f"{base['id']}:{mode}", "name": f"{base['name']} - {MODES[mode]}", "kind": "mode",
+                               "closed_at": base["closed_at"], "version": 0, "posted_version": 0}
+        return Store.find_base(cur, spec, now)
+
+    @staticmethod
+    def find_base(cur, spec, now):
         spec = spec.strip().lower()
         if spec in ("", "general", "all", "alltime", "all-time", "g"):
             return cur.execute("SELECT * FROM boards WHERE id='general'").fetchone()
@@ -273,7 +295,7 @@ class Store:
             if row:
                 return row
         for sql in ("lower(id) = ? OR lower(name) = ?", "lower(id) LIKE ? || '%' OR lower(name) LIKE ? || '%'"):
-            row = cur.execute(f"SELECT * FROM boards WHERE {sql} ORDER BY closed_at IS NOT NULL, created_at DESC",
+            row = cur.execute(f"SELECT * FROM boards WHERE kind != 'mode' AND ({sql}) ORDER BY closed_at IS NOT NULL, created_at DESC",
                               (spec, spec)).fetchone()
             if row:
                 return row
@@ -399,6 +421,12 @@ class Leaderboard:
 
         def apply(cur):
             boards = self.store.active(cur, self.kinds, now)
+            game = MODE_OF.get(mode)
+            if game:                                     # each board also has one per game mode
+                for board in list(boards):
+                    row = cur.execute("SELECT name FROM boards WHERE id=?", (board,)).fetchone()
+                    self.store.board(cur, f"{board}:{game}", f"{row['name']} - {MODES[game]}", "mode")
+                    boards.append(f"{board}:{game}")
             self.store.add(cur, boards, awards, mode, now, self.store.server)
             return boards
         boards = self.store.run(apply)
@@ -485,12 +513,12 @@ class Leaderboard:
             self.store.active(cur, self.kinds, now)
             return cur.execute(
                 "SELECT b.name, b.closed_at, (SELECT COUNT(*) FROM scores s WHERE s.board = b.id AND s.points > 0) AS n "
-                "FROM boards b ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12").fetchall()
+                "FROM boards b WHERE b.kind != 'mode' ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12").fetchall()
         rows = self.store.run(get)
         if rows is None:
             return ["The leaderboard is not available right now."]
         entries = [f"{r['name']}{' (ended)' if r['closed_at'] else ''}: {r['n']}" for r in rows]
-        return self.pack("Boards (players):", entries) + ["Use /top <board> or /rank <board>, e.g. /top week."]
+        return self.pack("Boards (players):", entries) + ["Add jam, skate or spot for one game: /top week skate."]
 
     def admin(self, by, arg, now):
         word, _, rest = arg.partition(" ")
@@ -521,8 +549,8 @@ class Leaderboard:
                 name = next((n for n, i in self.online.items() if i == sid), known["name"] if known else sid)
             if spec:
                 board = Store.find(cur, spec, now)
-                if not board or board["closed_at"]:
-                    return f"No open board called '{spec}'."
+                if not board or board["closed_at"] or board["kind"] == "mode":
+                    return f"No open board called '{spec}' (game mode boards only get throwdown points)."
                 boards = [board["id"]]
             else:
                 boards = self.store.active(cur, self.kinds, now)

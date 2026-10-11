@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,10 +43,18 @@ const (
 // lbKinds are the board kinds LEADERBOARD_BOARDS may name.
 var lbKinds = []string{"general", "week", "event"}
 
+// Every board also has one per game mode: "General - Jam", "Week 41 - S.K.A.T.E.".
+var (
+	lbModeNames = map[string]string{"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
+	lbModeOf    = map[string]string{"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
+	lbModeWords = map[string]string{"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate", "s.k.a.t.e.": "skate",
+		"game of skate": "skate", "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot"}
+)
+
 // lbCommands are added to the server's "commands" (entrypoint.go): the reply is the header, the
 // rows follow as a DM from the leaderboard.
 var lbCommands = []map[string]any{
-	{"name": "top", "reply": "Leaderboard (/top week, /top event, /boards):"},
+	{"name": "top", "reply": "Leaderboard (/top week, /top skate, /top week jam, /boards):"},
 	{"name": "rank", "reply": "Your rank (/rank week, /rank event):"},
 	{"name": "boards", "reply": "Leaderboards:"},
 	{"name": "lb", "admin": true, "reply": "Leaderboard admin (/lb help):"},
@@ -428,8 +437,33 @@ func lbScan(row *sql.Row) (lbBoard, bool) {
 
 const lbBoardCols = `SELECT id, name, kind, closed_at, version, posted_version FROM boards `
 
-// lbFind: a board by what a player types: general, week, event, a week number, an id or (the start of) a name.
+// lbFind: a board by what a player types: general, week, event, a week number, an id or (the start of) a name,
+// optionally followed by a game mode (jam, skate, spot): "week skate" is that mode's board of the week. A mode
+// board nobody scored on yet comes back without a database row.
 func lbFind(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
+	spec = strings.ToLower(strings.TrimSpace(spec))
+	words := make([]string, 0, len(lbModeWords))
+	for w := range lbModeWords {
+		words = append(words, w)
+	}
+	sort.Slice(words, func(i, j int) bool { return len(words[i]) > len(words[j]) })
+	for _, w := range words {
+		if spec == w || strings.HasSuffix(spec, " "+w) {
+			base, ok := lbFindBase(tx, strings.TrimSuffix(spec, w), now)
+			if !ok {
+				return lbBoard{}, false
+			}
+			mode := lbModeWords[w]
+			if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, base.id+":"+mode)); ok {
+				return bd, true
+			}
+			return lbBoard{id: base.id + ":" + mode, name: base.name + " - " + lbModeNames[mode], kind: "mode", closed: base.closed}, true
+		}
+	}
+	return lbFindBase(tx, spec, now)
+}
+
+func lbFindBase(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
 	spec = strings.ToLower(strings.TrimSpace(spec))
 	switch spec {
 	case "", "general", "all", "alltime", "all-time", "g":
@@ -451,7 +485,7 @@ func lbFind(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
 		}
 	}
 	for _, where := range []string{`lower(id) = ? OR lower(name) = ?`, `lower(id) LIKE ? || '%' OR lower(name) LIKE ? || '%'`} {
-		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE `+where+` ORDER BY closed_at IS NOT NULL, created_at DESC`, spec, spec)); ok {
+		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE kind != 'mode' AND (`+where+`) ORDER BY closed_at IS NOT NULL, created_at DESC`, spec, spec)); ok {
 			return bd, true
 		}
 	}
@@ -493,7 +527,7 @@ func (b *leaderboard) feed(line string) {
 		b.speeding[m[1]] = true
 		b.tell(m[1])
 	} else if m := lbFinishedRe.FindStringSubmatch(text); m != nil {
-		b.score(lbResults(m[1], m[2]))
+		b.score(m[1], lbResults(m[1], m[2]))
 	} else if m := lbTuningRe.FindStringSubmatch(text); m != nil {
 		b.free = m[1] == "their"
 		for name := range b.online {
@@ -536,7 +570,7 @@ func (b *leaderboard) tell(name string) {
 	b.send(fit("msg "+id+" "+text, chatMax+30))
 }
 
-func (b *leaderboard) score(results []lbResult) {
+func (b *leaderboard) score(mode string, results []lbResult) {
 	var finished []lbResult
 	for _, r := range results {
 		if !r.quit {
@@ -572,7 +606,15 @@ func (b *leaderboard) score(results []lbResult) {
 	var boards []string
 	if !b.run(func(tx *sql.Tx) error {
 		boards = b.active(tx, now)
-		return b.add(tx, boards, awards, "throwdown", now)
+		if game := lbModeOf[mode]; game != "" { // each board also has one per game mode
+			for _, id := range append([]string{}, boards...) {
+				var name string
+				_ = tx.QueryRow(`SELECT name FROM boards WHERE id=?`, id).Scan(&name)
+				lbBoardInsert(tx, id+":"+game, name+" - "+lbModeNames[game], "mode")
+				boards = append(boards, id+":"+game)
+			}
+		}
+		return b.add(tx, boards, awards, mode, now)
 	}) {
 		return
 	}
@@ -698,7 +740,7 @@ func (b *leaderboard) cmdBoards(now time.Time) []string {
 	if !b.run(func(tx *sql.Tx) error {
 		b.active(tx, now)
 		rows, err := tx.Query(`SELECT b.name, b.closed_at IS NOT NULL, (SELECT COUNT(*) FROM scores s WHERE s.board = b.id AND s.points > 0) ` +
-			`FROM boards b ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12`)
+			`FROM boards b WHERE b.kind != 'mode' ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12`)
 		if err != nil {
 			return err
 		}
@@ -716,7 +758,7 @@ func (b *leaderboard) cmdBoards(now time.Time) []string {
 				entries = append(entries, fmt.Sprintf("%s%s: %d", name, end, n))
 			}
 		}
-		lines = append(lbPack("Boards (players):", entries), "Use /top <board> or /rank <board>, e.g. /top week.")
+		lines = append(lbPack("Boards (players):", entries), "Add jam, skate or spot for one game: /top week skate.")
 		return nil
 	}) {
 		return []string{lbUnavailable}
@@ -789,8 +831,8 @@ func (b *leaderboard) adminAward(by, rest string, now time.Time) []string {
 		boards := b.active(tx, now)
 		if spec != "" {
 			bd, ok := lbFind(tx, spec, now)
-			if !ok || bd.closed {
-				reply = "No open board called '" + spec + "'."
+			if !ok || bd.closed || bd.kind == "mode" {
+				reply = "No open board called '" + spec + "' (game mode boards only get throwdown points)."
 				return nil
 			}
 			boards = []string{bd.id}
