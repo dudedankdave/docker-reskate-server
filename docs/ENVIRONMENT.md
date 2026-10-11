@@ -205,3 +205,4 @@ How ranking and points work: [Ranked and leaderboard](../README.md#ranked-and-le
 | `LEADERBOARD_SCOPE` | `shared` (default): one board for every server that mounts the same folder at `/shared`, e.g. `- /root/reskate/shared:/shared` on each one (writable by uid 1000). Without that mount the server keeps its own board and says so in its log. `server`: always this server's own board, in `/data`. |
 | `LEADERBOARD_FILE` | Use another file than `/shared/leaderboard.json` / `/data/leaderboard.json`. The shared file is locked while changed, and only one server posts it to Discord per interval. |
 | `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
+| `UNRANKED_TUNING_MESSAGE` / `UNRANKED_SPEED_MESSAGE` | The DMs when nobody is ranked because players may use their own physics tuning, and when a player's game ran sped up. At most 200 bytes. |
