@@ -128,11 +128,13 @@ Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega R
 
 Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_<n>` (the suffix can be anything). The scope says what the webhook gets, several comma-separated:
 
-- **`admin`** (or `essentials`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**, and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). The only scope that pings `DISCORD_MENTION_IDS`.
+- **`admin`** (or `essentials`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK** (these go to `updates-admin` instead once the server has one), and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). Pings `DISCORD_MENTION_IDS`.
 - **`log`** (or `console`): the whole console as code blocks except the in-game chat: joins with Steam IDs, leaves with reasons, `[admin]`, `[objects]`, `[join]`, throwdowns. Add `chat` to the same webhook to have the chat there too. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
 - **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.5"). No Steam IDs, chat, admin commands or join code.
 - **`chat`**: only the in-game chat, as `[12:34:56] Name: message`.
 - **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
+- **`updates`**: news, once per version: **ReSkate 2.0.6 is out.** (with the release link) and **New image** on Docker Hub: `dudedankdave/reskate-server:2.0.6` (also `2.0.6-slim`). No pings, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
+- **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **Image available**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
 
 ```yaml
       WEBHOOK_URL_1: https://discord.com/api/webhooks/<id>/<token>
@@ -206,7 +208,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - The server binary is baked into the image. ReSkate 1.1.4+ can update itself, but a self-updated binary is lost when the container is recreated, so the image keeps it off and does it itself: `UPDATE_MODE=auto` installs releases into `/data/server` (see [Updates](docs/ENVIRONMENT.md#updates)). With the default `pinned`, updating means a new image.
 - **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
 - **Automatic updates:** `UPDATE_MODE=auto`, see [Updates](docs/ENVIRONMENT.md#updates).
-- **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=admin`, see [Discord webhook](#discord-webhook).
+- **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=updates` (news) or `updates-admin` (this server's update messages; without one they go to `admin`), see [Discord webhook](#discord-webhook).
 - **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
 <br/>
@@ -287,7 +289,7 @@ docker build --build-arg VERSION=2.0.5 -t dudedankdave/reskate-server:2.0.5 .
 
 Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `latest` as well.
 
-**Automatic:** `.github/workflows/release.yml` checks for a new ReSkate release every 30 min and, when Docker Hub has no tag for it yet, builds both images from `main` and pushes `<ver>`, `<major>.<minor>`, `latest`, `<ver>-slim` and `slim` (repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`). It can also be started by hand (Actions, *Release image*, *Run workflow*), with *push* off for a test build.
+**Automatic:** `.github/workflows/release.yml` checks for a new ReSkate release every 30 min and, when Docker Hub has no tag for it yet, builds both images from `main` and pushes `<ver>`, `<major>.<minor>`, `latest`, `<ver>-slim` and `slim` (repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`). Each image is checked on its own, so a failed slim push is retried on the next run. It can also be started by hand (Actions, *Release image*, *Run workflow*), with *push* off for a test build. With the optional secret `DISCORD_WEBHOOK_UPDATES_ADMIN` (a Discord webhook), a failed run is posted there once, and again when a run goes through after that.
 
 | File | Purpose |
 |---|---|
