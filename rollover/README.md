@@ -14,6 +14,13 @@ each new release per server:
 
 So most of the time each server runs one container; two only while the old one still has players.
 
+**Map and mod updates** work the same way. Every `mod_check_minutes` (default `30`) the rollover asks
+each server, with the image's own `mods.py`, whether an unpinned `MODS` entry has a newer version on
+Thunderstore. If so, an empty server is restarted (mods install on start); a busy one gets a copy in
+the other slot (same ReSkate version and image, named `<name>-m<MMDDHHMM>`) and the old one drains as
+above. `copy_min_players` and `copy_wait_minutes` apply too. `mod_updates: false` (globally or per
+server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are never rolled for mods.
+
 ## Slots
 
 Each server has two slots with their own ports, Steam token and `/data` volume (`servers.example.json`).
