@@ -211,7 +211,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
 - **Automatic updates:** `UPDATE_MODE=auto`, see [Updates](docs/ENVIRONMENT.md#updates).
 - **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=updates` (new ReSkate releases) or `updates-admin` (this server's update messages; without one they go to `admin`), see [Discord webhook](#discord-webhook).
-- **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
+- **Without Discord:** `tools/check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
 <br/>
 
@@ -304,10 +304,10 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `app/announcer.py` | Kick and ban announcements in chat |
 | `app/leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `app/healthcheck.py` | Reports healthy once the log shows the server is up |
-| `check-update.sh` | Host-side release check |
+| `tools/check-update.sh` | Host-side release check |
 | `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
 | `rollover/` | Host-side services: starts a copy on a new ReSkate release while players are on, stops the old server once empty; live server status cards in Discord |
-| `hub-readme.py` | README for Docker Hub (relative links made absolute, 25 KB limit) |
+| `tools/hub-readme.py` | README for Docker Hub (relative links made absolute, 25 KB limit) |
 | `docs/ENVIRONMENT.md` | All environment variables |
 | `slim/` | Source and Dockerfile of the slim (distroless) image |
 | `example.env`, `docker-compose.yml` | Starting point for your own setup |

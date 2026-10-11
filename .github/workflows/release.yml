@@ -155,7 +155,7 @@ jobs:
         continue-on-error: true
         if: steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true'
         run: |
-          python3 hub-readme.py > hub-readme.md
+          python3 tools/hub-readme.py > hub-readme.md
           token=$(curl -fsS -X POST https://hub.docker.com/v2/users/login -H 'Content-Type: application/json' \
             -d "$(python3 -c 'import json,os;print(json.dumps({"username":os.environ["U"],"password":os.environ["P"]}))')" \
             | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
