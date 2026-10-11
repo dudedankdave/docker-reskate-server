@@ -37,7 +37,23 @@ TMP_DIR = "/data/.mods-tmp"          # same volume as Mods, so renames are atomi
 MARKER = ".thunderstore.json"
 EVENTS = "/data/.mods-events"        # install/update events, posted to Discord by notifier.py
 BASE = os.environ.get("THUNDERSTORE_URL", "https://thunderstore.io").rstrip("/")
-MAX_UNPACKED = 8 * 1024 ** 3        # refuse zips that unpack to more than 8 GiB
+
+def max_gb():
+    """MODS_MAX_GB: largest download and unpacked size of one package in GiB, 0 = no limit."""
+    raw = os.environ.get("MODS_MAX_GB", "").strip()
+    try:
+        value = float(raw) if raw else 8.0
+        if value < 0:
+            raise ValueError
+        return value
+    except ValueError:
+        print(f"[mods] MODS_MAX_GB={raw!r} is not a number of GiB, using 8", flush=True)
+        return 8.0
+
+
+MAX_GB = max_gb()
+MAX_UNPACKED = int(MAX_GB * 1024 ** 3)   # 0 = no limit
+LIMIT = f"{MAX_GB:g} GiB (MODS_MAX_GB)"
 ID = re.compile(r"^([A-Za-z0-9_]+)-([A-Za-z0-9_]+)(?:-(\d+\.\d+\.\d+))?$")
 URL = re.compile(r"/(?:p|package)/(?:download/)?([A-Za-z0-9_]+)/([A-Za-z0-9_]+)(?:/(\d+\.\d+\.\d+))?")
 
@@ -152,16 +168,19 @@ def check_zip(path):
             raise RuntimeError("zip contains a link or special file")
     total = subprocess.run(["unzip", "-Zt", path], capture_output=True).stdout.decode()
     m = re.search(r"([\d,]+) bytes uncompressed", total)
-    if m and int(m.group(1).replace(",", "")) > MAX_UNPACKED:
-        raise RuntimeError("zip unpacks to more than 8 GiB")
+    if MAX_UNPACKED and m and int(m.group(1).replace(",", "")) > MAX_UNPACKED:
+        raise RuntimeError(f"zip unpacks to more than {LIMIT}")
 
 
 def unpack(owner, name, version, url, work):
     """Download the package and unpack it into the empty folder `work`, with the marker written."""
     archive = work + ".zip"
     log(f"{owner}-{name} {version}: downloading")
-    run = subprocess.run(["curl", "-fsSL", "--retry", "3", "--retry-delay", "5", "-m", "3600", "-o", archive, url],
+    cap = ["--max-filesize", str(MAX_UNPACKED)] if MAX_UNPACKED else []
+    run = subprocess.run(["curl", "-fsSL", "--retry", "3", "--retry-delay", "5", "-m", "3600", *cap, "-o", archive, url],
                          capture_output=True)
+    if run.returncode == 63:
+        raise RuntimeError(f"download is larger than {LIMIT}")
     if run.returncode != 0:
         raise RuntimeError("download failed: " + (run.stderr.decode(errors="replace").strip() or f"curl exit {run.returncode}"))
     check_zip(archive)
