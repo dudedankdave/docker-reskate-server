@@ -10,8 +10,8 @@ package main
 //
 // Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log + chat (DISCORD_CONSOLE=false:
 // no log or chat), DISCORD_WEBHOOK_USER = public. The log scope itself never has the in-game chat:
-// that is the chat scope. The updates scope gets news once per version (a new ReSkate release, its
-// image on Docker Hub), updates-admin this server's update messages (else they go to essentials).
+// that is the chat scope. The updates scope gets each new official ReSkate release once, updates-admin
+// this server's update messages (else they go to essentials).
 // UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
 
 import (
@@ -975,7 +975,7 @@ func onHub(tag string) bool {
 	return r.StatusCode == 200
 }
 
-// news (updates scope): a release newer than this image, then its image on Docker Hub, once each.
+// news (updates scope): each official ReSkate release newer than this image, once.
 func (n *notifier) news(latest string) {
 	base := n.imageVersion
 	if !versionRe.MatchString(base) {
@@ -986,29 +986,15 @@ func (n *notifier) news(latest string) {
 	}
 	var seen struct {
 		Release string `json:"release,omitempty"`
-		Image   string `json:"image,omitempty"`
 	}
 	if raw, err := os.ReadFile(newsState); err == nil {
 		_ = json.Unmarshal(raw, &seen)
 	}
-	save := func() {
-		raw, _ := json.Marshal(seen)
-		_ = os.WriteFile(newsState, raw, 0o644)
-	}
 	if cmpVersion(latest, seen.Release) > 0 &&
 		n.updates.send(fmt.Sprintf("**ReSkate %s is out.**\nhttps://github.com/%s/releases/tag/v%s", latest, repo, latest), false) {
 		seen.Release = latest
-		save()
-	}
-	if cmpVersion(latest, seen.Image) > 0 && onHub(latest) {
-		slim := ""
-		if onHub(latest + "-slim") {
-			slim = fmt.Sprintf(" (also `%s-slim`)", latest)
-		}
-		if n.updates.send(fmt.Sprintf("**New image** on Docker Hub: `%s:%s`%s.", hub, latest, slim), false) {
-			seen.Image = latest
-			save()
-		}
+		raw, _ := json.Marshal(seen)
+		_ = os.WriteFile(newsState, raw, 0o644)
 	}
 }
 

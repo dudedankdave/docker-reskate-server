@@ -4,7 +4,8 @@ nothing here may disturb the server: every failure is swallowed and written to
 
 Webhooks: any number of WEBHOOK_URL_<n> + WEBHOOK_SCOPE_<n> pairs (see webhooks()); the scopes are
 admin (= essentials), log, public, chat, leaderboard, updates and updates-admin:
-  updates        news, once per version: a new ReSkate release, its image on Docker Hub. No pings.
+  updates        news, once per version: a new official ReSkate release. No pings, no image news
+                 (pinned servers say "Image available" in updates-admin).
   updates-admin  this server's update messages (UPDATE AVAILABLE, Image available, countdown,
                  UPDATED / UPDATE FAILED / ROLLED BACK), pinging DISCORD_MENTION_IDS. Without an
                  updates-admin webhook they stay in essentials.
@@ -609,7 +610,7 @@ class Notifier:
             write_json(PINNED_STATE, {"version": latest, "published": published})
 
     def news(self, latest):
-        """The updates scope: a release newer than this image, then its image on Docker Hub, once each."""
+        """The updates scope: each official ReSkate release newer than this image, once."""
         base = self.image_version if re.fullmatch(r"\d+(\.\d+)+", self.image_version) else self.running()
         if not self.updates.url or updater.numbers(latest) <= updater.numbers(base):
             return
@@ -617,11 +618,6 @@ class Notifier:
         if updater.numbers(latest) > updater.numbers(seen.get("release")):
             if self.updates.send(f"**ReSkate {latest} is out.**\nhttps://github.com/{REPO}/releases/tag/v{latest}"):
                 seen["release"] = latest
-                write_json(NEWS_STATE, seen)
-        if updater.numbers(latest) > updater.numbers(seen.get("image")) and on_hub(latest):
-            slim = f" (also `{latest}-slim`)" if on_hub(latest + "-slim") else ""
-            if self.updates.send(f"**New image** on Docker Hub: `{HUB}:{latest}`{slim}."):
-                seen["image"] = latest
                 write_json(NEWS_STATE, seen)
 
     # ---- mods ---------------------------------------------------------------------
