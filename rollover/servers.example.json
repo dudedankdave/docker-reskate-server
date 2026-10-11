@@ -87,6 +87,21 @@
           "volume": "reskate-203_data-5"
         }
       }
+    },
+    "6": {
+      "role": "Ranked",
+      "slots": {
+        "a": {
+          "port": 12450,
+          "query_port": 12451,
+          "volume": "reskate_reskate-data-6"
+        },
+        "b": {
+          "port": 12452,
+          "query_port": 12453,
+          "volume": "reskate-203_data-6"
+        }
+      }
     }
   }
 }
