@@ -10,7 +10,9 @@ package main
 //
 // Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log + chat (DISCORD_CONSOLE=false:
 // no log or chat), DISCORD_WEBHOOK_USER = public. The log scope itself never has the in-game chat:
-// that is the chat scope. UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
+// that is the chat scope. The updates scope gets each new official ReSkate release once, updates-admin
+// this server's update messages (else they go to essentials).
+// UPDATE_POLICY instant|timed|scheduled|ask, see notifier.py.
 
 import (
 	"bytes"
@@ -47,6 +49,7 @@ const (
 var (
 	updateState = "/data/.update-state.json"
 	pinnedState = "/data/.discord-update-notified"
+	newsState   = "/data/.discord-updates-notified"
 	tailPath    = logPath
 	dateRe      = regexp.MustCompile(`^\[\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2})\]`)
 	badNameRe   = regexp.MustCompile(`(?i)\S*(discord|clyde)\S*`)
@@ -174,7 +177,8 @@ func newHook(urls []string, name string, mentions []string) *hook {
 // webhookScopes maps WEBHOOK_SCOPE_<n> names to feeds.
 var (
 	webhookScopes = map[string]string{"admin": "essentials", "essentials": "essentials", "log": "log",
-		"console": "log", "public": "public", "chat": "chat", "leaderboard": "leaderboard"}
+		"console": "log", "public": "public", "chat": "chat", "leaderboard": "leaderboard",
+		"updates": "updates", "updates-admin": "updates-admin"}
 	webhookURLRe = regexp.MustCompile(`^WEBHOOK_URL_(.+)$`)
 )
 
@@ -194,11 +198,13 @@ func webhooks() map[string][]string {
 		logURL = legacy
 	}
 	hooks := map[string][]string{
-		"essentials":  {or(get("DISCORD_WEBHOOK_ESSENTIALS"), legacy)},
-		"log":         {logURL},
-		"public":      {or(get("DISCORD_WEBHOOK_PUBLIC"), get("DISCORD_WEBHOOK_USER"))},
-		"chat":        {get("DISCORD_WEBHOOK_CHAT"), logURL}, // the older log names keep their chat
-		"leaderboard": {get("LEADERBOARD_WEBHOOK")},
+		"essentials":    {or(get("DISCORD_WEBHOOK_ESSENTIALS"), legacy)},
+		"log":           {logURL},
+		"public":        {or(get("DISCORD_WEBHOOK_PUBLIC"), get("DISCORD_WEBHOOK_USER"))},
+		"chat":          {get("DISCORD_WEBHOOK_CHAT"), logURL}, // the older log names keep their chat
+		"leaderboard":   {get("LEADERBOARD_WEBHOOK")},
+		"updates":       {},
+		"updates-admin": {},
 	}
 	var keys []string
 	for _, kv := range os.Environ() {
@@ -261,6 +267,7 @@ var (
 	joinedRe = regexp.MustCompile(`^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$`)
 	leftRe   = regexp.MustCompile(`^(.+?) left \(.*\)(?: \[.*\])?$`) // "Name left (reason) [connection details]"
 	upRe     = regexp.MustCompile(`^.+ is up on .+ for \d+ players\.$`)
+	upOnRe   = regexp.MustCompile(`^.+? is up on (.+ for \d+ players\.)$`)
 	taggedRe = regexp.MustCompile(`^\[(?:chat|admin|join|objects)\] `)
 	lineRe   = regexp.MustCompile(`^\[(\d\d:\d\d:\d\d)\] (.*)$`)
 )
@@ -324,23 +331,42 @@ func essentialLine(line string) string {
 }
 
 // feed batches console lines for one webhook; convert filters/rewrites them (nil = every line).
+// posted is a line as a feed posts it. Discord already shows the server's name (the webhook name)
+// and when it was posted, so the server-up line drops the name and, unless stamp (the log), the time goes.
+func posted(line string, stamp bool) string {
+	m := lineRe.FindStringSubmatch(line)
+	if m == nil {
+		return line
+	}
+	text := m[2]
+	if up := upOnRe.FindStringSubmatch(text); up != nil {
+		text = "Up on " + up[1]
+	}
+	if stamp {
+		return "[" + m[1] + "] " + text
+	}
+	return text
+}
+
 type feed struct {
 	h       *hook
 	convert func(string) string
+	stamp   bool // keep each line's [HH:MM:SS]
 	pending []string
 	first   time.Time
 }
 
 func (f *feed) add(lines []string) {
-	if f.convert != nil {
-		var out []string
-		for _, l := range lines {
-			if c := f.convert(l); c != "" {
-				out = append(out, c)
-			}
+	var out []string
+	for _, l := range lines {
+		if f.convert != nil {
+			l = f.convert(l)
 		}
-		lines = out
+		if l != "" {
+			out = append(out, posted(l, f.stamp))
+		}
 	}
+	lines = out
 	if len(lines) > 0 && len(f.pending) == 0 {
 		f.first = time.Now()
 	}
@@ -487,7 +513,7 @@ type notifier struct {
 	sup                     *supervisor
 	mode, imageVersion      string
 	essentials, log, public *hook
-	chat                    *hook
+	chat, updates, upd      *hook
 	mentions                []string
 	policy                  string
 	countdown               int
@@ -525,6 +551,8 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 		log:        newHook(hooks["log"], name, nil),
 		public:     newHook(hooks["public"], name, nil),
 		chat:       newHook(hooks["chat"], name, nil),
+		updates:    newHook(hooks["updates"], name, nil),
+		upd:        newHook(hooks["updates-admin"], name, mentions),
 		policy:     strings.ToLower(first(os.Getenv("UPDATE_POLICY"), "timed")),
 		countdown:  10,
 		bot:        first(os.Getenv("DISCORD_BOT_TOKEN")),
@@ -534,9 +562,12 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 	if v, err := strconv.Atoi(first(os.Getenv("UPDATE_COUNTDOWN"))); err == nil {
 		n.countdown = v
 	}
+	if n.upd.url == "" { // without an updates-admin webhook, update messages stay in essentials
+		n.upd = n.essentials
+	}
 	n.sched, _ = parseSchedule(os.Getenv("UPDATE_SCHEDULE"))
 	every := 180
-	if mode == "auto" {
+	if mode == "auto" || n.updates.url != "" {
 		every = 30
 	}
 	if v, err := strconv.Atoi(first(os.Getenv("UPDATE_CHECK_MINUTES"))); err == nil {
@@ -584,7 +615,7 @@ func (n *notifier) track(line string) {
 
 func (n *notifier) consoleLoop() {
 	var feeds []*feed
-	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log, convert: logLine}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
+	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log, convert: logLine, stamp: true}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
 		if f.h.url != "" {
 			feeds = append(feeds, f)
 		}
@@ -661,15 +692,15 @@ func (n *notifier) event(kind string, d map[string]string) {
 	}
 	switch kind {
 	case "installed":
-		n.essentials.send(fmt.Sprintf("**UPDATED** to ReSkate **%s**, the server is starting again.", d["version"]), false)
+		n.upd.send(fmt.Sprintf("**UPDATED** to ReSkate **%s**, the server is starting again.", d["version"]), false)
 		n.public.send(fmt.Sprintf("The server is updated to ReSkate **%s** and starting again.", d["version"]), false)
 		st := readState()
 		st.Installed = d["version"]
 		writeState(st)
 	case "failed":
-		n.essentials.send(fmt.Sprintf("**UPDATE FAILED**: ReSkate %s: %s", d["version"], d["error"]), true)
+		n.upd.send(fmt.Sprintf("**UPDATE FAILED**: ReSkate %s: %s", d["version"], d["error"]), true)
 	case "rolled_back":
-		n.essentials.send(fmt.Sprintf("**ROLLED BACK**: ReSkate %s stopped (exit %s) right after the update, back on **%s**. "+
+		n.upd.send(fmt.Sprintf("**ROLLED BACK**: ReSkate %s stopped (exit %s) right after the update, back on **%s**. "+
 			"It will not be installed again by itself; type `update` in the console to retry.", d["version"], d["code"], d["now"]), true)
 		st := readState()
 		st.Version, st.Declined = d["version"], true
@@ -706,6 +737,7 @@ func (n *notifier) check(now bool) {
 		return
 	}
 	have := n.running()
+	n.news(r.Version)
 	if cmpVersion(r.Version, have) <= 0 {
 		if now {
 			fmt.Printf("[update] already on the latest ReSkate release (%s)\n", have)
@@ -751,7 +783,7 @@ func (n *notifier) handle(r release, have string) {
 		"scheduled": fmt.Sprintf("Installing it at the next update slot (%s UTC).", os.Getenv("UPDATE_SCHEDULE")),
 		"ask":       "Waiting for approval.",
 	}[n.policy]
-	if !st.Announced && n.essentials.send(fmt.Sprintf("**UPDATE AVAILABLE**: ReSkate **%s** is out, this server runs **%s**. %s "+
+	if !st.Announced && n.upd.send(fmt.Sprintf("**UPDATE AVAILABLE**: ReSkate **%s** is out, this server runs **%s**. %s "+
 		"`update` in the console installs it now.\nhttps://github.com/%s/releases/tag/v%s", r.Version, have, how, repo, r.Version), n.policy == "ask") {
 		st.Announced = true
 		writeState(st)
@@ -810,7 +842,7 @@ func (n *notifier) apply(r release, countdown int) {
 		n.sup.send(fmt.Sprintf("announce Server restarts in %d min to update ReSkate to %s", minutes, r.Version))
 		n.public.send(fmt.Sprintf("Restarting in **%d min** to update ReSkate to **%s**.", minutes, r.Version), false)
 		if i == 0 {
-			n.essentials.send(fmt.Sprintf("Countdown started: installing ReSkate **%s** in %d min.", r.Version, minutes), false)
+			n.upd.send(fmt.Sprintf("Countdown started: installing ReSkate **%s** in %d min.", r.Version, minutes), false)
 		}
 		next := 0
 		if i+1 < len(marks) {
@@ -826,7 +858,7 @@ func (n *notifier) apply(r release, countdown int) {
 		time.Sleep(5 * time.Second)
 	}
 	n.public.send(fmt.Sprintf("Restarting now to update ReSkate to **%s**.", r.Version), false)
-	n.essentials.send(fmt.Sprintf("Installing ReSkate **%s** (was %s).", r.Version, n.running()), false)
+	n.upd.send(fmt.Sprintf("Installing ReSkate **%s** (was %s).", r.Version, n.running()), false)
 	n.sup.install(staged, r.Version)
 }
 
@@ -859,7 +891,7 @@ func (n *notifier) approved(r release, have string, st *updState) bool {
 		text := strings.TrimSpace(fmt.Sprintf("%s **APPROVE UPDATE?** %s: ReSkate **%s** (running %s). React %s to install (with a %d min "+
 			"countdown for players) or %s to skip this version.", strings.Join(tags, " "), username(), r.Version, have, yesEmoji, n.countdown, noEmoji))
 		if !request("POST", base, map[string]any{"content": text, "allowed_mentions": map[string]any{"parse": []string{}, "users": users}}, auth, &reply) || reply.ID == "" {
-			n.essentials.send("**APPROVAL FAILED**: the bot could not post in DISCORD_APPROVAL_CHANNEL (see /data/DiscordWebhook.log). "+
+			n.upd.send("**APPROVAL FAILED**: the bot could not post in DISCORD_APPROVAL_CHANNEL (see /data/DiscordWebhook.log). "+
 				"`update` in the console installs it.", true)
 			return waitConsole()
 		}
@@ -907,11 +939,7 @@ func (n *notifier) approved(r release, have string, st *updState) bool {
 }
 
 func (n *notifier) pinnedNotice(latest, running string) {
-	published := false
-	if r, err := client.Get("https://hub.docker.com/v2/repositories/" + hub + "/tags/" + latest); err == nil {
-		r.Body.Close()
-		published = r.StatusCode == 200
-	}
+	published := onHub(latest)
 	var st struct {
 		Version   string `json:"version"`
 		Published bool   `json:"published"`
@@ -931,10 +959,42 @@ func (n *notifier) pinnedNotice(latest, running string) {
 	if st.Version == latest { // earlier message said "not published yet"
 		text = fmt.Sprintf("**Image available**: `%s:%s` is on Docker Hub now. %s", hub, latest, how)
 	}
-	if n.essentials.send(text, true) {
+	if n.upd.send(text, true) {
 		st.Version, st.Published = latest, published
 		raw, _ := json.Marshal(st)
 		_ = os.WriteFile(pinnedState, raw, 0o644)
+	}
+}
+
+func onHub(tag string) bool {
+	r, err := client.Get("https://hub.docker.com/v2/repositories/" + hub + "/tags/" + tag)
+	if err != nil {
+		return false
+	}
+	r.Body.Close()
+	return r.StatusCode == 200
+}
+
+// news (updates scope): each official ReSkate release newer than this image, once.
+func (n *notifier) news(latest string) {
+	base := n.imageVersion
+	if !versionRe.MatchString(base) {
+		base = n.running()
+	}
+	if n.updates.url == "" || cmpVersion(latest, base) <= 0 {
+		return
+	}
+	var seen struct {
+		Release string `json:"release,omitempty"`
+	}
+	if raw, err := os.ReadFile(newsState); err == nil {
+		_ = json.Unmarshal(raw, &seen)
+	}
+	if cmpVersion(latest, seen.Release) > 0 &&
+		n.updates.send(fmt.Sprintf("**ReSkate %s is out.**\nhttps://github.com/%s/releases/tag/v%s", latest, repo, latest), false) {
+		seen.Release = latest
+		raw, _ := json.Marshal(seen)
+		_ = os.WriteFile(newsState, raw, 0o644)
 	}
 }
 
@@ -1018,7 +1078,7 @@ func (n *notifier) start() {
 	if n.essentials.url != "" && strings.TrimSpace(os.Getenv("MODS")) != "" {
 		guarded(n.modsLoop)
 	}
-	if n.mode == "auto" || (n.essentials.url != "" && versionRe.MatchString(n.imageVersion)) {
+	if n.mode == "auto" || ((n.upd.url != "" || n.updates.url != "") && versionRe.MatchString(n.imageVersion)) {
 		guarded(n.updateLoop)
 	}
 }
