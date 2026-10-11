@@ -151,7 +151,7 @@ class Board:
         env = env_of(info) if info else {}
         name = env.get("SERVER_NAME") or role
         players = most = mp = code = None
-        total, up = 0, False
+        total, up, draining = 0, False, []
         if not running:
             title, color = f"🔴 {role}", RED
             last = max((i["State"].get("FinishedAt", "")[:19] for i in infos), default="")
@@ -175,10 +175,11 @@ class Board:
             for other in running[1:]:          # an older version still draining its players
                 o = self.follow(other)
                 total += o.players if o.ok else 0
-                status += f" · {o.players if o.ok else '?'} still on {version_of(other) or 'the old version'}"
+                draining.append(f"**{o.players if o.ok else '?'}** on {version_of(other) or 'old'}")
         fields = [
             {"name": "Players", "value": f"**{players if players is not None else '–'}** / {most or '–'}", "inline": True},
             {"name": "Version", "value": (version_of(info) if info else "") or "–", "inline": True},
+            {"name": "Old version", "value": "\n".join(draining) or "–", "inline": True},
             {"name": "Map", "value": mp or "–", "inline": False},
         ]
         if JOIN_CODE:
