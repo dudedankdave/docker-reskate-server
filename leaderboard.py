@@ -23,7 +23,9 @@ built only on what the vanilla server logs:
   it with a DM, so the reply is only seen by the sender.
 * Every LEADERBOARD_INTERVAL minutes (default 60) the top LEADERBOARD_SIZE (default 5) go to
   chat while players are on, and the top 10 to Discord (LEADERBOARD_WEBHOOK, else the public
-  feed) when a board changed since the last post.
+  feed) when a board changed since the last post. LEADERBOARD_DISCORD chooses which boards it
+  lists (general, week, event and the games jam, spot, skate; default all); players ask for any
+  board in chat.
 
 LEADERBOARD_SCOPE picks whose points are counted: "shared" (default) keeps one database for every
 server that mounts the same folder at /shared (/shared/leaderboard.db); without that mount it
@@ -321,6 +323,9 @@ class Leaderboard:
         self.label = "all servers" if self.pool else "this server"
         self.interval = 60 * max(1, int(env("LEADERBOARD_INTERVAL", "60")))
         self.size = max(1, min(10, int(env("LEADERBOARD_SIZE", "5"))))
+        chosen = {x.strip().lower() for x in env("LEADERBOARD_DISCORD", ",".join(KINDS + tuple(MODES))).split(",")}
+        self.discord_scopes = {k for k in KINDS if k in chosen} or set(KINDS)   # which boards Discord lists
+        self.discord_games = {m for m in MODES if m in chosen}                  # and which game boards of them
         self.points = [int(x) for x in env("LEADERBOARD_POINTS", "10,6,4,2").split(",") if x.strip()]
         self.ranked_text = env("RANKED_MESSAGE", RANKED)
         self.unranked_text = env("UNRANKED_MESSAGE", UNRANKED_MODS)
@@ -631,11 +636,20 @@ class Leaderboard:
             self.discord_at = now
             self.post_discord(now)
 
-    def current(self, cur, now):
-        """[(board row, top rows)] for the boards shown now: General, this week, the open events."""
+    def current(self, cur, now, discord=False):
+        """[(board row, top rows)] for the boards shown now: General, this week, the open events. For
+        Discord (LEADERBOARD_DISCORD) only the chosen ones, each followed by its chosen game boards."""
         out = []
         for board_id in self.store.active(cur, self.kinds, now):
-            out.append((cur.execute("SELECT * FROM boards WHERE id=?", (board_id,)).fetchone(), Store.top(cur, board_id, 10)))
+            kind = board_id.split("-")[0] if board_id != "general" else "general"
+            if discord and kind not in self.discord_scopes:
+                continue
+            ids = [board_id]
+            if discord and self.discord_games:
+                ids += [r["id"] for r in cur.execute("SELECT id FROM boards WHERE kind='mode' AND id LIKE ? ORDER BY id", (board_id + ":%",))
+                        if r["id"].rsplit(":", 1)[1] in self.discord_games]
+            for shown_id in ids:
+                out.append((cur.execute("SELECT * FROM boards WHERE id=?", (shown_id,)).fetchone(), Store.top(cur, shown_id, 10)))
         return out
 
     def post_chat(self):
@@ -664,7 +678,7 @@ class Leaderboard:
             at = cur.execute("SELECT value FROM meta WHERE key='posted_at'").fetchone()
             if at and now - float(at["value"]) < self.interval:
                 return None                           # another server posted lately
-            shown = self.current(cur, now)
+            shown = self.current(cur, now, True)
             if not any(b["version"] != b["posted_version"] for b, _ in shown):
                 return None                           # nothing new since the last post
             cur.execute("INSERT OR REPLACE INTO meta VALUES ('posted_at', ?)", (str(now),))

@@ -104,6 +104,8 @@ type leaderboard struct {
 	kinds            map[string]bool
 	interval         time.Duration
 	size             int
+	discordScopes    map[string]bool // boards Discord lists (LEADERBOARD_DISCORD)
+	discordGames     map[string]bool // and which game boards of them
 	points           []int
 	ranked, unranked string
 	tuning, speed    string
@@ -167,7 +169,7 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	b := &leaderboard{
 		send: send, post: post,
 		path: "/data/leaderboard.db", label: "this server", server: lbEnv("SERVER_NAME", "server"),
-		interval: 60 * time.Minute, size: 5, kinds: map[string]bool{},
+		interval: 60 * time.Minute, size: 5, discordScopes: map[string]bool{}, discordGames: map[string]bool{}, kinds: map[string]bool{},
 		ranked: lbEnv("RANKED_MESSAGE", rankedText), unranked: lbEnv("UNRANKED_MESSAGE", unrankedMods),
 		tuning: lbEnv("UNRANKED_TUNING_MESSAGE", unrankedTuning), speed: lbEnv("UNRANKED_SPEED_MESSAGE", unrankedSpeed),
 		online: map[string]string{}, admins: map[string]bool{}, waiting: map[string]time.Time{}, modded: map[string]string{},
@@ -208,6 +210,21 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	}
 	if len(b.kinds) == 0 || !(b.kinds["general"] || b.kinds["week"] || b.kinds["event"]) {
 		b.kinds["general"] = true
+	}
+	for _, k := range asList(strings.ToLower(lbEnv("LEADERBOARD_DISCORD", "general,week,event,jam,spot,skate"))) {
+		if _, game := lbModeNames[k]; game {
+			b.discordGames[k] = true
+		}
+		for _, known := range lbKinds {
+			if k == known {
+				b.discordScopes[k] = true
+			}
+		}
+	}
+	if len(b.discordScopes) == 0 {
+		for _, known := range lbKinds {
+			b.discordScopes[known] = true
+		}
 	}
 	if !b.setup(legacy) {
 		return nil
@@ -985,12 +1002,31 @@ type lbShown struct {
 	rows  []lbRow
 }
 
-// current: the boards shown now (General, this week, the open events) with their top 10.
-func (b *leaderboard) current(tx *sql.Tx, now time.Time) []lbShown {
+// current: the boards shown now (General, this week, the open events) with their top 10. For Discord
+// (LEADERBOARD_DISCORD) only the chosen ones, each followed by its chosen game boards.
+func (b *leaderboard) current(tx *sql.Tx, now time.Time, discord bool) []lbShown {
 	var out []lbShown
 	for _, id := range b.active(tx, now) {
-		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, id)); ok {
-			out = append(out, lbShown{bd, lbTop(tx, id, 10)})
+		kind, _, _ := strings.Cut(id, "-")
+		if discord && !b.discordScopes[kind] {
+			continue
+		}
+		ids := []string{id}
+		if discord && len(b.discordGames) > 0 {
+			if rows, err := tx.Query(`SELECT id FROM boards WHERE kind='mode' AND id LIKE ? ORDER BY id`, id+":%"); err == nil {
+				for rows.Next() {
+					var m string
+					if rows.Scan(&m) == nil && b.discordGames[m[strings.LastIndex(m, ":")+1:]] {
+						ids = append(ids, m)
+					}
+				}
+				rows.Close()
+			}
+		}
+		for _, shown := range ids {
+			if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, shown)); ok {
+				out = append(out, lbShown{bd, lbTop(tx, shown, 10)})
+			}
 		}
 	}
 	return out
@@ -998,7 +1034,7 @@ func (b *leaderboard) current(tx *sql.Tx, now time.Time) []lbShown {
 
 func (b *leaderboard) postChat(now time.Time) {
 	var shown []lbShown
-	b.run(func(tx *sql.Tx) error { shown = b.current(tx, now); return nil })
+	b.run(func(tx *sql.Tx) error { shown = b.current(tx, now, false); return nil })
 	first := true
 	for _, s := range shown {
 		rows := s.rows[:min(len(s.rows), b.size)]
@@ -1044,7 +1080,7 @@ func (b *leaderboard) postDiscord(now time.Time) {
 				return nil // another server posted lately
 			}
 		}
-		all := b.current(tx, now)
+		all := b.current(tx, now, true)
 		changed := false
 		for _, s := range all {
 			changed = changed || s.board.version != s.board.postedVers

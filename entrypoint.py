@@ -497,6 +497,8 @@ if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
     for item in as_list(env("LEADERBOARD_BOARDS") or ""):
         choice(*leaderboard.KINDS)("LEADERBOARD_BOARDS", item)
+    for item in as_list(env("LEADERBOARD_DISCORD") or ""):
+        choice(*leaderboard.KINDS, *leaderboard.MODES)("LEADERBOARD_DISCORD", item)
     for item in as_list(env("LEADERBOARD_POINTS") or ""):
         if not item.isdigit():
             sys.exit(f"LEADERBOARD_POINTS: expected points per place like 10,6,4,2, got {item!r}")

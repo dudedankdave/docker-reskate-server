@@ -176,7 +176,7 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
   | `/lb event start <name>` / `/lb event end [name]` | admins | Open an event board (every ranked result counts there too) or close it, with the result posted in chat and Discord |
 
   `/lb` is a server command with `admin: true`: the server refuses it for everybody who is not an admin (`ADMINS`, `admin add`), and the leaderboard only acts on the line the server logs for an allowed command.
-- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` of General, the current week and the open events posted in chat (only while players are on), and the boards go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when one changed since the last post.
+- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` of General, the current week and the open events posted in chat (only while players are on), and the boards chosen with `LEADERBOARD_DISCORD` (default all, game boards included) go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when one changed since the last post.
 
 Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderboard in ENVIRONMENT.md](docs/ENVIRONMENT.md#leaderboard).
 

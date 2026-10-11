@@ -767,6 +767,11 @@ func entrypointMain(serverArgs []string) {
 				choice(lbKinds...)("LEADERBOARD_BOARDS", item)
 			}
 		}
+		if v, ok := env("LEADERBOARD_DISCORD"); ok {
+			for _, item := range asList(v) {
+				choice(append([]string{"jam", "spot", "skate"}, lbKinds...)...)("LEADERBOARD_DISCORD", item)
+			}
+		}
 		if v, ok := env("LEADERBOARD_POINTS"); ok {
 			for _, item := range asList(v) {
 				if _, err := strconv.ParseUint(item, 10, 31); err != nil {
