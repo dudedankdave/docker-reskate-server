@@ -78,7 +78,7 @@ The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenaniga
 
 ## Configuration
 
-Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists every variable** (per server, access, gameplay, anti-cheat, voice, network, voting, announcements, parks and layers, mods, updates, Discord, leaderboard), and [`example.env`](example.env) is a ready-made starting point.
+Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists every variable**, split into the ReSkate server's own settings (per server, access, gameplay, anti-cheat, voice, network, voting, announcements, parks and layers) and the ones this image adds (moderation, mods, updates, Discord, leaderboard), and [`example.env`](example.env) is a ready-made starting point.
 
 - Variables are written to `/data/ReSkateServer.json` on every start. Unset or empty ones leave the existing value alone; `off` clears a value where supported.
 - Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one.
