@@ -6,7 +6,7 @@
   "container_prefix": "reskate-server-",
   "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",
   "protect": [],
-  "yards": {
+  "servers": {
     "1": {
       "role": "Main",
       "slots": {
@@ -16,8 +16,8 @@
           "volume": "reskate_reskate-data"
         },
         "b": {
-          "port": 12500,
-          "query_port": 12501,
+          "port": 12402,
+          "query_port": 12403,
           "volume": "reskate-203_data-1"
         }
       }
@@ -31,8 +31,8 @@
           "volume": "reskate_reskate-data-2"
         },
         "b": {
-          "port": 12510,
-          "query_port": 12511,
+          "port": 12412,
+          "query_port": 12413,
           "volume": "reskate-203_data-2"
         }
       }
@@ -46,8 +46,8 @@
           "volume": "reskate_reskate-data-3"
         },
         "b": {
-          "port": 12520,
-          "query_port": 12521,
+          "port": 12422,
+          "query_port": 12423,
           "volume": "reskate-203_data-3"
         }
       }
@@ -61,8 +61,8 @@
           "volume": "reskate_reskate-data-4"
         },
         "b": {
-          "port": 12530,
-          "query_port": 12531,
+          "port": 12432,
+          "query_port": 12433,
           "volume": "reskate-203_data-4"
         }
       }
@@ -76,8 +76,8 @@
           "volume": "reskate_reskate-data-5"
         },
         "b": {
-          "port": 12540,
-          "query_port": 12541,
+          "port": 12442,
+          "query_port": 12443,
           "volume": "reskate-203_data-5"
         }
       }

@@ -6,10 +6,11 @@ services:
     image: reskate-rollover:local
     container_name: reskate-rollover
     restart: unless-stopped
+    network_mode: host        # needs no Docker network of its own (cocojambo has none left)
     environment:
       DRY_RUN: "true"
       # DISCORD_WEBHOOK: https://discord.com/api/webhooks/...   # where it says what it does
       # STEAM_TOKEN_1B: ...   # only for a slot with no container yet to take the token from
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # - ./yards.json:/config/yards.json:ro
+      # - ./servers.json:/config/servers.json:ro
