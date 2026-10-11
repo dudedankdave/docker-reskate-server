@@ -4,7 +4,7 @@ package main
 // whether they are ranked (no scoring/physics mods, no sped-up game this session, and the server
 // not letting players skate with their own physics tuning, which it cannot check), and finished
 // throwdowns with two or more players give points by place. The points live in a SQLite database
-// (leaderboard.db, with a ledger of every award) on several boards at once: General (all time),
+// (leaderboard.db, with a ledger of every award) on several boards at once: All Time,
 // the current Week and the Events admins have open (LEADERBOARD_BOARDS). Chat commands /top, /rank,
 // /boards and, for admins, /lb answer by DM to the "[command] Name /top week" line the server
 // logs for each allowed command. The board goes to chat and Discord every LEADERBOARD_INTERVAL
@@ -43,7 +43,7 @@ const (
 // lbKinds are the board kinds LEADERBOARD_BOARDS may name.
 var lbKinds = []string{"general", "week", "event"}
 
-// Every board also has one per game mode: "General - Jam", "Week 41 - S.K.A.T.E.".
+// Every board also has one per game mode: "All Time - Jam", "Week 41 - S.K.A.T.E.".
 var (
 	lbModeNames = map[string]string{"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
 	lbModeOf    = map[string]string{"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
@@ -291,7 +291,9 @@ func (b *leaderboard) setup(legacy string) bool {
 				return err
 			}
 		}
-		lbBoardInsert(tx, "general", "General", "general")
+		lbBoardInsert(tx, "general", "All Time", "general")
+		_, _ = tx.Exec(`UPDATE boards SET name = 'All Time' WHERE id = 'general' AND name != 'All Time'`) // was "General"
+		_, _ = tx.Exec(`UPDATE boards SET name = 'All Time' || substr(name, 8) WHERE id LIKE 'general:%' AND name LIKE 'General - %'`)
 		var one int
 		if tx.QueryRow(`SELECT 1 FROM meta WHERE key='legacy_imported'`).Scan(&one) == nil {
 			return nil
@@ -312,7 +314,7 @@ func (b *leaderboard) setup(legacy string) bool {
 	return ok
 }
 
-// importLegacy: the leaderboard.json of the versions before the database becomes General.
+// importLegacy: the leaderboard.json of the versions before the database becomes All Time.
 func (b *leaderboard) importLegacy(tx *sql.Tx, legacy string) (bool, error) {
 	raw, err := os.ReadFile(legacy)
 	if err != nil {
@@ -345,7 +347,7 @@ func (b *leaderboard) importLegacy(tx *sql.Tx, legacy string) (bool, error) {
 		}
 	}
 	_, err = tx.Exec(`UPDATE boards SET version = version + 1 WHERE id = 'general'`)
-	fmt.Printf("[leaderboard] imported %d players from %s into General\n", len(old.Players), legacy)
+	fmt.Printf("[leaderboard] imported %d players from %s into All Time\n", len(old.Players), legacy)
 	return err == nil, err
 }
 
@@ -358,7 +360,7 @@ func lbWeek(now time.Time) (id, name string, year int) {
 	return fmt.Sprintf("week-%d-%02d", year, week), fmt.Sprintf("Week %d", week), year
 }
 
-// active: the boards that count new points: General, this week, the open events.
+// active: the boards that count new points: All Time, this week, the open events.
 func (b *leaderboard) active(tx *sql.Tx, now time.Time) []string {
 	var ids []string
 	if b.kinds["general"] {
@@ -484,7 +486,7 @@ func lbFind(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
 func lbFindBase(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
 	spec = strings.ToLower(strings.TrimSpace(spec))
 	switch spec {
-	case "", "general", "all", "alltime", "all-time", "g":
+	case "", "general", "all", "all time", "alltime", "all-time", "g":
 		return lbScan(tx.QueryRow(lbBoardCols + `WHERE id='general'`))
 	case "week", "w", "weekly":
 		id, _, _ := lbWeek(now)
@@ -1016,7 +1018,7 @@ type lbShown struct {
 	rows  []lbRow
 }
 
-// current: the boards shown now (General, this week, the open events) with their top 10. For Discord
+// current: the boards shown now (All Time, this week, the open events) with their top 10. For Discord
 // (LEADERBOARD_DISCORD) only the chosen ones, each followed by its chosen game boards.
 func (b *leaderboard) current(tx *sql.Tx, now time.Time, discord bool) []lbShown {
 	var out []lbShown

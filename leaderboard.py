@@ -11,12 +11,11 @@ built only on what the vanilla server logs:
   Battle by place (LEADERBOARD_POINTS, default 10,6,4,2: the last value for every later place),
   S.K.A.T.E. (no places in the log) is placed by the fewest missed tricks, then the most landed (equal results share a place), and then scored like those. Unranked
   players keep their place but get nothing.
-* Boards (LEADERBOARD_BOARDS, default general,week,event): every award is counted on General (all
-  time), on the current Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
+* Boards (LEADERBOARD_BOARDS, default general,week,event): every award is counted on All Time (kind "general"), on the current Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
   are started and ended by admins in the game (/lb event start <name>, /lb event end).
 * Every board also has one per game mode (Jam, Spot Battle, S.K.A.T.E.): /top skate, /top week jam.
 * The points live in a SQLite database (leaderboard.db), with every award kept in a ledger.
-  A leaderboard.json from the earlier versions is imported into General once.
+  A leaderboard.json from the earlier versions is imported into All Time once.
 * Chat commands (LEADERBOARD_COMMANDS, default on; added to the server's "commands"): /top [board],
   /rank [board], /boards, and /lb for admins (the server itself refuses it for everyone else).
   The server logs a "[command] Name /top week" line for each allowed command; this module answers
@@ -66,7 +65,7 @@ CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
 ASK_EVERY = 3         # seconds between two answers to the same player
 KINDS = ("general", "week", "event")
 VERBS = ("top", "rank", "boards", "lb")
-# The game modes with a board of their own next to every board: "General:jam", "Week 41:skate".
+# The game modes with a board of their own next to every board: "All Time:jam", "Week 41:skate".
 MODES = {"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
 MODE_OF = {"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
 MODE_WORDS = {"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate", "s.k.a.t.e.": "skate", "game of skate": "skate",
@@ -176,7 +175,9 @@ class Store:
             for statement in SCHEMA.split(";"):
                 if statement.strip():
                     cur.execute(statement)
-            self.board(cur, "general", "General", "general")
+            self.board(cur, "general", "All Time", "general")
+            cur.execute("UPDATE boards SET name = 'All Time' WHERE id = 'general' AND name != 'All Time'")   # was "General"
+            cur.execute("UPDATE boards SET name = 'All Time' || substr(name, 8) WHERE id LIKE 'general:%' AND name LIKE 'General - %'")
             if cur.execute("SELECT 1 FROM meta WHERE key='legacy_imported'").fetchone():
                 return False
             cur.execute("INSERT INTO meta VALUES ('legacy_imported', ?)", (str(time.time()),))
@@ -192,7 +193,7 @@ class Store:
         return True
 
     def import_legacy(self, cur, legacy):
-        """leaderboard.json of the versions before the database: its players become General."""
+        """leaderboard.json of the versions before the database: its players become All Time."""
         try:
             with open(legacy, encoding="utf-8") as f:
                 players = json.load(f).get("players") or {}
@@ -207,7 +208,7 @@ class Store:
             cur.execute("INSERT INTO ledger (at, board, steam_id, points, reason, server) VALUES (?, 'general', ?, ?, 'imported', ?)",
                         (time.time(), str(key), p["points"], self.server))
         cur.execute("UPDATE boards SET version = version + 1 WHERE id = 'general'")
-        print(f"[leaderboard] imported {len(players)} players from {legacy} into General", flush=True)
+        print(f"[leaderboard] imported {len(players)} players from {legacy} into All Time", flush=True)
         return True
 
     @staticmethod
@@ -216,7 +217,7 @@ class Store:
                     (board_id, name, kind, time.time()))
 
     def active(self, cur, kinds, now):
-        """The boards that count new points: General, this week, the open events."""
+        """The boards that count new points: All Time, this week, the open events."""
         ids = []
         if "general" in kinds:
             ids.append("general")
@@ -280,7 +281,7 @@ class Store:
     @staticmethod
     def find_base(cur, spec, now):
         spec = spec.strip().lower()
-        if spec in ("", "general", "all", "alltime", "all-time", "g"):
+        if spec in ("", "general", "all", "all time", "alltime", "all-time", "g"):
             return cur.execute("SELECT * FROM boards WHERE id='general'").fetchone()
         if spec in ("week", "w", "weekly"):
             return cur.execute("SELECT * FROM boards WHERE id=?", (week_of(now)[0],)).fetchone()
@@ -639,7 +640,7 @@ class Leaderboard:
             self.post_discord(now)
 
     def current(self, cur, now, discord=False):
-        """[(board row, top rows)] for the boards shown now: General, this week, the open events. For
+        """[(board row, top rows)] for the boards shown now: All Time, this week, the open events. For
         Discord (LEADERBOARD_DISCORD) only the chosen ones, each followed by its chosen game boards."""
         out = []
         for board_id in self.store.active(cur, self.kinds, now):
