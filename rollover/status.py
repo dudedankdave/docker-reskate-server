@@ -42,7 +42,7 @@ MAP = re.compile(r"^(?:Everyone has loaded (.+)|\[rotation\] Changing the map to
 CODE = re.compile(r"^Join code: (\S+)$")
 STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z (.*)$")
 
-GREEN, YELLOW, RED = 0x2ECC71, 0xF1C40F, 0xE74C3C
+GREEN, YELLOW, RED, BLURPLE = 0x2ECC71, 0xF1C40F, 0xE74C3C, 0x5865F2
 
 
 class Server:
@@ -200,8 +200,9 @@ class Board:
             online += up
         for gone in set(self.seen) - {i["Id"] for infos in found.values() for i in infos}:
             del self.seen[gone]
-        summary = {"title": f"{total} player{'s' if total != 1 else ''} online · {online}/{len(cards)} servers up",
-                   "color": GREEN if online == len(cards) else YELLOW if online else RED}
+        summary = {"author": {"name": "OVERVIEW"},
+                   "title": f"📊 {total} player{'s' if total != 1 else ''} online · {online}/{len(cards)} servers up",
+                   "color": BLURPLE}
         if SPACER:
             summary["image"] = {"url": SPACER}
         # the summary goes last, under the cards; no text above them, so the first card starts the message
