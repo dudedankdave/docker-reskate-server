@@ -9,6 +9,9 @@ them runs the server. When a newer ReSkate release is out:
   running until it has been empty for DRAIN_GRACE minutes, then it is stopped (not removed,
   so it can be started again by hand).
 
+A newer version of an unpinned MODS entry (a map) is handled the same way: nobody on -> restart
+(mods install on start), players on -> a copy on the same ReSkate version in the other slot.
+
 The copy is a clone of the running container (env, mounts, restart policy) with the slot's
 ports, token, volume and a new SERVER_NAME. If Docker Hub has an image tag for the release it
 runs that; otherwise it runs the current image with the release installed into its volume
