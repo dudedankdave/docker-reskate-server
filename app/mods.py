@@ -12,8 +12,9 @@ manifest.json already has the wanted version). A failure is logged and never sto
 server from starting. The default image has no Python HTTPS or zip support, so this shells
 out to curl and unzip.
 
-Shared store: with a volume mounted at /mods (MODS_STORE), every package version is downloaded
-once into /mods/packages/<Owner>-<Name>-<version> and each server only gets a symlink
+Shared store (MODS_STORE, default `shared` = the volume mounted at /mods, or a path for a store
+of this server's own): every package version is downloaded once into
+<store>/packages/<Owner>-<Name>-<version> and each server only gets a symlink
 /data/Mods/<Name> to the version it wants. A version is never changed after it is written, so a
 server still running (or draining players) on an older map keeps its files while another one
 already moved on, and a lock per version makes servers starting together wait for one download
@@ -58,15 +59,33 @@ ID = re.compile(r"^([A-Za-z0-9_]+)-([A-Za-z0-9_]+)(?:-(\d+\.\d+\.\d+))?$")
 URL = re.compile(r"/(?:p|package)/(?:download/)?([A-Za-z0-9_]+)/([A-Za-z0-9_]+)(?:/(\d+\.\d+\.\d+))?")
 
 
-STORE = os.environ.get("MODS_STORE", "/mods").rstrip("/")
+SHARED = "/mods"                     # where the shared volume is mounted
+
+
+def store_setting():
+    """MODS_STORE: `shared` (default) = the volume at /mods, used only while one is mounted there;
+    an absolute path = a store at that path for this server, used as it is."""
+    raw = os.environ.get("MODS_STORE", "").strip()
+    if raw.lower() in ("", "shared"):
+        return SHARED, True
+    path = os.path.normpath(raw)
+    if path.startswith("/") and path != "/" and not (path + "/").startswith(MODS_DIR + "/"):
+        return path, False
+    print(f"[mods] MODS_STORE={raw!r} is neither 'shared' nor an absolute path outside {MODS_DIR}, using shared",
+          flush=True)
+    return SHARED, True
+
+
+STORE, NEEDS_MOUNT = store_setting()
 PACKAGES = STORE + "/packages"
 STORE_TMP = STORE + "/.tmp"
 LOCK_WAIT = 4000                     # seconds to wait for another server's download of the same version
 
 
 def shared():
-    """True when a volume is mounted at the store path: packages are shared between servers."""
-    return os.path.ismount(STORE)
+    """True when packages go into the store: always for a path, for `shared` only while a volume
+    is mounted at /mods (else each server keeps its own copies in /data/Mods)."""
+    return not NEEDS_MOUNT or os.path.ismount(STORE)
 
 
 class Lock:
@@ -345,6 +364,10 @@ def pending_updates(spec):
 
 def install_all(spec, update=True):
     seen = set()
+    if spec.strip() and not shared():
+        log(f"no volume mounted at {SHARED}: maps are kept in this server's {MODS_DIR}. Mount the shared "
+            f"volume there (e.g. reskate-mods:{SHARED}) to download each map once for all servers, "
+            f"or set MODS_STORE to a path.")
     for token in re.split(r"[\s,]+", spec.strip()):
         if not token:
             continue

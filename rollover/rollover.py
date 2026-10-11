@@ -383,7 +383,17 @@ class Rollover:
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")
         host = old.info["HostConfig"]
         cfg = old.info["Config"]
-        mods_volume = setting(self.cfg, server, "mods_volume", "")   # shared map/mod store, mounted at /mods
+        # The predecessor's other mounts come along (the shared map volume at /mods above all);
+        # /data is the slot's own volume, and mods_volume, if set, replaces whatever is at /mods.
+        mods_volume = setting(self.cfg, server, "mods_volume", "")
+        binds = [f"{s['volume']}:/data"] + ([f"{mods_volume}:/mods"] if mods_volume else [])
+        for m in old.info.get("Mounts") or []:
+            dest = m.get("Destination")
+            if dest in ("/data", None) or (dest == "/mods" and mods_volume):
+                continue
+            src = m.get("Name") if m.get("Type") == "volume" else m.get("Source")
+            if src:
+                binds.append(f"{src}:{dest}" + ("" if m.get("RW", True) else ":ro"))
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
@@ -393,7 +403,7 @@ class Rollover:
             "HostConfig": {
                 "NetworkMode": host.get("NetworkMode", "host"),
                 "RestartPolicy": host.get("RestartPolicy") or {"Name": "unless-stopped"},
-                "Binds": [f"{s['volume']}:/data"] + ([f"{mods_volume}:/mods"] if mods_volume else []),
+                "Binds": binds,
                 "LogConfig": host.get("LogConfig") or {},
             },
         }
