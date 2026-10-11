@@ -499,6 +499,8 @@ docker build --build-arg VERSION=2.0.5 -t dudedankdave/reskate-server:2.0.5 .
 
 Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `latest` as well.
 
+**Automatic:** `.github/workflows/release.yml` checks for a new ReSkate release every 30 min and, when Docker Hub has no tag for it yet, builds both images from `main` and pushes `<ver>`, `<major>.<minor>`, `latest`, `<ver>-slim` and `slim` (repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`). It can also be started by hand (Actions, *Release image*, *Run workflow*), with *push* off for a test build.
+
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Image build (Debian slim, tini, curl, minimal Python) |
@@ -509,6 +511,8 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
+| `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
+| `rollover/` | Host-side service: starts a copy on a new ReSkate release while players are on, stops the old server once empty |
 | `hub-readme.py` | README for Docker Hub (env tables replaced by a link, 25 KB limit) |
 | `slim/` | Source and Dockerfile of the slim (distroless) image |
 | `example.env`, `docker-compose.yml` | Starting point for your own setup |

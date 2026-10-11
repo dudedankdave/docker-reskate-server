@@ -1,0 +1,15 @@
+# Runs next to the ReSkate servers and needs the Docker socket to start and stop them.
+# Starts in dry run (it only logs what it would do); DRY_RUN=false lets it act.
+services:
+  rollover:
+    build: .
+    image: reskate-rollover:local
+    container_name: reskate-rollover
+    restart: unless-stopped
+    environment:
+      DRY_RUN: "true"
+      # DISCORD_WEBHOOK: https://discord.com/api/webhooks/...   # where it says what it does
+      # STEAM_TOKEN_1B: ...   # only for a slot with no container yet to take the token from
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # - ./yards.json:/config/yards.json:ro
