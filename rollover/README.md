@@ -8,6 +8,9 @@ each new release per server:
 - **Players on:** a copy on the new version starts in the server's other slot. Players who updated
   their game join the copy; the old server keeps its players until it has been empty for
   `drain_grace_minutes`, then it is stopped (not removed, so it can be started again by hand).
+- **Only a few players on:** with fewer than `copy_min_players` (default `1`, so any player counts)
+  no copy starts yet. The server is replaced once it is empty, or a copy starts after
+  `copy_wait_minutes` (default `60`) if it never empties. Both can also be set per server.
 
 So most of the time each server runs one container; two only while the old one still has players.
 
