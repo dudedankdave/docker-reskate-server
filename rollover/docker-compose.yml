@@ -13,4 +13,4 @@ services:
       # STEAM_TOKEN_1B: ...   # only for a slot with no container yet to take the token from
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # - ./yards.json:/config/yards.json:ro
+      # - ./servers.json:/config/servers.json:ro

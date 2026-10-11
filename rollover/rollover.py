@@ -1,7 +1,7 @@
-"""Brings a second server up when a ReSkate release comes out while players are on the old one.
+"""Brings a second container up when a ReSkate release comes out while players are on the old one.
 
-Each yard has two slots, A and B, each with its own ports, Steam token and /data volume. One of
-them runs the yard. When a newer ReSkate release is out:
+Each server has two slots, A and B, each with its own ports, Steam token and /data volume. One of
+them runs the server. When a newer ReSkate release is out:
 
 * nobody on the running server: it is replaced in its own slot (same token, so the same Steam ID).
 * players on it: a copy on the new version starts in the other slot. The old server keeps
@@ -32,7 +32,7 @@ from calendar import timegm
 from collections import Counter
 from datetime import datetime, timezone
 
-CONFIG = os.environ.get("CONFIG", "/config/yards.json")
+CONFIG = os.environ.get("CONFIG", "/config/servers.json")
 SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
 DOCKER_API = os.environ.get("DOCKER_API", "")   # instead of the socket, e.g. Portainer's .../api/endpoints/3/docker
 LAUNCHER = "https://github.com/Dingo-Shenanigans/ReSkate/releases/latest/download/launcher.json"
@@ -151,9 +151,9 @@ def hub_has(repo, tag):
         raise
 
 
-# ---- yards -------------------------------------------------------------------------------
-class Server:
-    """One container of a yard."""
+# ---- servers -----------------------------------------------------------------------------
+class Instance:
+    """One container of a server (one slot of it)."""
 
     def __init__(self, info, slot):
         self.info, self.slot = info, slot
@@ -202,48 +202,48 @@ class Rollover:
     def tick(self):
         latest = latest_release()
         everything = self.containers()
-        for number, yard in self.cfg["yards"].items():
-            ports = {str(s["port"]): name for name, s in yard["slots"].items()}
-            servers = [Server(i, ports[env_of(i).get("PORT", "")]) for i in everything
+        for number, server in self.cfg["servers"].items():
+            ports = {str(s["port"]): name for name, s in server["slots"].items()}
+            instances = [Instance(i, ports[env_of(i).get("PORT", "")]) for i in everything
                        if env_of(i).get("PORT", "") in ports]
             try:
-                self.yard(number, yard, latest, servers)
+                self.server(number, server, latest, instances)
             except Exception as e:
-                say(f"yard {number}: {e!r}")
+                say(f"server {number}: {e!r}")
 
-    def yard(self, number, yard, latest, servers):
-        live = [s for s in servers if s.running]
+    def server(self, number, server, latest, instances):
+        live = [s for s in instances if s.running]
         if not live:
             return
         newest = max(live, key=lambda s: numbers(s.version))
-        # drain: older servers stop once the newest is healthy and they have been empty long enough
+        # drain: older instances stop once the newest is healthy and they have been empty long enough
         for s in live:
             if s is newest or numbers(s.version) >= numbers(newest.version):
                 continue
             if s.name in self.protect:
-                self.once(("protect", s.name), f"Yard {number}: {s.name} ({s.version}) is protected, leaving it running.")
+                self.once(("protect", s.name), f"Server {number}: {s.name} ({s.version}) is protected, leaving it running.")
                 continue
             if not newest.healthy:
                 continue
             if self.empty_for(s) >= self.grace:
-                self.stop(s, f"Yard {number}: {s.name} ({s.version}) empty for {self.grace / 60:.0f} min, "
+                self.stop(s, f"Server {number}: {s.name} ({s.version}) empty for {self.grace / 60:.0f} min, "
                              f"{newest.name} ({newest.version}) takes over")
         if numbers(newest.version) >= numbers(latest):
             return
         if newest.name in self.protect:
             return self.once(("protect-new", newest.name, latest),
-                             f"Yard {number}: ReSkate {latest} is out, {newest.name} is protected, nothing started.")
+                             f"Server {number}: ReSkate {latest} is out, {newest.name} is protected, nothing started.")
         count = players(newest.info)
         if count == 0:
             slot = newest.slot                         # nobody on: replace it in place
         else:
-            slot = next(n for n in yard["slots"] if n != newest.slot)
+            slot = next(n for n in server["slots"] if n != newest.slot)
             busy = [s for s in live if s.slot == slot]
             if busy:
                 return self.once(("busy", number, latest),
-                                 f"Yard {number}: ReSkate {latest} is out, but slot {slot.upper()} still runs "
+                                 f"Server {number}: ReSkate {latest} is out, but slot {slot.upper()} still runs "
                                  f"{busy[0].name}; waiting until it is stopped.")
-        self.start_copy(number, yard, newest, slot, latest, count, servers)
+        self.start_copy(number, server, newest, slot, latest, count, instances)
 
     def empty_for(self, s):
         try:
@@ -262,31 +262,31 @@ class Rollover:
             docker("POST", f"/containers/{s.info['Id']}/stop?t=60", timeout=120)
             self.empty_since.pop(s.info["Id"], None)
 
-    def token(self, yard_number, slot, servers):
-        """Steam token of a slot: STEAM_TOKEN_<yard><slot> on this container, else from any
+    def token(self, server_number, slot, instances):
+        """Steam token of a slot: STEAM_TOKEN_<server><slot> on this container, else from any
         container (also a stopped one) that ran on that slot."""
-        token = os.environ.get(f"STEAM_TOKEN_{yard_number}{slot.upper()}", "")
+        token = os.environ.get(f"STEAM_TOKEN_{server_number}{slot.upper()}", "")
         if not token:
-            for s in sorted(servers, key=lambda s: not s.running):
+            for s in sorted(instances, key=lambda s: not s.running):
                 if s.slot == slot and s.env.get("STEAM_TOKEN"):
                     return s.env["STEAM_TOKEN"]
         return token
 
-    def start_copy(self, number, yard, old, slot, version, count, servers):
-        s = yard["slots"][slot]
-        token = self.token(number, slot, servers)
+    def start_copy(self, number, server, old, slot, version, count, instances):
+        s = server["slots"][slot]
+        token = self.token(number, slot, instances)
         if not token:
-            return self.once(("token", number, slot), f"Yard {number}: no Steam token for slot {slot.upper()}, "
+            return self.once(("token", number, slot), f"Server {number}: no Steam token for slot {slot.upper()}, "
                                                       f"set STEAM_TOKEN_{number}{slot.upper()}.")
         name = f"{self.cfg.get('container_prefix', 'reskate-server-')}{number}-{version}"
-        if any(x.name == name for x in servers):
-            return self.once(("exists", name), f"Yard {number}: {name} exists but is not running; start it by hand.")
+        if any(x.name == name for x in instances):
+            return self.once(("exists", name), f"Server {number}: {name} exists but is not running; start it by hand.")
         tag = version if hub_has(self.repo, version) else None
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
         in_place = slot == old.slot
         how = (f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
                f"{count} player(s) on {old.name} ({old.version}), starting a copy in slot {slot.upper()}")
-        self.notify(f"Yard {number}: ReSkate {version} is out, {how}: {name} on ports {s['port']}/{s['query_port']}, "
+        self.notify(f"Server {number}: ReSkate {version} is out, {how}: {name} on ports {s['port']}/{s['query_port']}, "
                     f"image {image}" + ("" if tag else " + release installed into its volume")
                     + (" (dry run, nothing done)" if self.dry else ""))
         if self.dry:
@@ -297,12 +297,12 @@ class Rollover:
             self.preinstall(image, s["volume"], version)
         if in_place:
             docker("POST", f"/containers/{old.info['Id']}/stop?t=60", timeout=120)
-        for x in servers:                      # stopped copies of ours on that slot are superseded
+        for x in instances:                      # stopped copies of ours on that slot are superseded
             if x.slot == slot and x.managed and not x.running and x.name not in self.protect:
                 docker("DELETE", f"/containers/{x.info['Id']}")
         env = dict(old.env)
         env.update(PORT=str(s["port"]), QUERY_PORT=str(s["query_port"]), STEAM_TOKEN=token,
-                   SERVER_NAME=yard_name(self.cfg, number, yard, version))
+                   SERVER_NAME=server_name(self.cfg, number, server, version))
         for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "PATH",
                   "LD_LIBRARY_PATH", "HOME", "SteamAppId"):
             env.pop(k, None)               # image defaults come back from the image
@@ -314,7 +314,7 @@ class Rollover:
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
             "Tty": cfg.get("Tty", True), "OpenStdin": cfg.get("OpenStdin", True), "StdinOnce": False,
-            "Labels": {LABEL: "true", "reskate.yard": str(number), "reskate.slot": slot, "reskate.version": version},
+            "Labels": {LABEL: "true", "reskate.server": str(number), "reskate.slot": slot, "reskate.version": version},
             "HostConfig": {
                 "NetworkMode": host.get("NetworkMode", "host"),
                 "RestartPolicy": host.get("RestartPolicy") or {"Name": "unless-stopped"},
@@ -324,7 +324,7 @@ class Rollover:
         }
         made = docker("POST", f"/containers/create?name={urllib.parse.quote(name)}", body)
         docker("POST", f"/containers/{made['Id']}/start")
-        self.notify(f"Yard {number}: {name} started.")
+        self.notify(f"Server {number}: {name} started.")
 
     def pull(self, repo, tag):
         out = docker("POST", f"/images/create?fromImage={urllib.parse.quote(repo)}&tag={urllib.parse.quote(tag)}",
@@ -358,9 +358,9 @@ class Rollover:
             docker("DELETE", f"/containers/{made['Id']}?force=1")
 
 
-def yard_name(cfg, number, yard, version):
+def server_name(cfg, number, server, version):
     fmt = cfg.get("name_format", "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}")
-    return fmt.format(v=version.replace(".", ""), n=number, role=yard.get("role", ""))
+    return fmt.format(v=version.replace(".", ""), n=number, role=server.get("role", ""))
 
 
 def main():
@@ -370,7 +370,7 @@ def main():
         config["dry_run"] = os.environ["DRY_RUN"].strip().lower() not in ("0", "false", "no", "off")
     r = Rollover(config)
     every = float(config.get("check_minutes", 5)) * 60
-    say(f"watching {len(config['yards'])} yards, every {every / 60:.0f} min" + (", DRY RUN" if r.dry else ""))
+    say(f"watching {len(config['servers'])} servers, every {every / 60:.0f} min" + (", DRY RUN" if r.dry else ""))
     while True:
         try:
             r.tick()

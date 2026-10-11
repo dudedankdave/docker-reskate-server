@@ -6,7 +6,7 @@
   "container_prefix": "reskate-server-",
   "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",
   "protect": [],
-  "yards": {
+  "servers": {
     "1": {
       "role": "Main",
       "slots": {
