@@ -1,19 +1,27 @@
 """Prints README.md for Docker Hub, whose description is limited to 25,000 bytes.
 
-The environment variable tables (### Per server up to ### Data) are replaced by a link to
-them on GitHub; everything else is unchanged. Exits 1 if the result is still too long.
+Docker Hub cannot follow links into the repository, so relative links (docs/ENVIRONMENT.md,
+example.env, slim/, ...) are made absolute GitHub links; everything else is unchanged.
+Exits 1 if the result is too long.
 """
+import re
 import sys
 
 LIMIT = 25000
 REPO = "https://github.com/dudedankdave/docker-reskate-server"
 
 readme = open("README.md", encoding="utf-8").read()
-start, end = readme.index("### Per server\n"), readme.index("### Data\n")
-link = (f"**All environment variables** (per server, access, gameplay, anti-cheat, voice, network, "
-        f"voting, announcements, parks and layers, mods, updates) are listed in the "
-        f"[README on GitHub]({REPO}#per-server) and in [`example.env`]({REPO}/blob/main/example.env).\n\n\n")
-hub = readme[:start] + link + readme[end:]
+
+
+def absolute(match):
+    target = match.group(2)
+    if re.match(r"[a-z]+:|#|/", target):
+        return match.group(0)
+    kind = "tree" if target.endswith("/") else "blob"
+    return f"{match.group(1)}({REPO}/{kind}/main/{target})"
+
+
+hub = re.sub(r"(\]\s?)\(([^)\s]+)\)", absolute, readme)
 size = len(hub.encode())
 if size > LIMIT:
     sys.exit(f"Docker Hub README is {size} bytes, the limit is {LIMIT}")
