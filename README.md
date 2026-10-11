@@ -211,8 +211,21 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 `LEADERBOARD=true` turns on ranked play and a points leaderboard, built only on what the server logs:
 
 - **Ranked:** a player is ranked when their game reports no mods that change scoring or physics (the server's `SCORE_CHECK`, default `warn`) and they have not been caught with a sped-up game this session (`SPEED_CHECK`). While the server lets players skate with their own physics tuning (`ENFORCE_TUNING=false`, or `tuning-enforce off` in the console), nobody is ranked: the server cannot see whose tuning is edited. About 15 s after joining, every player gets a DM saying whether they are ranked, and another one when that changes.
-- **Points:** from finished throwdowns with at least two players who did not quit. Jam and Spot Battle by place (`LEADERBOARD_POINTS`, default `10,6,4,2`: 1st 10, 2nd 6, 3rd 4, everyone after 2); S.K.A.T.E. gives the last value to everyone who finished, because the log has no winner. Unranked players keep their place but get no points. Free skating earns nothing: the server never sees those tricks. Needs `ACTIVITY_LOG` on (the default).
-- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` posted in chat (only while players are on), and the top 10 go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when the board changed since the last post.
+- **Points:** from finished throwdowns with at least two players who did not quit. Jam and Spot Battle by place (`LEADERBOARD_POINTS`, default `10,6,4,2`: 1st 10, 2nd 6, 3rd 4, everyone after 2); S.K.A.T.E. has no places in the log, so players are placed by the fewest missed tricks, then the most landed (equal results share a place) and scored the same way. Unranked players keep their place but get no points. Free skating earns nothing: the server never sees those tricks. Needs `ACTIVITY_LOG` on (the default).
+- **Several boards at once:** every award counts on **All Time**, on the current **Year**, **Month** and **Week** (UTC: `2026`, `October 2026`, `Week 41`) and on every **Event** that is open. Each kind can post to chat and Discord on its own schedule (`LEADERBOARD_INTERVALS`, `LEADERBOARD_DISCORD_INTERVALS`). Older weeks and finished events stay readable. Each board also has one board per game: **Jam**, **Spot Battle** and **S.K.A.T.E.** (`All Time - Jam`, `Week 41 - S.K.A.T.E.`), filled by the same results. `LEADERBOARD_BOARDS` (default `general,year,month,week,event`) picks which kinds exist.
+- **Database:** the points are kept in a SQLite file (`leaderboard.db` in `/shared`, else `/data`) with a ledger of every award (who, how many, why, which server), so a board can be audited or rebuilt. A `leaderboard.json` from earlier versions is imported into All Time once and renamed `leaderboard.json.migrated`.
+- **Chat commands** (added to the server's `commands`, `LEADERBOARD_COMMANDS=false` leaves them out; the answer is a DM, only the sender sees it):
+
+  | Command | Who | What |
+  |---|---|---|
+  | `/top [board] [game]` | everyone | Top players of a board: `/top`, `/top week`, `/top month`, `/top year`, `/top 40` (Week 40), `/top 2026`, `/top event`, or part of a board's name. Add `jam`, `skate` or `spot` for one game: `/top skate`, `/top week jam` |
+  | `/rank [board] [game]` | everyone | Your place, points, wins and throwdowns on a board |
+  | `/boards` | everyone | The boards and how many players have points on each |
+  | `/lb award <points> <player> [board:<board>]` | admins | Give (or take, with a minus) points to a player online, by SteamID64 or by a name the database knows; on every active board, or only the one named |
+  | `/lb event start <name>` / `/lb event end [name]` | admins | Open an event board (every ranked result counts there too) or close it, with the result posted in chat and Discord |
+
+  `/lb` is a server command with `admin: true`: the server refuses it for everybody who is not an admin (`ADMINS`, `admin add`), and the leaderboard only acts on the line the server logs for an allowed command.
+- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` of All Time, the current week and the open events posted in chat (only while players are on), and the boards chosen with `LEADERBOARD_DISCORD` (default all, game boards included) go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when one changed since the last post.
 
 Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderboard in ENVIRONMENT.md](docs/ENVIRONMENT.md#leaderboard).
 

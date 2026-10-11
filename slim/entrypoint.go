@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -564,6 +565,55 @@ func entrypointMain(serverArgs []string) {
 		cfg["commands"] = commands
 	}
 
+	// The leaderboard's chat commands (/top, /rank, /boards, admin-only /lb) are added to "commands"
+	// when LEADERBOARD is on (LEADERBOARD_COMMANDS=false: not). Earlier copies of them are replaced;
+	// a command of the same name that you defined yourself stays and ours is skipped.
+	{
+		on := false
+		if v, ok := env("LEADERBOARD"); ok {
+			on = asBool("LEADERBOARD", v)
+		}
+		if v, ok := env("LEADERBOARD_COMMANDS"); ok {
+			on = on && asBool("LEADERBOARD_COMMANDS", v)
+		}
+		ours := func(c any) bool {
+			m, _ := c.(map[string]any)
+			for _, lc := range lbCommands {
+				if reflect.DeepEqual(map[string]any(lc), m) {
+					return true
+				}
+				if reply, _ := m["reply"].(string); m["name"] == lc["name"] && lbOldReplies[reply] {
+					return true
+				}
+			}
+			return false
+		}
+		existing, _ := cfg["commands"].([]any)
+		commands := []any{}
+		taken := map[string]bool{}
+		for _, c := range existing {
+			if !ours(c) {
+				commands = append(commands, c)
+				if m, ok := c.(map[string]any); ok {
+					taken[fmt.Sprint(m["name"])] = true
+				}
+			}
+		}
+		if on {
+			for _, lc := range lbCommands {
+				if !taken[lc["name"].(string)] {
+					commands = append(commands, map[string]any(lc))
+				}
+			}
+		}
+		if len(commands) > 32 {
+			die("COMMANDS: the server allows 32 chat commands, got %d (the leaderboard adds %d; LEADERBOARD_COMMANDS=false leaves them out)", len(commands), len(lbCommands))
+		}
+		if len(commands) > 0 || cfg["commands"] != nil {
+			cfg["commands"] = commands
+		}
+	}
+
 	// LAYERS=key=on,other_key=off
 	if v, ok := env("LAYERS"); ok {
 		layers := sub(sub(cfg, "maps"), "layers")
@@ -714,6 +764,27 @@ func entrypointMain(serverArgs []string) {
 		}
 		if v, ok := env("LEADERBOARD_SIZE"); ok {
 			intRange(1, 10)("LEADERBOARD_SIZE", v)
+		}
+		if v, ok := env("LEADERBOARD_BOARDS"); ok {
+			for _, item := range asList(v) {
+				choice(lbKinds...)("LEADERBOARD_BOARDS", item)
+			}
+		}
+		for _, name := range []string{"LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"} {
+			if v, ok := env(name); ok {
+				for _, item := range asList(v) {
+					kind, minutes, _ := strings.Cut(item, "=")
+					choice(lbKinds...)(name, strings.TrimSpace(kind))
+					if _, err := strconv.ParseUint(strings.TrimSpace(minutes), 10, 31); err != nil {
+						die("%s: expected board=minutes like general=60,week=30,event=0, got %q", name, item)
+					}
+				}
+			}
+		}
+		if v, ok := env("LEADERBOARD_DISCORD"); ok {
+			for _, item := range asList(v) {
+				choice(append([]string{"jam", "spot", "skate"}, lbKinds...)...)("LEADERBOARD_DISCORD", item)
+			}
 		}
 		if v, ok := env("LEADERBOARD_POINTS"); ok {
 			for _, item := range asList(v) {

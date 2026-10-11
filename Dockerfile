@@ -25,7 +25,7 @@ LABEL org.opencontainers.image.title="reskate-server" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl unzip python3-minimal tini \
+ && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl unzip python3-minimal libpython3-stdlib tini \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -m -u 1000 reskate \
  && mkdir -p /data /mods /home/reskate/.steam/sdk64 \

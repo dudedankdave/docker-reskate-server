@@ -8,7 +8,7 @@
 # ---- the one static Go binary (entrypoint, Discord sidecar, healthcheck, curl stand-in) ----
 FROM golang:1.24-alpine AS gobuild
 WORKDIR /src
-COPY slim/go.mod slim/*.go ./
+COPY slim/go.mod slim/go.sum slim/*.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/reskate .
 
 # ---- assemble the filesystem: server files, tini, a static busybox for `sh` ----------------
