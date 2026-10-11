@@ -5,9 +5,7 @@
   "image": "dudedankdave/reskate-server",
   "container_prefix": "reskate-server-",
   "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",
-  "protect": [
-    "reskate-server-3"
-  ],
+  "protect": [],
   "yards": {
     "1": {
       "role": "Main",
