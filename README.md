@@ -90,24 +90,73 @@ Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists ev
 
 ## Custom maps and mods
 
-**Automatic: download from Thunderstore.** List packages in `MODS` (per server, in `serverN.env`) and the server installs them into `/data/Mods` on every start:
+Four maps are built in and need nothing: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every other map is a mod: a folder in `/data/Mods` with a `reskate-levels.json` that names its maps. **Players need the same map mod installed** to join.
+
+### Install from Thunderstore
+
+List the packages in `MODS` (per server, in `serverN.env`). The server installs them on every start:
 
 ```env
 MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
+MAP=Skate2Map
 ```
 
-- **Formats:** `Owner-Name` (latest version, kept up to date), `Owner-Name-1.2.3` (pinned), or a package page URL such as `https://thunderstore.io/c/reskate/p/Owner/Name/`. Separate entries with commas, spaces or new lines.
-- **Map name:** the log prints the maps of each installed package, e.g. `[mods] brassy-Skate2Map 1.0.0: installed, maps: Skate2Map (use as MAP)`. Put that name into `MAP`.
-- **Nothing is downloaded when the installed version is current.** Maps are large (`Skate2Map` is 908 MB): the first start can take minutes, and `docker ps` may show `unhealthy` meanwhile. An unpinned package is never replaced by an older version, even if Thunderstore's "latest" lags behind.
-- **Dependencies** listed in a package's `manifest.json` are installed too, at the version they ask for.
-- **Your own folders are safe:** a mod folder you copied in by hand is never overwritten, and is adopted without a download when its `manifest.json` already has the wanted version. Only folders the installer created are updated.
-- **Problems never stop the server:** if Thunderstore is unreachable or a package is invalid, it is logged as `[mods] ...` (see `docker logs`) and the server starts with what is installed.
-- **Map renames:** an update can rename a map (`Skate2Map` 1.0.5 became `New San Vanelona`) and the server then refuses to start. A `[maps] WARNING` log line lists the installed names. Pin the version (`Owner-Name-1.2.3`) if a map must never change.
-- **Update messages in Discord:** the admin feed announces each new version of an unpinned mod (checked hourly) and what the installer did at start, see [Discord webhook](#discord-webhook). Nothing is installed while the server runs: restart it (unless `MODS_UPDATE=false`). Pinned entries are not checked.
-- **Refresh without a restart:** `docker exec reskate-server-1 /app/reskate mods` (slim image) or `docker exec reskate-server-1 python3 /app/mods.py` (default image). Restart the server afterwards so a changed map loads.
-- **Safety:** packages are downloaded over HTTPS from Thunderstore only. A zip with paths outside `/data/Mods`, links, or more than 8 GiB unpacked is refused. Still, only list packages you trust: players get the same files.
+| Entry | Meaning |
+|---|---|
+| `Owner-Name` | Latest version, updated on start when a newer one is out |
+| `Owner-Name-1.2.3` | Exactly this version, never updated |
+| `https://thunderstore.io/c/reskate/p/Owner/Name/` | A package page URL, optionally ending in `/1.2.3/` to pin |
 
-**Manual: copy the mod folder yourself.** Custom maps are mod folders in `/data/Mods/<folder>`. The server only reads each mod's `reskate-levels.json`, but **players need the same map mod installed** to join.
+Separate entries with commas, spaces or new lines. Dependencies from a package's `manifest.json` are installed too, at the version they ask for.
+
+**Which name goes into `MAP`:** the log lists the maps of each package it installs, e.g. `[mods] brassy-Skate2Map 1.0.0: installed, maps: Skate2Map (use as MAP)`. If `MAP` names a map that isn't installed, a `[maps] WARNING` line lists the names that are.
+
+**First start:** maps are large (`Skate2Map` is 908 MB), so the first start can take minutes and `docker ps` may show `unhealthy` meanwhile. Later starts download nothing while the installed version is current.
+
+### Share maps between servers
+
+Without anything else every server keeps its own copy of every map in its `/data` volume. Mount one more volume at `/mods`, the same one on every server, and each map version is downloaded once for all of them. [`docker-compose.yml`](docker-compose.yml) already does this:
+
+```yaml
+    volumes:
+      - reskate-data:/data
+      - reskate-mods:/mods   # same volume on every server
+```
+
+With `docker run`, add `-v reskate-mods:/mods`. Both images (default and slim) support it.
+
+- **Layout:** each version is stored once as `/mods/packages/<Owner>-<Name>-<version>`, and `/data/Mods/<Name>` becomes a symlink to the version that server wants.
+- **Servers can be on different versions.** A stored version is never changed after it is written. A server still running (or draining players) on an older map keeps its files while another one already moved on, so the [rollover](rollover/README.md) can start a copy on a new map version beside the old one.
+- **Starting together:** servers that need the same version at the same time wait for one download instead of each fetching it.
+- **Switching an existing server over:** add the mount and recreate the container. Folders the installer put into `/data/Mods` earlier are moved into the store on that start, without a new download. Folders you copied in by hand stay where they are.
+- **Cleaning up:** old versions stay until you remove them. This removes every version no server has started with for 30 days, never the newest of a package:
+
+  ```bash
+  docker exec reskate-server-1 python3 /app/mods.py gc 30   # default image
+  docker exec reskate-server-1 /app/reskate mods gc 30      # slim image
+  ```
+
+  Keep the number of days above how long a server runs without a restart: a running server still uses the version it started with.
+- `MODS_STORE` moves the mount point if `/mods` doesn't suit you. Without a volume mounted there nothing changes.
+
+### Updates
+
+- **On start only.** Nothing is installed while the server runs. A newer version of an unpinned entry is installed on the next start; `MODS_UPDATE=false` keeps the installed versions (missing packages and pinned entries are still installed).
+- **Discord:** the admin feed announces each new version of an unpinned entry (checked hourly) and what the installer did at start, see [Discord webhook](#discord-webhook). The [rollover](rollover/README.md) can restart servers onto a new map version for you.
+- **Install now without a restart:** `docker exec reskate-server-1 python3 /app/mods.py` (default image) or `docker exec reskate-server-1 /app/reskate mods` (slim image). Restart afterwards so a changed map loads.
+- **Never backwards:** an unpinned entry is never replaced by an older version, even if Thunderstore's "latest" lags behind.
+- **Renamed maps:** an update can rename a map (`Skate2Map` 1.0.5 became `New San Vanelona`), and the server then refuses to start on the old `MAP`. Pin the version (`Owner-Name-1.2.3`) if a map must never change.
+
+### Limits and safety
+
+- **Size limit:** `MODS_MAX_GB` (default `8`) is the largest download and unpacked size of one package in GiB. A bigger package is stopped during the download and not installed. `0` = no limit.
+- **Only safe zips:** packages come over HTTPS from Thunderstore only. A zip with paths outside its folder, links or special files is refused. Still, only list packages you trust: players get the same files.
+- **Problems never stop the server:** if Thunderstore is unreachable or a package is invalid or too big, it is logged as `[mods] ...` (see `docker logs`) and the server starts with what is installed.
+- **Your own folders are safe:** a folder you copied in by hand is never replaced. It is adopted without a download when its `manifest.json` already has the wanted version.
+
+### Copy a map in by hand
+
+For a map that isn't on Thunderstore:
 
 1. Copy the map's mod folder from the game's `Mods` folder into the server's volume:
 
@@ -118,7 +167,7 @@ MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
 2. Set `MAP` to the `displayName` from the mod's `reskate-levels.json`, e.g. `MAP=Skate2Map`.
 3. Restart the server: `docker compose restart reskate-1`
 
-Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every server has its own `/data` volume, so copy the mod into each server that should use it.
+Hand-copied maps are not shared through `/mods`: copy the folder into every server that should use it.
 
 <br/>
 
@@ -162,8 +211,21 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 `LEADERBOARD=true` turns on ranked play and a points leaderboard, built only on what the server logs:
 
 - **Ranked:** a player is ranked when their game reports no mods that change scoring or physics (the server's `SCORE_CHECK`, default `warn`) and they have not been caught with a sped-up game this session (`SPEED_CHECK`). While the server lets players skate with their own physics tuning (`ENFORCE_TUNING=false`, or `tuning-enforce off` in the console), nobody is ranked: the server cannot see whose tuning is edited. About 15 s after joining, every player gets a DM saying whether they are ranked, and another one when that changes.
-- **Points:** from finished throwdowns with at least two players who did not quit. Jam and Spot Battle by place (`LEADERBOARD_POINTS`, default `10,6,4,2`: 1st 10, 2nd 6, 3rd 4, everyone after 2); S.K.A.T.E. gives the last value to everyone who finished, because the log has no winner. Unranked players keep their place but get no points. Free skating earns nothing: the server never sees those tricks. Needs `ACTIVITY_LOG` on (the default).
-- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` posted in chat (only while players are on), and the top 10 go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when the board changed since the last post.
+- **Points:** from finished throwdowns with at least two players who did not quit. Jam and Spot Battle by place (`LEADERBOARD_POINTS`, default `10,6,4,2`: 1st 10, 2nd 6, 3rd 4, everyone after 2); S.K.A.T.E. has no places in the log, so players are placed by the fewest missed tricks, then the most landed (equal results share a place) and scored the same way. Unranked players keep their place but get no points. Free skating earns nothing: the server never sees those tricks. Needs `ACTIVITY_LOG` on (the default).
+- **Several boards at once:** every award counts on **All Time**, on the current **Year**, **Month** and **Week** (UTC: `2026`, `October 2026`, `Week 41`) and on every **Event** that is open. Each kind can post to chat and Discord on its own schedule (`LEADERBOARD_INTERVALS`, `LEADERBOARD_DISCORD_INTERVALS`). Older weeks and finished events stay readable. Each board also has one board per game: **Jam**, **Spot Battle** and **S.K.A.T.E.** (`All Time - Jam`, `Week 41 - S.K.A.T.E.`), filled by the same results. `LEADERBOARD_BOARDS` (default `general,year,month,week,event`) picks which kinds exist.
+- **Database:** the points are kept in a SQLite file (`leaderboard.db` in `/shared`, else `/data`) with a ledger of every award (who, how many, why, which server), so a board can be audited or rebuilt. A `leaderboard.json` from earlier versions is imported into All Time once and renamed `leaderboard.json.migrated`.
+- **Chat commands** (added to the server's `commands`, `LEADERBOARD_COMMANDS=false` leaves them out; the answer is a DM, only the sender sees it):
+
+  | Command | Who | What |
+  |---|---|---|
+  | `/top [board] [game]` | everyone | Top players of a board: `/top`, `/top week`, `/top month`, `/top year`, `/top 40` (Week 40), `/top 2026`, `/top event`, or part of a board's name. Add `jam`, `skate` or `spot` for one game: `/top skate`, `/top week jam` |
+  | `/rank [board] [game]` | everyone | Your place, points, wins and throwdowns on a board |
+  | `/boards` | everyone | The boards and how many players have points on each |
+  | `/lb award <points> <player> [board:<board>]` | admins | Give (or take, with a minus) points to a player online, by SteamID64 or by a name the database knows; on every active board, or only the one named |
+  | `/lb event start <name>` / `/lb event end [name]` | admins | Open an event board (every ranked result counts there too) or close it, with the result posted in chat and Discord |
+
+  `/lb` is a server command with `admin: true`: the server refuses it for everybody who is not an admin (`ADMINS`, `admin add`), and the leaderboard only acts on the line the server logs for an allowed command.
+- **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` of All Time, the current week and the open events posted in chat (only while players are on), and the boards chosen with `LEADERBOARD_DISCORD` (default all, game boards included) go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when one changed since the last post.
 
 Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderboard in ENVIRONMENT.md](docs/ENVIRONMENT.md#leaderboard).
 
@@ -173,7 +235,7 @@ Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderbo
 
 ## Multi-server support
 
-Run one container per server from the same image. Each needs its **own** data volume, its **own** `PORT` / `QUERY_PORT`, and its own name and map. Everything else can be shared.
+Run one container per server from the same image. Each needs its **own** data volume, its **own** `PORT` / `QUERY_PORT`, and its own name and map. Everything else can be shared, including one `/mods` volume so each map is downloaded once ([Share maps between servers](#share-maps-between-servers)).
 
 1. Shared settings go in `common.env`, only the differences in `server1.env`, `server2.env`, ...:
 
@@ -192,7 +254,7 @@ Run one container per server from the same image. Each needs its **own** data vo
    QUERY_PORT=12411
    ```
 
-2. Add a service and a volume per server. `docker-compose.yml` contains a ready-to-uncomment second server.
+2. Add a service and a `/data` volume per server; mount the shared `reskate-mods` volume at `/mods` in every one. `docker-compose.yml` contains a ready-to-uncomment second server.
 3. `docker compose up -d`. Restart one with `docker compose restart reskate-2`, attach with `docker attach reskate-server-2`.
 
 - All servers use `network_mode: host`, so ports must be unique on the host. Use one block per server, e.g. 12400/12401, 12410/12411, 12420/12421.
@@ -210,7 +272,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
 - **Automatic updates:** `UPDATE_MODE=auto`, see [Updates](docs/ENVIRONMENT.md#updates).
 - **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=updates` (new ReSkate releases) or `updates-admin` (this server's update messages; without one they go to `admin`), see [Discord webhook](#discord-webhook).
-- **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
+- **Without Discord:** `tools/check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
 <br/>
 
@@ -295,16 +357,18 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Image build (Debian slim, tini, curl, minimal Python) |
-| `entrypoint.py` | Env vars to `ReSkateServer.json`, starts the Discord sidecar, then the server |
-| `notifier.py` | Discord feeds and the update policy |
-| `updater.py` | `/data/server`, downloading and verifying releases |
-| `supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
-| `leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
-| `healthcheck.py` | Reports healthy once the log shows the server is up |
-| `check-update.sh` | Host-side release check |
+| `app/entrypoint.py` | Env vars to `ReSkateServer.json`, starts the Discord sidecar, then the server |
+| `app/notifier.py` | Discord feeds and the update policy |
+| `app/updater.py` | `/data/server`, downloading and verifying releases |
+| `app/supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
+| `app/mods.py` | Thunderstore maps/mods (`MODS`), the shared store at `/mods` |
+| `app/announcer.py` | Kick and ban announcements in chat |
+| `app/leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
+| `app/healthcheck.py` | Reports healthy once the log shows the server is up |
+| `tools/check-update.sh` | Host-side release check |
 | `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
 | `rollover/` | Host-side services: starts a copy on a new ReSkate release while players are on, stops the old server once empty; live server status cards in Discord |
-| `hub-readme.py` | README for Docker Hub (relative links made absolute, 25 KB limit) |
+| `tools/hub-readme.py` | README for Docker Hub (relative links made absolute, 25 KB limit) |
 | `docs/ENVIRONMENT.md` | All environment variables |
 | `slim/` | Source and Dockerfile of the slim (distroless) image |
 | `example.env`, `docker-compose.yml` | Starting point for your own setup |

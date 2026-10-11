@@ -19,6 +19,8 @@ import os
 import re
 import sys
 
+import leaderboard
+
 CONFIG = "/data/ReSkateServer.json"
 
 
@@ -372,6 +374,24 @@ if (value := env("COMMANDS")) is not None:
             sys.exit("COMMANDS: expected a JSON list of chat commands like [{\"name\": ..., \"reply\": ...}]")
         cfg["commands"] = commands
 
+# The leaderboard's chat commands (/top, /rank, /boards, admin-only /lb) are added to "commands"
+# when LEADERBOARD is on (LEADERBOARD_COMMANDS=false: not). Earlier copies of them are replaced;
+# a command of the same name that you defined yourself stays and ours is skipped.
+lb_commands = {c["name"]: c for c in leaderboard.COMMANDS}
+lb_on = (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value)
+lb_commands_on = lb_on and as_bool("LEADERBOARD_COMMANDS", env("LEADERBOARD_COMMANDS") or "true")
+commands = [c for c in cfg.get("commands") or []
+            if not (isinstance(c, dict) and (lb_commands.get(c.get("name")) == c
+                                             or c.get("name") in lb_commands and c.get("reply") in leaderboard.OLD_REPLIES))]
+if lb_commands_on:
+    taken = {c.get("name") for c in commands if isinstance(c, dict)}
+    commands += [c for name, c in lb_commands.items() if name not in taken]
+if len(commands) > 32:
+    sys.exit(f"COMMANDS: the server allows 32 chat commands, got {len(commands)} (the leaderboard adds {len(lb_commands)}; "
+             "LEADERBOARD_COMMANDS=false leaves them out)")
+if commands or "commands" in cfg:
+    cfg["commands"] = commands
+
 # LAYERS=key=on,other_key=off
 if (value := env("LAYERS")) is not None:
     layers = cfg.setdefault("maps", {}).setdefault("layers", {})
@@ -477,6 +497,16 @@ if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     choice("shared", "server")("LEADERBOARD_SCOPE", env("LEADERBOARD_SCOPE") or "shared")
     int_range(1, 1440)("LEADERBOARD_INTERVAL", env("LEADERBOARD_INTERVAL") or "60")
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
+    for item in as_list(env("LEADERBOARD_BOARDS") or ""):
+        choice(*leaderboard.KINDS)("LEADERBOARD_BOARDS", item)
+    for var in ("LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"):
+        for item in as_list(env(var) or ""):
+            kind, _, minutes = item.partition("=")
+            choice(*leaderboard.KINDS)(var, kind.strip())
+            if not minutes.strip().isdigit():
+                sys.exit(f"{var}: expected board=minutes like general=60,week=30,event=0, got {item!r}")
+    for item in as_list(env("LEADERBOARD_DISCORD") or ""):
+        choice(*leaderboard.KINDS, *leaderboard.MODES)("LEADERBOARD_DISCORD", item)
     for item in as_list(env("LEADERBOARD_POINTS") or ""):
         if not item.isdigit():
             sys.exit(f"LEADERBOARD_POINTS: expected points per place like 10,6,4,2, got {item!r}")

@@ -179,6 +179,8 @@ These are read by the image's own scripts on every start and are not stored in `
 |---|---|---|
 | `MODS` | package list | Thunderstore packages to install into `/data/Mods` on start: `Owner-Name`, `Owner-Name-1.2.3` or a package URL, comma or space separated. See [Custom maps and mods](../README.md#custom-maps-and-mods). |
 | `MODS_UPDATE` | `true` / `false` | `false` keeps installed versions even when a newer one exists (pinned entries and missing packages are still installed). Default `true`. |
+| `MODS_STORE` | path | Where a shared volume for maps/mods is mounted, default `/mods`. Used only when something is mounted there: each version is then downloaded once for all servers, see [Share maps between servers](../README.md#share-maps-between-servers). |
+| `MODS_MAX_GB` | GiB, `0` | Largest download and unpacked size of one package. A bigger one is stopped during the download and not installed. Default `8`, `0` = no limit. |
 
 <br/>
 
@@ -224,7 +226,12 @@ How ranking and points work: [Ranked and leaderboard](../README.md#ranked-and-le
 | `LEADERBOARD` | `true` to turn it on (default off). |
 | `LEADERBOARD_INTERVAL` | Minutes between posts, 1-1440 (default 60). |
 | `LEADERBOARD_SIZE` | Players listed in chat, 1-10 (default 5). |
+| `LEADERBOARD_BOARDS` | Board kinds to keep, comma-separated from `general` (All Time), `year`, `month`, `week`, `event` (default all). `year`, `month` and `week` create one board per calendar year, month and ISO week (UTC) by themselves (`2026`, `October 2026`, `Week 41`); `event` lets admins open and close boards with `/lb event start <name>` / `/lb event end`. |
+| `LEADERBOARD_INTERVALS` / `LEADERBOARD_DISCORD_INTERVALS` | Minutes between chat posts / between Discord posts for each board kind, e.g. `general=120,week=30,event=10,year=0`; `0` = never. Kinds not named use `LEADERBOARD_INTERVAL`. A Discord post of a kind also needs a change on one of its boards. |
+| `LEADERBOARD_COMMANDS` | `false` to leave the chat commands `/top`, `/rank`, `/boards` and the admin command `/lb` out of the server's `commands` (default `true`). A command of the same name in `COMMANDS` stays and ours is skipped; the server allows 32 commands in all. |
+| `LEADERBOARD_DISCORD` | Which boards the Discord post lists, comma-separated: `general`, `year`, `month`, `week`, `event` for those boards and `jam`, `spot`, `skate` for their game boards (default all). `general,week` posts only those two; `general,jam,skate` adds the Jam and S.K.A.T.E. boards of All Time. Players can still ask for any board with `/top`. |
 | `LEADERBOARD_POINTS` | Points per place, comma-separated; the last value is for every later place (default `10,6,4,2`). |
-| `LEADERBOARD_SCOPE` | `shared` (default): one board for every server that mounts the same folder at `/shared`, e.g. `- /root/reskate/shared:/shared` on each one (writable by uid 1000). Without that mount the server keeps its own board and says so in its log. `server`: always this server's own board, in `/data`. |
-| `LEADERBOARD_FILE` | Use another file than `/shared/leaderboard.json` / `/data/leaderboard.json`. The shared file is locked while changed, and only one server posts it to Discord per interval. |
+| `LEADERBOARD_SCOPE` | `shared` (default): one database for every server that mounts the same folder at `/shared`, e.g. `- /root/reskate/shared:/shared` on each one (writable by uid 1000). Without that mount the server keeps its own board and says so in its log. `server`: always this server's own board, in `/data`. |
+| `LEADERBOARD_FILE` | Use another database file than `/shared/leaderboard.db` / `/data/leaderboard.db`. An old `leaderboard.json` next to it is imported into All Time once. SQLite locks the file while it is changed, and only one server posts it to Discord per interval. |
 | `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
+| `UNRANKED_TUNING_MESSAGE` / `UNRANKED_SPEED_MESSAGE` | The DMs when nobody is ranked because players may use their own physics tuning, and when a player's game ran sped up. At most 200 bytes. |

@@ -4,3 +4,4 @@ docs/
 *.env
 !example.env
 rollover/
+tools/
