@@ -1,18 +1,26 @@
 # Environment variables
 
-All settings of the [ReSkate server image](../README.md), one table per topic. [`example.env`](../example.env) has the same variables as a starting point.
+All settings of the [ReSkate server image](../README.md), in two parts. [`example.env`](../example.env) has the same variables as a starting point.
 
-- They are written to `/data/ReSkateServer.json` on every start (older configs are moved to the 1.1.7 layout first).
-- **Unset or empty variables leave the existing value alone**, so changes made in-game or from the console survive restarts. Use `off` where a table lists it to clear a value.
+- **[ReSkate server settings](#reskate-server-settings)**: the server's own options. The image writes them into ReSkate's config file, and ReSkate does the rest.
+- **[Image settings](#image-settings)**: features this image adds around the server (mods, updates, Discord, leaderboard). ReSkate itself knows nothing about them.
+
+For both:
+
 - Values containing `#` or `'` must be double-quoted in env files. JSON values (`VOTES_CUSTOM`, `COMMANDS`) are single-quoted.
 - With several `env_file` entries, a later one wins over an earlier one. Settings that differ per server go into `serverN.env`, see [Multi-server support](../README.md#multi-server-support).
-- Settings marked "Pins the list" replace in-game changes on every restart.
-
-[Per server](#per-server) · [Access](#access) · [Gameplay](#gameplay) · [Anti-cheat](#anti-cheat) · [Voice](#voice) · [Network](#network) · [Voting](#voting) · [Announcements](#announcements) · [Parks and layers](#parks-and-layers) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard)
 
 <br/>
 
-## Per server
+## ReSkate server settings
+
+[Per server](#per-server) · [Access](#access) · [Gameplay](#gameplay) · [Anti-cheat](#anti-cheat) · [Voice](#voice) · [Network](#network) · [Voting](#voting) · [Announcements](#announcements) · [Parks and layers](#parks-and-layers)
+
+- They are written to `/data/ReSkateServer.json` on every start (older configs are moved to the 1.1.7 layout first); `BANS` goes to `/data/data/bans.json`.
+- **Unset or empty variables leave the existing value alone**, so changes made in-game or from the console survive restarts. Use `off` where a table lists it to clear a value.
+- Settings marked "Pins the list" replace in-game changes on every restart.
+
+### Per server
 
 | Variable | Values | Description |
 |---|---|---|
@@ -26,7 +34,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Access
+### Access
 
 | Variable | Values | Description |
 |---|---|---|
@@ -43,7 +51,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Gameplay
+### Gameplay
 
 | Variable | Values | Description |
 |---|---|---|
@@ -59,7 +67,6 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `PARTIES` | `true` / `false` | Let players form parties. Default `true`. |
 | `PARTY_SIZE` | 2-8 | Most players in one party. Default `8`. |
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
-| `ANNOUNCE_KICKS` | `true` / `false` | Tell everyone in chat when an admin kicks or bans a player ("Server: Name was kicked."). ReSkate itself only tells the admin. Done by the image, not the server: it types `say` into the server console, which `docker attach` still reaches. Default `true`. |
 | `WORD_WARNINGS` | 0-10 | Chat messages with a word from the ReSkate team's list are never passed on and their player is warned; after this many warnings the next one gets them kicked (they can rejoin). Warnings last until the server restarts. Default `3`, `0` = never warn or kick. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
@@ -67,7 +74,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Anti-cheat
+### Anti-cheat
 
 | Variable | Values | Description |
 |---|---|---|
@@ -77,7 +84,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Voice
+### Voice
 
 | Variable | Values | Description |
 |---|---|---|
@@ -86,7 +93,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Network
+### Network
 
 | Variable | Values | Description |
 |---|---|---|
@@ -104,7 +111,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Voting
+### Voting
 
 | Variable | Values | Description |
 |---|---|---|
@@ -126,7 +133,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 <br/>
 
-## Announcements
+### Announcements
 
 | Variable | Values | Description |
 |---|---|---|
@@ -138,7 +145,7 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 
 <br/>
 
-## Parks and layers
+### Parks and layers
 
 | Variable | Values | Description |
 |---|---|---|
@@ -150,7 +157,23 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 
 <br/>
 
-## Mods
+## Image settings
+
+[Moderation](#moderation) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard)
+
+These are read by the image's own scripts on every start and are not stored in `/data/ReSkateServer.json`: an unset variable means its default, not the last value.
+
+<br/>
+
+### Moderation
+
+| Variable | Values | Description |
+|---|---|---|
+| `ANNOUNCE_KICKS` | `true` / `false` | Tell everyone in chat when an admin kicks or bans a player ("Server: Name was kicked."). ReSkate itself only tells the admin. Done by the image, not the server: it types `say` into the server console, which `docker attach` still reaches. Default `true`. |
+
+<br/>
+
+### Mods
 
 | Variable | Values | Description |
 |---|---|---|
@@ -159,7 +182,7 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 
 <br/>
 
-## Updates
+### Updates
 
 | Variable | Values | Description |
 |---|---|---|
@@ -177,7 +200,7 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 
 <br/>
 
-## Discord
+### Discord
 
 Webhooks come in pairs that share a suffix (`1`, `2`, `admin`, ...); add as many as you need. What each scope gets is described under [Discord webhook](../README.md#discord-webhook).
 
@@ -192,7 +215,7 @@ The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` =
 
 <br/>
 
-## Leaderboard
+### Leaderboard
 
 How ranking and points work: [Ranked and leaderboard](../README.md#ranked-and-leaderboard).
 
