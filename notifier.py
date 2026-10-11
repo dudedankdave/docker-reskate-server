@@ -7,11 +7,12 @@ admin (= essentials), log, public, chat and leaderboard, and these older names m
   DISCORD_WEBHOOK_ESSENTIALS  what an admin has to know: server up + join code, config problems,
                               warnings/errors, crashes, releases, update approvals and results,
                               mod updates. The only feed that pings (DISCORD_MENTION_IDS).
-  DISCORD_WEBHOOK_LOG         the whole console as code blocks.
+  DISCORD_WEBHOOK_LOG         the whole console as code blocks (with the chat, as before).
   DISCORD_WEBHOOK_PUBLIC      for players: joins, leaves, throwdowns, server up, update countdowns.
   DISCORD_WEBHOOK_CHAT        in-game chat only.
-Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log (log off with
-DISCORD_CONSOLE=false), DISCORD_WEBHOOK_USER = public.
+Older names: DISCORD_WEBHOOK_ADMIN / DISCORD_WEBHOOK = essentials + log + chat (log and chat off
+with DISCORD_CONSOLE=false), DISCORD_WEBHOOK_USER = public. The log scope itself never has the
+in-game chat: that is the chat scope, so a public chat channel and an admin log stay apart.
 
 Updates (UPDATE_MODE=auto, see updater.py), once a newer release is found, by UPDATE_POLICY:
   instant    install right away (players are told and kicked)
@@ -162,6 +163,12 @@ def chat_line(line):
     return f"[{m.group(1)}] {m.group(2)[7:]}"
 
 
+def log_line(line):
+    """A console line for the log scope: every line but in-game chat (the chat scope has that)."""
+    m = LINE.match(line)
+    return None if (m.group(2) if m else line).startswith("[chat] ") else line
+
+
 def essential_line(line):
     """Server up, the join code, config problems, warnings and errors; never chat or players."""
     m = LINE.match(line)
@@ -213,11 +220,12 @@ def webhooks():
     def get(name):
         return (os.environ.get(name) or "").strip()
     legacy = get("DISCORD_WEBHOOK_ADMIN") or get("DISCORD_WEBHOOK")
+    legacy_log = get("DISCORD_WEBHOOK_LOG") or (legacy if truthy(os.environ.get("DISCORD_CONSOLE"), True) else "")
     hooks = {
         "essentials": [get("DISCORD_WEBHOOK_ESSENTIALS") or legacy],
-        "log": [get("DISCORD_WEBHOOK_LOG") or (legacy if truthy(os.environ.get("DISCORD_CONSOLE"), True) else "")],
+        "log": [legacy_log],
         "public": [get("DISCORD_WEBHOOK_PUBLIC") or get("DISCORD_WEBHOOK_USER")],
-        "chat": [get("DISCORD_WEBHOOK_CHAT")],
+        "chat": [get("DISCORD_WEBHOOK_CHAT"), legacy_log],   # the older log names keep their chat
         "leaderboard": [get("LEADERBOARD_WEBHOOK")],
     }
     for key in sorted(os.environ):
@@ -317,7 +325,7 @@ class Notifier:
             self.players.discard(left.group(1))
 
     def console_loop(self):
-        feeds = [Feed(h, c) for h, c in ((self.essentials, essential_line), (self.log, None),
+        feeds = [Feed(h, c) for h, c in ((self.essentials, essential_line), (self.log, log_line),
                                          (self.public, public_line), (self.chat, chat_line)) if h.url]
         try:
             st = os.stat(LOG)
