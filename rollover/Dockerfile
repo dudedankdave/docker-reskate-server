@@ -1,6 +1,6 @@
-# The rollover service (see README.md). Standard library only.
+# The rollover service and the Discord status cards (see README.md). Standard library only.
 FROM python:3.13-alpine
-COPY rollover.py /app/rollover.py
+COPY rollover.py status.py /app/
 # The Cocojambo servers; mount your own over /config/servers.json
 COPY servers.example.json /config/servers.json
 ENV PYTHONUNBUFFERED=1

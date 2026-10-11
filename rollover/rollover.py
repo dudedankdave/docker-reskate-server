@@ -94,11 +94,17 @@ def env_of(info):
     return dict(e.split("=", 1) if "=" in e else (e, "") for e in info["Config"].get("Env") or [])
 
 
-def logs(info):
-    """The container's output since it last started, as text lines."""
+def started_at(info):
     started = info["State"].get("StartedAt", "")[:19]
-    since = timegm(time.strptime(started, "%Y-%m-%dT%H:%M:%S")) - 5 if started else 0
-    out = docker("GET", f"/containers/{info['Id']}/logs?stdout=1&stderr=1&since={since}", raw=True, timeout=120)
+    return timegm(time.strptime(started, "%Y-%m-%dT%H:%M:%S")) if started and not started.startswith("0001") else 0
+
+
+def logs(info, since=None, timestamps=False):
+    """The container's output since it last started (or since `since`, Unix seconds), as text lines."""
+    if since is None:
+        since = max(started_at(info) - 5, 0)
+    out = docker("GET", f"/containers/{info['Id']}/logs?stdout=1&stderr=1&since={since}"
+                        + ("&timestamps=1" if timestamps else ""), raw=True, timeout=120)
     if not info["Config"].get("Tty"):                  # multiplexed: 8-byte frame headers
         frames, i = [], 0
         while i + 8 <= len(out):
