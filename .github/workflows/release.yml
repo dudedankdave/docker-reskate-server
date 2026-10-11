@@ -1,9 +1,13 @@
 # Builds and pushes dudedankdave/reskate-server for each new ReSkate release.
-# Every 30 min it reads the latest release's launcher.json; if Docker Hub has no tag for that
-# version yet, it downloads the Linux server (checked against its SHA-256), builds both images
-# from main and pushes <ver>, <major>.<minor>, latest, <ver>-slim and slim.
+# Every 30 min it reads the latest release's launcher.json; if Docker Hub has no <ver> or no
+# <ver>-slim tag for that version yet, it downloads the Linux server (checked against its SHA-256),
+# builds the missing image(s) from main and pushes <ver>, <major>.<minor>, latest and/or
+# <ver>-slim, slim. Each image is checked on its own, so a slim push that failed is retried too.
 # Pull requests build the default image without pushing.
 # Needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access token).
+# Optional secret DISCORD_WEBHOOK_UPDATES_ADMIN: a Discord webhook told when a run fails (once, not
+# every 30 min) and when it runs through again. New releases and images are announced by the
+# servers themselves (webhook scopes updates and updates-admin).
 name: Release image
 
 on:
@@ -20,6 +24,10 @@ on:
         type: boolean
         default: true
   pull_request:
+
+permissions:
+  contents: read
+  actions: read    # the failure notice looks at the run before
 
 concurrency:
   group: release-image-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
@@ -60,20 +68,37 @@ jobs:
       - name: Already on Docker Hub?
         id: hub
         run: |
+          set -euo pipefail
           v=${{ steps.release.outputs.version }}
           case "${{ github.event_name }}" in
             pull_request) echo "push=false" >> "$GITHUB_OUTPUT" ;;
             workflow_dispatch) echo "push=${{ inputs.push }}" >> "$GITHUB_OUTPUT" ;;
             *) echo "push=true" >> "$GITHUB_OUTPUT" ;;
           esac
+          # "true" if the tag is missing; any answer but 200 or 404 stops the run (no re-push of a tag
+          # that may well be there)
+          missing() {
+            local code
+            code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' "https://hub.docker.com/v2/repositories/$IMAGE/tags/$1") || code=000
+            case "$code" in
+              200) echo "$IMAGE:$1 is on Docker Hub" >&2; echo false ;;
+              404) echo "$IMAGE:$1 is not on Docker Hub yet, building it" >&2; echo true ;;
+              *) echo "::error::Docker Hub answered $code for $IMAGE:$1" >&2; return 1 ;;
+            esac
+          }
           if [ "${{ github.event_name }}" = pull_request ] || [ "${{ inputs.force }}" = true ]; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          elif curl -fsS -m 20 "https://hub.docker.com/v2/repositories/$IMAGE/tags/$v" >/dev/null; then
-            echo "$IMAGE:$v is on Docker Hub, nothing to do"
-            echo "build=false" >> "$GITHUB_OUTPUT"
+            default=true slim=true
           else
-            echo "$IMAGE:$v is not on Docker Hub yet, building it"
+            default=$(missing "$v")
+            slim=$(missing "$v-slim")
+          fi
+          echo "default=$default" >> "$GITHUB_OUTPUT"
+          echo "slim=$slim" >> "$GITHUB_OUTPUT"
+          if [ "$default" = true ] || [ "$slim" = true ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nothing to do"
+            echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download the server
@@ -103,7 +128,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build (and push) the default image
-        if: steps.hub.outputs.build == 'true'
+        if: steps.hub.outputs.default == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -115,7 +140,7 @@ jobs:
             ${{ env.IMAGE }}:latest
 
       - name: Build (and push) the slim image
-        if: steps.hub.outputs.build == 'true' && github.event_name != 'pull_request'
+        if: steps.hub.outputs.slim == 'true' && github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -140,3 +165,33 @@ jobs:
         env:
           U: ${{ secrets.DOCKERHUB_USERNAME }}
           P: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tell Discord when the workflow fails or runs through again
+        if: always() && github.event_name != 'pull_request'
+        env:
+          HOOK: ${{ secrets.DISCORD_WEBHOOK_UPDATES_ADMIN }}
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ job.status }}
+          VERSION: ${{ steps.release.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [ -n "$HOOK" ] || { echo "DISCORD_WEBHOOK_UPDATES_ADMIN is not set"; exit 0; }
+          # only a change is posted: ok -> failed, or failed -> ok, against the run before this one
+          before=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=$GITHUB_REF_NAME&status=completed&per_page=20" \
+            --jq "[.workflow_runs[] | select(.event != \"pull_request\" and .id != $GITHUB_RUN_ID)][0].conclusion // \"\"") \
+            || { echo "::warning::cannot read the run before"; before=""; }
+          if [ "$STATUS" = failure ] && [ "$before" != failure ]; then
+            if [ -n "$VERSION" ]; then
+              text="**IMAGE BUILD FAILED**: \`$IMAGE:$VERSION\` could not be built or pushed. The workflow tries again every 30 min."
+            else
+              text="**IMAGE BUILD FAILED**: the release workflow could not read the latest ReSkate release. It tries again every 30 min."
+            fi
+          elif [ "$STATUS" = success ] && [ "$before" = failure ]; then
+            text="**IMAGE BUILD OK** again: the release workflow ran through (ReSkate ${VERSION})."
+          else
+            exit 0
+          fi
+          python3 -c 'import json, sys; print(json.dumps({"username": "ReSkate image build", "content": sys.argv[1] + "\n" + sys.argv[2], "allowed_mentions": {"parse": []}}))' "$text" "$RUN_URL" \
+            | curl -fsS -m 20 -H 'Content-Type: application/json' --data @- "$HOOK" >/dev/null \
+            || echo "::warning::Discord did not take the message"

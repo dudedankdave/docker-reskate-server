@@ -684,7 +684,7 @@ func entrypointMain(serverArgs []string) {
 		}
 		for _, item := range strings.Split(strings.ToLower(scope), ",") {
 			if _, ok := webhookScopes[strings.TrimSpace(item)]; !ok {
-				die("WEBHOOK_SCOPE_%s: expected scopes from admin, essentials, log, console, public, chat, leaderboard, got %q",
+				die("WEBHOOK_SCOPE_%s: expected scopes from admin, essentials, log, console, public, chat, leaderboard, updates, updates-admin, got %q",
 					suffix, strings.TrimSpace(item))
 			}
 		}

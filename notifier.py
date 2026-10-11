@@ -3,10 +3,16 @@ nothing here may disturb the server: every failure is swallowed and written to
 /data/DiscordWebhook.log instead.
 
 Webhooks: any number of WEBHOOK_URL_<n> + WEBHOOK_SCOPE_<n> pairs (see webhooks()); the scopes are
-admin (= essentials), log, public, chat and leaderboard, and these older names map onto them:
+admin (= essentials), log, public, chat, leaderboard, updates and updates-admin:
+  updates        news, once per version: a new ReSkate release, its image on Docker Hub. No pings.
+  updates-admin  this server's update messages (UPDATE AVAILABLE, Image available, countdown,
+                 UPDATED / UPDATE FAILED / ROLLED BACK), pinging DISCORD_MENTION_IDS. Without an
+                 updates-admin webhook they stay in essentials.
+These older names map onto them:
   DISCORD_WEBHOOK_ESSENTIALS  what an admin has to know: server up + join code, config problems,
-                              warnings/errors, crashes, releases, update approvals and results,
-                              mod updates. The only feed that pings (DISCORD_MENTION_IDS).
+                              warnings/errors, crashes, releases, update approvals and results
+                              (those go to updates-admin if it is set), mod updates. Pings
+                              DISCORD_MENTION_IDS, as updates-admin does.
   DISCORD_WEBHOOK_LOG         the whole console as code blocks (with the chat, as before).
   DISCORD_WEBHOOK_PUBLIC      for players: joins, leaves, throwdowns, server up, update countdowns.
   DISCORD_WEBHOOK_CHAT        in-game chat only.
@@ -21,7 +27,7 @@ Updates (UPDATE_MODE=auto, see updater.py), once a newer release is found, by UP
   ask        a Discord bot (DISCORD_BOT_TOKEN) posts in DISCORD_APPROVAL_CHANNEL and adds
              ✅/❌; the first reaction by one of DISCORD_MENTION_IDS decides, then as timed
 The countdown is skipped while nobody is on. `update` in the console installs at once in any
-policy. UPDATE_MODE=pinned only tells the essentials feed that a newer image is due.
+policy. UPDATE_MODE=pinned only tells the updates-admin feed (else essentials) that a newer image is due.
 """
 import json
 import os
@@ -37,6 +43,7 @@ import updater
 LOG = "/data/ReSkateServer.log"
 STATE = "/data/.update-state.json"
 PINNED_STATE = "/data/.discord-update-notified"
+NEWS_STATE = "/data/.discord-updates-notified"
 MODS_STATE = "/data/.discord-mods-notified"
 NOTES = "/data/DiscordWebhook.log"
 REPO = updater.REPO
@@ -82,6 +89,10 @@ def curl(args, payload=None, timeout=20):
     if run.returncode != 0:
         return 0, run.stderr.decode("utf-8", "replace").strip()
     return int(code) if code.isdigit() else 0, body
+
+
+def on_hub(tag):
+    return curl(["-o", "/dev/null", f"https://hub.docker.com/v2/repositories/{HUB}/tags/{tag}"])[0] == 200
 
 
 def request(url, payload=None, method=None, headers=()):
@@ -211,7 +222,8 @@ class Feed:
 # WEBHOOK_URL_<n> + WEBHOOK_SCOPE_<n>: any number of webhooks, <n> any name (1, 2, admin...),
 # each scope a comma-separated list of these (the older DISCORD_WEBHOOK_* names still work).
 SCOPES = {"admin": "essentials", "essentials": "essentials", "log": "log", "console": "log",
-          "public": "public", "chat": "chat", "leaderboard": "leaderboard"}
+          "public": "public", "chat": "chat", "leaderboard": "leaderboard",
+          "updates": "updates", "updates-admin": "updates-admin"}
 WEBHOOK_URL = re.compile(r"^WEBHOOK_URL_(.+)$")
 
 
@@ -227,6 +239,8 @@ def webhooks():
         "public": [get("DISCORD_WEBHOOK_PUBLIC") or get("DISCORD_WEBHOOK_USER")],
         "chat": [get("DISCORD_WEBHOOK_CHAT"), legacy_log],   # the older log names keep their chat
         "leaderboard": [get("LEADERBOARD_WEBHOOK")],
+        "updates": [],
+        "updates-admin": [],
     }
     for key in sorted(os.environ):
         m = WEBHOOK_URL.match(key)
@@ -295,10 +309,12 @@ class Notifier:
         self.log = Hook(hooks["log"], name)
         self.public = Hook(hooks["public"], name)
         self.chat = Hook(hooks["chat"], name)
+        self.updates = Hook(hooks["updates"], name)
+        self.upd = Hook(hooks["updates-admin"] or hooks["essentials"], name, self.mentions)
         self.policy = (os.environ.get("UPDATE_POLICY") or "timed").strip().lower()
         self.countdown = int(os.environ.get("UPDATE_COUNTDOWN") or 10)
         self.schedule = parse_schedule(os.environ["UPDATE_SCHEDULE"]) if self.policy == "scheduled" else None
-        self.check_every = 60 * int(os.environ.get("UPDATE_CHECK_MINUTES") or (30 if mode == "auto" else 180))
+        self.check_every = 60 * int(os.environ.get("UPDATE_CHECK_MINUTES") or (30 if mode == "auto" or self.updates.url else 180))
         self.bot = (os.environ.get("DISCORD_BOT_TOKEN") or "").strip()
         self.channel = (os.environ.get("DISCORD_APPROVAL_CHANNEL") or "").strip()
         self.players = set()
@@ -378,17 +394,17 @@ class Notifier:
             self.installing.release()
         try:
             if kind == "installed":
-                self.essentials.send(f"**UPDATED** to ReSkate **{d['version']}**, the server is starting again.")
+                self.upd.send(f"**UPDATED** to ReSkate **{d['version']}**, the server is starting again.")
                 self.public.send(f"The server is updated to ReSkate **{d['version']}** and starting again.")
                 state = read_json(STATE)
                 state["installed"] = d["version"]
                 write_json(STATE, state)
             elif kind == "failed":
-                self.essentials.send(f"**UPDATE FAILED**: ReSkate {d['version']}: {d['error']}", ping=True)
+                self.upd.send(f"**UPDATE FAILED**: ReSkate {d['version']}: {d['error']}", ping=True)
             elif kind == "rolled_back":
-                self.essentials.send(f"**ROLLED BACK**: ReSkate {d['version']} stopped (exit {d['code']}) right after "
-                                     f"the update, back on **{d['now']}**. It will not be installed again by itself; "
-                                     "type `update` in the console to retry.", ping=True)
+                self.upd.send(f"**ROLLED BACK**: ReSkate {d['version']} stopped (exit {d['code']}) right after "
+                              f"the update, back on **{d['now']}**. It will not be installed again by itself; "
+                              "type `update` in the console to retry.", ping=True)
                 state = read_json(STATE)
                 state.update(version=d["version"], declined=True)
                 write_json(STATE, state)
@@ -420,6 +436,7 @@ class Notifier:
                 print(f"[update] release check failed: {e}", flush=True)
             return
         version, have = info["version"], self.running()
+        self.news(version)
         if updater.numbers(version) <= updater.numbers(have):
             if now:
                 print(f"[update] already on the latest ReSkate release ({have})", flush=True)
@@ -451,9 +468,9 @@ class Notifier:
                 "ask": "Waiting for approval.",
             }[self.policy]
             if not state.get("announced"):
-                if self.essentials.send(f"**UPDATE AVAILABLE**: ReSkate **{version}** is out, this server runs "
-                                        f"**{have}**. {how} `update` in the console installs it now.\n"
-                                        f"https://github.com/{REPO}/releases/tag/v{version}", ping=self.policy == "ask"):
+                if self.upd.send(f"**UPDATE AVAILABLE**: ReSkate **{version}** is out, this server runs "
+                                 f"**{have}**. {how} `update` in the console installs it now.\n"
+                                 f"https://github.com/{REPO}/releases/tag/v{version}", ping=self.policy == "ask"):
                     state["announced"] = True
                     write_json(STATE, state)
             if self.policy == "scheduled":
@@ -501,7 +518,7 @@ class Notifier:
             self.sup.send(f"announce Server restarts in {minutes} min to update ReSkate to {version}")
             self.public.send(f"Restarting in **{minutes} min** to update ReSkate to **{version}**.")
             if i == 0:
-                self.essentials.send(f"Countdown started: installing ReSkate **{version}** in {minutes} min.")
+                self.upd.send(f"Countdown started: installing ReSkate **{version}** in {minutes} min.")
             until = deadline - (marks[i + 1] if i + 1 < len(marks) else 0) * 60
             while time.time() < until and self.players:
                 time.sleep(5)
@@ -509,7 +526,7 @@ class Notifier:
             self.sup.send(f"announce Restarting now for ReSkate {version}, rejoin in a minute!")
             time.sleep(5)
         self.public.send(f"Restarting now to update ReSkate to **{version}**.")
-        self.essentials.send(f"Installing ReSkate **{version}** (was {self.running()}).")
+        self.upd.send(f"Installing ReSkate **{version}** (was {self.running()}).")
         self.sup.install(staged, version)
 
     def approved(self, info, have, state):
@@ -530,8 +547,8 @@ class Notifier:
                                               f"countdown for players) or {NO} to skip this version.".strip(),
                                    "allowed_mentions": {"parse": [], "users": self.mentions}}, headers=auth)
             if not reply or "id" not in reply:
-                self.essentials.send("**APPROVAL FAILED**: the bot could not post in DISCORD_APPROVAL_CHANNEL "
-                                     "(see /data/DiscordWebhook.log). `update` in the console installs it.", ping=True)
+                self.upd.send("**APPROVAL FAILED**: the bot could not post in DISCORD_APPROVAL_CHANNEL "
+                              "(see /data/DiscordWebhook.log). `update` in the console installs it.", ping=True)
                 while self.outdated(version):
                     time.sleep(60)
                 return False
@@ -558,7 +575,7 @@ class Notifier:
         return False
 
     def pinned_notice(self, latest, running):
-        published = curl(["-o", "/dev/null", f"https://hub.docker.com/v2/repositories/{HUB}/tags/{latest}"])[0] == 200
+        published = on_hub(latest)
         state = read_json(PINNED_STATE)
         if state.get("version") == latest and (state.get("published") or not published):
             return                                          # already announced, nothing new to say
@@ -573,8 +590,24 @@ class Notifier:
             text = (f"**UPDATE AVAILABLE**: ReSkate **{latest}** is out, this server is pinned to **{running}**. "
                     f"Players on the new version can't join until the server is updated.\n{how}\n"
                     f"https://github.com/{REPO}/releases/tag/v{latest}")
-        if self.essentials.send(text, ping=True):
+        if self.upd.send(text, ping=True):
             write_json(PINNED_STATE, {"version": latest, "published": published})
+
+    def news(self, latest):
+        """The updates scope: a release newer than this image, then its image on Docker Hub, once each."""
+        base = self.image_version if re.fullmatch(r"\d+(\.\d+)+", self.image_version) else self.running()
+        if not self.updates.url or updater.numbers(latest) <= updater.numbers(base):
+            return
+        seen = read_json(NEWS_STATE)
+        if updater.numbers(latest) > updater.numbers(seen.get("release")):
+            if self.updates.send(f"**ReSkate {latest} is out.**\nhttps://github.com/{REPO}/releases/tag/v{latest}"):
+                seen["release"] = latest
+                write_json(NEWS_STATE, seen)
+        if updater.numbers(latest) > updater.numbers(seen.get("image")) and on_hub(latest):
+            slim = f" (also `{latest}-slim`)" if on_hub(latest + "-slim") else ""
+            if self.updates.send(f"**New image** on Docker Hub: `{HUB}:{latest}`{slim}."):
+                seen["image"] = latest
+                write_json(NEWS_STATE, seen)
 
     # ---- mods ---------------------------------------------------------------------
     def post_mod_events(self):
@@ -635,7 +668,7 @@ class Notifier:
         guarded(self.console_loop)
         if self.essentials.url and os.environ.get("MODS", "").strip():
             guarded(self.mods_loop)
-        if self.mode == "auto" or (self.essentials.url and re.fullmatch(r"\d+(\.\d+)+", self.image_version)):
+        if self.mode == "auto" or ((self.upd.url or self.updates.url) and re.fullmatch(r"\d+(\.\d+)+", self.image_version)):
             guarded(self.update_loop)
 
 

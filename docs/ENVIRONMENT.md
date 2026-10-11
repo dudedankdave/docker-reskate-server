@@ -163,16 +163,16 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 
 | Variable | Values | Description |
 |---|---|---|
-| `UPDATE_MODE` | `pinned` / `auto` | `pinned` (default): the server in the image runs, the image tag is the version; the essentials feed says when a newer release is out. `auto`: the server runs from `/data/server` and new ReSkate releases are installed there (they survive a recreate; a newer image replaces them). `AUTO_UPDATE=true` is the older name of `auto`. |
+| `UPDATE_MODE` | `pinned` / `auto` | `pinned` (default): the server in the image runs, the image tag is the version; the `updates-admin` feed (else `admin`) says when a newer release is out. `auto`: the server runs from `/data/server` and new ReSkate releases are installed there (they survive a recreate; a newer image replaces them). `AUTO_UPDATE=true` is the older name of `auto`. |
 | `UPDATE_POLICY` | `instant` / `timed` / `ask` / `scheduled` | When `auto` installs a new release. `instant`: right away. `timed` (default): in-game `announce` countdown of `UPDATE_COUNTDOWN` minutes, then install. `scheduled`: at `UPDATE_SCHEDULE`, then the countdown. `ask`: a Discord bot asks for approval (below), then the countdown. The countdown is skipped while nobody is on. |
 | `UPDATE_COUNTDOWN` | minutes, `0`-`1440` | Countdown before the restart (default `10`), announced at the start, 5 and 1 min. |
 | `UPDATE_SCHEDULE` | `HH:MM` or `days HH:MM` (UTC) | For `scheduled`, e.g. `04:00` or `sat,sun 04:00`. |
-| `UPDATE_CHECK_MINUTES` | `5`-`1440` | How often the release is checked (default `30` in `auto`, `180` in `pinned`). |
+| `UPDATE_CHECK_MINUTES` | `5`-`1440` | How often the release is checked (default `30` in `auto` or with an `updates` webhook, else `180`). |
 | `DISCORD_BOT_TOKEN` | bot token | For `ask`: a Discord bot (no intents needed) in your server that can post, react and read reactions in `DISCORD_APPROVAL_CHANNEL`. Keep it private. |
 | `DISCORD_APPROVAL_CHANNEL` | channel id | Where the bot asks. It adds ✅ and ❌; the first reaction by one of `DISCORD_MENTION_IDS` (anyone, if unset) decides. ❌ skips that version. |
 
 - Typing `update` in the console (`docker attach`) installs the latest release at once, in any policy.
-- Downloads come from the release's `launcher.json` and are checked against its SHA-256 before anything is replaced. The previous version is kept in `/data/server.old`; if the new server stops within 3 minutes it is rolled back and the essentials feed says so.
+- Downloads come from the release's `launcher.json` and are checked against its SHA-256 before anything is replaced. The previous version is kept in `/data/server.old`; if the new server stops within 3 minutes it is rolled back and the `updates-admin` feed (else `admin`) says so.
 - The container keeps running through an update: the entrypoint runs the server as a child and restarts it. Console input is passed through as before.
 
 <br/>
@@ -184,8 +184,8 @@ Webhooks come in pairs that share a suffix (`1`, `2`, `admin`, ...); add as many
 | Variable | Meaning |
 |---|---|
 | `WEBHOOK_URL_<n>` | A webhook URL (Discord: channel settings, Integrations, Webhooks). |
-| `WEBHOOK_SCOPE_<n>` | What it gets: `admin`, `log`, `public`, `chat`, `leaderboard`, comma-separated. |
-| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the `admin` scope (releases, failures, approvals) and allowed to approve updates. |
+| `WEBHOOK_SCOPE_<n>` | What it gets: `admin`, `log`, `public`, `chat`, `leaderboard`, `updates`, `updates-admin`, comma-separated. |
+| `DISCORD_MENTION_IDS` | Comma-separated Discord user ids pinged in the `admin` and `updates-admin` scopes (releases, failures, approvals) and allowed to approve updates. |
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
 The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` = admin, `DISCORD_WEBHOOK_LOG` = log + chat, `DISCORD_WEBHOOK_PUBLIC` = public, `DISCORD_WEBHOOK_CHAT` = chat, `LEADERBOARD_WEBHOOK` = leaderboard, `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = admin + log + chat (`DISCORD_CONSOLE=false` drops log and chat), `DISCORD_WEBHOOK_USER` = public. So the older names keep the chat in their console as before. Update approval needs a bot, see [Updates](#updates).
