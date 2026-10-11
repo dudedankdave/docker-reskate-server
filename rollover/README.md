@@ -14,6 +14,7 @@ So most of the time each yard runs one server; two only while the old one still 
 ## Slots
 
 Each yard has two slots with their own ports, Steam token and `/data` volume (`yards.example.json`).
+The two slots of a yard sit next to each other: yard N uses 124N0/124N1 (A) and 124N2/124N3 (B).
 The copy is a clone of the running container (env, restart policy, network, Discord webhooks) with
 the slot's `PORT`, `QUERY_PORT`, `STEAM_TOKEN`, volume and a `SERVER_NAME` from `name_format`
 (`{v}` = version without dots, `{n}` = yard, `{role}`). It is named `<container_prefix><yard>-<version>`.
