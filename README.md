@@ -296,12 +296,14 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Image build (Debian slim, tini, curl, minimal Python) |
-| `entrypoint.py` | Env vars to `ReSkateServer.json`, starts the Discord sidecar, then the server |
-| `notifier.py` | Discord feeds and the update policy |
-| `updater.py` | `/data/server`, downloading and verifying releases |
-| `supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
-| `leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
-| `healthcheck.py` | Reports healthy once the log shows the server is up |
+| `app/entrypoint.py` | Env vars to `ReSkateServer.json`, starts the Discord sidecar, then the server |
+| `app/notifier.py` | Discord feeds and the update policy |
+| `app/updater.py` | `/data/server`, downloading and verifying releases |
+| `app/supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
+| `app/mods.py` | Thunderstore maps/mods (`MODS`), the shared store at `/mods` |
+| `app/announcer.py` | Kick and ban announcements in chat |
+| `app/leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
+| `app/healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
 | `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
 | `rollover/` | Host-side services: starts a copy on a new ReSkate release while players are on, stops the old server once empty; live server status cards in Discord |
