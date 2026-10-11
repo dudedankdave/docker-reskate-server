@@ -133,8 +133,8 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.5"). No Steam IDs, chat, admin commands or join code.
 - **`chat`**: only the in-game chat, as `Name: message`.
 - **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
-- **`updates`**: news, once per version: **ReSkate 2.0.6 is out.** (with the release link) and **New image** on Docker Hub: `dudedankdave/reskate-server:2.0.6` (also `2.0.6-slim`). No pings, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
-- **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **Image available**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
+- **`updates`**: each official ReSkate release, once: **ReSkate 2.0.6 is out.** with the release link. No pings, no image news, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
+- **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **Image available** (the new image is on Docker Hub), countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
 
 ```yaml
       WEBHOOK_URL_1: https://discord.com/api/webhooks/<id>/<token>
@@ -209,7 +209,7 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - The server binary is baked into the image. ReSkate 1.1.4+ can update itself, but a self-updated binary is lost when the container is recreated, so the image keeps it off and does it itself: `UPDATE_MODE=auto` installs releases into `/data/server` (see [Updates](docs/ENVIRONMENT.md#updates)). With the default `pinned`, updating means a new image.
 - **Update:** `docker compose pull && docker compose up -d` (join codes can change). If the new tag is not on Docker Hub yet, build it yourself, see [Building](#building).
 - **Automatic updates:** `UPDATE_MODE=auto`, see [Updates](docs/ENVIRONMENT.md#updates).
-- **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=updates` (news) or `updates-admin` (this server's update messages; without one they go to `admin`), see [Discord webhook](#discord-webhook).
+- **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=updates` (new ReSkate releases) or `updates-admin` (this server's update messages; without one they go to `admin`), see [Discord webhook](#discord-webhook).
 - **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
 <br/>
