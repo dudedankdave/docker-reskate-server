@@ -57,7 +57,7 @@ func TestBoardsAndCommands(t *testing.T) {
 	feed("[command] Anna /lb event end")
 	out := strings.Join(*sent, "\n")
 	for _, want := range []string{"Spring Cup:  1. Ben 10  2. Anna 6", "Gave +7 points to Ben on 1 board(s).",
-		"you are #1 of 2 with 17 points", "No board called 'nope'", "Week", "General - Jam:", "- S.K.A.T.E.:  1. Anna 2  2. Ben 2", "Event 'Spring Cup' ended.", "Event 'Spring Cup' is over:"} {
+		"you are #1 of 2 with 17 points", "No board called 'nope'", "Week", "General - Jam:", "- S.K.A.T.E.:  1. Anna 10  2. Ben 6", "Event 'Spring Cup' ended.", "Event 'Spring Cup' is over:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

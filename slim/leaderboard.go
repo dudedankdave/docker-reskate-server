@@ -67,7 +67,7 @@ var (
 	lbSpeedingRe = regexp.MustCompile(`^\[anticheat\] (.+)'s game is running at [\d.]+x speed`)
 	lbFinishedRe = regexp.MustCompile(`^\[throwdown\] .+'s (Jam|Spot Battle|S\.K\.A\.T\.E\.|throwdown) has finished: (.+)$`)
 	lbEntryRe    = regexp.MustCompile(`^(.+) (-?\d{1,3}(?:,\d{3})*)( \(quit\))?$`)
-	lbTriedRe    = regexp.MustCompile(`(?: \d+ landed / \d+ missed)( \(quit\))?(?:, |$)`)
+	lbTriedRe    = regexp.MustCompile(`(?: (\d+) landed / (\d+) missed)( \(quit\))?(?:, |$)`)
 	lbTuningRe   = regexp.MustCompile(`^Players skate with (the game's|their) own physics tuning\.$`)
 	lbCommandRe  = regexp.MustCompile(`^\[command\] (.+)$`)
 	lbControl    = regexp.MustCompile(`[\x00-\x1f\x7f]+`)
@@ -79,9 +79,10 @@ var (
 )
 
 type lbResult struct {
-	name  string
-	place int // 0: S.K.A.T.E., no places
-	quit  bool
+	name           string
+	place          int // 0: S.K.A.T.E., no places
+	quit           bool
+	missed, landed int // S.K.A.T.E.: placed by the fewest missed, then the most landed
 }
 
 type lbBoard struct {
@@ -596,6 +597,19 @@ func (b *leaderboard) score(mode string, results []lbResult) {
 	}
 	if len(finished) < 2 || len(b.points) == 0 {
 		return
+	}
+	if mode == "S.K.A.T.E." { // no places in the log: fewest missed, then most landed; equal results share a place
+		placed := make([]lbResult, len(finished))
+		for i, r := range finished {
+			r.place = 1
+			for _, o := range finished {
+				if o.missed < r.missed || o.missed == r.missed && o.landed > r.landed {
+					r.place++
+				}
+			}
+			placed[i] = r
+		}
+		finished = placed
 	}
 	var awards []lbAward
 	for _, r := range finished {
@@ -1134,7 +1148,9 @@ func lbResults(mode, results string) []lbResult {
 	if mode == "S.K.A.T.E." {
 		start := 0
 		for _, m := range lbTriedRe.FindAllStringSubmatchIndex(results, -1) {
-			out = append(out, lbResult{name: results[start:m[0]], quit: m[2] >= 0})
+			landed, _ := strconv.Atoi(results[m[2]:m[3]])
+			missed, _ := strconv.Atoi(results[m[4]:m[5]])
+			out = append(out, lbResult{name: results[start:m[0]], quit: m[6] >= 0, missed: missed, landed: landed})
 			start = m[1]
 		}
 		return out

@@ -9,7 +9,7 @@ built only on what the vanilla server logs:
 * Points: only from finished throwdowns with at least two players who did not quit (the
   server's "[throwdown] ... has finished: ..." line, so activity_log must be on). Jam and Spot
   Battle by place (LEADERBOARD_POINTS, default 10,6,4,2: the last value for every later place),
-  S.K.A.T.E. (no winner in the log) the last value for each player who finished. Unranked
+  S.K.A.T.E. (no places in the log) is placed by the fewest missed tricks, then the most landed (equal results share a place), and then scored like those. Unranked
   players keep their place but get nothing.
 * Boards (LEADERBOARD_BOARDS, default general,week,event): every award is counted on General (all
   time), on the current Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
@@ -55,7 +55,7 @@ CLEARED = re.compile(r"^\[anticheat\] (.+) may take part in throwdowns again ")
 SPEEDING = re.compile(r"^\[anticheat\] (.+)'s game is running at [\d.]+x speed")
 FINISHED = re.compile(r"^\[throwdown\] .+'s (Jam|Spot Battle|S\.K\.A\.T\.E\.|throwdown) has finished: (.+)$")
 PLACED = re.compile(r"(\d+)\. (.+?) (-?\d{1,3}(?:,\d{3})*)( \(quit\))?(?=, \d+\. |$)")
-TRIED = re.compile(r"(?:^|, )(.+?) \d+ landed / \d+ missed( \(quit\))?(?=, |$)")
+TRIED = re.compile(r"(?:^|, )(.+?) (\d+) landed / (\d+) missed( \(quit\))?(?=, |$)")
 TUNING = re.compile(r"^Players skate with (the game's|their) own physics tuning\.$")
 # "[command] Name /top week": logged by the server for an allowed custom command (the line for any
 # typed slash command is "[command] Name: /text" and is ignored: the server may have refused it).
@@ -404,18 +404,20 @@ class Leaderboard:
 
     # ---- points ---------------------------------------------------------------------
     def results(self, mode, results):
-        """[(name, place or None, quit)] from a finished line."""
+        """[(name, place or None, quit, S.K.A.T.E. sort key)] from a finished line."""
         if mode == "S.K.A.T.E.":
-            return [(m.group(1), None, bool(m.group(2))) for m in TRIED.finditer(results)]
-        return [(m.group(2), int(m.group(1)), bool(m.group(4))) for m in PLACED.finditer(results)]
+            return [(m.group(1), None, bool(m.group(4)), (int(m.group(3)), -int(m.group(2)))) for m in TRIED.finditer(results)]
+        return [(m.group(2), int(m.group(1)), bool(m.group(4)), None) for m in PLACED.finditer(results)]
 
     def score(self, mode, results):
         rows = self.results(mode, results)
         finished = [r for r in rows if not r[2]]
         if len(finished) < 2 or not self.points:
             return
+        if mode == "S.K.A.T.E.":      # no places in the log: fewest missed, then most landed; equal results share a place
+            finished = [(name, 1 + sum(o[3] < key for o in finished), quit_, key) for name, _p, quit_, key in finished]
         awards = []
-        for name, place, _quit in finished:
+        for name, place, _quit, _missed in finished:
             if not self.ranked(name):
                 continue
             index = len(self.points) - 1 if place is None else min(place, len(self.points)) - 1
