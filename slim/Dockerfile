@@ -24,7 +24,7 @@ RUN set -e; cd /rootfs/app; \
     chmod 755 ReSkateServer; chmod 644 *.so
 COPY --from=gobuild /out/reskate /rootfs/app/reskate
 # The server runs `sh -c "curl ..."` for the global ban list: sh = static busybox, curl = our binary.
-RUN set -e; mkdir -p /rootfs/usr/bin /rootfs/bin /rootfs/usr/local/bin /rootfs/data /rootfs/home/reskate/.steam/sdk64; \
+RUN set -e; mkdir -p /rootfs/usr/bin /rootfs/bin /rootfs/usr/local/bin /rootfs/data /rootfs/mods /rootfs/home/reskate/.steam/sdk64; \
     cp /usr/bin/tini /rootfs/usr/bin/tini; \
     cp /bin/busybox /rootfs/bin/busybox; ln -s busybox /rootfs/bin/sh; \
     ln -s /app/reskate /rootfs/usr/local/bin/curl; \
@@ -44,6 +44,7 @@ COPY --from=rootfs /rootfs/usr /usr
 COPY --from=rootfs /rootfs/bin /bin
 COPY --from=rootfs --chown=1000:1000 /rootfs/app /app
 COPY --from=rootfs --chown=1000:1000 /rootfs/data /data
+COPY --from=rootfs --chown=1000:1000 /rootfs/mods /mods
 COPY --from=rootfs --chown=1000:1000 /rootfs/home /home
 ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION \
     PATH=/usr/local/bin:/usr/bin:/bin

@@ -7,6 +7,8 @@ package main
 //
 // Dependencies from manifest.json are installed too. Only folders this installer created
 // (marker .thunderstore.json) are ever replaced. Failures are logged and never block the server.
+// With a volume mounted at /mods (MODS_STORE) each version is downloaded once for all servers,
+// see store.go.
 
 import (
 	"archive/zip"
@@ -19,16 +21,17 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	modsDir     = "/data/Mods"
-	modsTmp     = "/data/.mods-tmp" // same volume as Mods, so renames are atomic
-	modsMarker  = ".thunderstore.json"
-	modsEvents  = "/data/.mods-events" // install/update events, posted to Discord by the notifier
-	maxUnpacked = 8 << 30              // refuse zips that unpack to more than 8 GiB
+	modsDir    = "/data/Mods"
+	modsTmp    = "/data/.mods-tmp" // same volume as Mods, so renames are atomic
+	modsMarker = ".thunderstore.json"
+	modsEvents = "/data/.mods-events" // install/update events, posted to Discord by the notifier
 )
 
 var (
@@ -37,6 +40,22 @@ var (
 	splitRe  = regexp.MustCompile(`[\s,]+`)
 	modsHTTP = &http.Client{}
 )
+
+var warnMaxGB sync.Once
+
+// modsMaxBytes is MODS_MAX_GB in bytes: the largest download and unpacked size of one package,
+// 0 = no limit. Default 8 GiB.
+func modsMaxBytes() (int64, string) {
+	gb := 8.0
+	if raw := strings.TrimSpace(os.Getenv("MODS_MAX_GB")); raw != "" {
+		if v, err := strconv.ParseFloat(raw, 64); err == nil && v >= 0 {
+			gb = v
+		} else {
+			warnMaxGB.Do(func() { mlog("MODS_MAX_GB=%q is not a number of GiB, using 8", raw) })
+		}
+	}
+	return int64(gb * (1 << 30)), strconv.FormatFloat(gb, 'g', -1, 64) + " GiB (MODS_MAX_GB)"
+}
 
 func modsBase() string {
 	if b := strings.TrimRight(os.Getenv("THUNDERSTORE_URL"), "/"); b != "" {
@@ -185,6 +204,7 @@ func extract(archive, dest string) error {
 		return fmt.Errorf("not a valid zip file")
 	}
 	defer zr.Close()
+	maxUnpacked, limit := modsMaxBytes()
 	var total uint64
 	for _, f := range zr.File {
 		if unsafeName(f.Name) {
@@ -195,8 +215,8 @@ func extract(archive, dest string) error {
 		}
 		total += f.UncompressedSize64
 	}
-	if total > maxUnpacked {
-		return fmt.Errorf("zip unpacks to more than 8 GiB")
+	if maxUnpacked > 0 && total > uint64(maxUnpacked) {
+		return fmt.Errorf("zip unpacks to more than %s", limit)
 	}
 	var written int64
 	for _, f := range zr.File {
@@ -226,54 +246,78 @@ func extract(archive, dest string) error {
 			rc.Close()
 			return err
 		}
-		n, err := io.Copy(out, io.LimitReader(rc, maxUnpacked-written+1))
+		var src io.Reader = rc
+		if maxUnpacked > 0 {
+			src = io.LimitReader(rc, maxUnpacked-written+1)
+		}
+		n, err := io.Copy(out, src)
 		rc.Close()
 		out.Close()
 		written += n
 		if err != nil {
 			return err
 		}
-		if written > maxUnpacked {
-			return fmt.Errorf("zip unpacks to more than 8 GiB")
+		if maxUnpacked > 0 && written > maxUnpacked {
+			return fmt.Errorf("zip unpacks to more than %s", limit)
 		}
 	}
 	return nil
 }
 
-func installMod(owner, name, version, url, old string) error {
-	target := filepath.Join(modsDir, name)
-	work := filepath.Join(modsTmp, name)
-	_ = os.RemoveAll(modsTmp)
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return err
-	}
-	defer os.RemoveAll(modsTmp)
-	archive := filepath.Join(modsTmp, fmt.Sprintf("%s-%s.zip", name, version))
+// unpackMod downloads the package and unpacks it into the empty folder work, marker written.
+func unpackMod(owner, name, version, url, work string) error {
+	archive := work + ".zip"
+	defer os.Remove(archive)
 	mlog("%s-%s %s: downloading", owner, name, version)
 	resp, cancel, err := httpGet(url, time.Hour)
 	if err != nil {
 		return fmt.Errorf("download failed: %v", err)
 	}
 	defer cancel()
+	maxBytes, limit := modsMaxBytes()
+	if maxBytes > 0 && resp.ContentLength > maxBytes {
+		resp.Body.Close()
+		return fmt.Errorf("download is larger than %s", limit)
+	}
 	f, err := os.Create(archive)
 	if err != nil {
 		resp.Body.Close()
 		return err
 	}
-	_, err = io.Copy(f, resp.Body)
+	var body io.Reader = resp.Body
+	if maxBytes > 0 {
+		body = io.LimitReader(resp.Body, maxBytes+1)
+	}
+	n, err := io.Copy(f, body)
 	resp.Body.Close()
 	f.Close()
 	if err != nil {
 		return fmt.Errorf("download failed: %v", err)
 	}
+	if maxBytes > 0 && n > maxBytes {
+		return fmt.Errorf("download is larger than %s", limit)
+	}
 	if err := extract(archive, work); err != nil {
 		return err
 	}
-	_ = os.Remove(archive)
 	if _, err := os.Stat(filepath.Join(work, "manifest.json")); err != nil {
 		return fmt.Errorf("package has no manifest.json")
 	}
 	writeMarker(work, owner, name, version)
+	return nil
+}
+
+// installLocal unpacks into this server's own /data/Mods (no shared store mounted).
+func installLocal(target, owner, name, version, url string) error {
+	work := filepath.Join(modsTmp, name)
+	_ = os.RemoveAll(modsTmp)
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		return err
+	}
+	defer os.RemoveAll(modsTmp)
+	if err := unpackMod(owner, name, version, url, work); err != nil {
+		return err
+	}
 	backup := target + ".old"
 	if st, err := os.Stat(target); err == nil && st.IsDir() {
 		_ = os.RemoveAll(backup)
@@ -288,6 +332,22 @@ func installMod(owner, name, version, url, old string) error {
 		return err
 	}
 	_ = os.RemoveAll(backup)
+	return nil
+}
+
+func installMod(owner, name, version, url, old string) error {
+	target := filepath.Join(modsDir, name)
+	if storeShared() {
+		final, err := fillStore(owner, name, version, url, "")
+		if err != nil {
+			return err
+		}
+		if err := linkMod(target, final); err != nil {
+			return err
+		}
+	} else if err := installLocal(target, owner, name, version, url); err != nil {
+		return err
+	}
 	var lv struct {
 		Levels []struct {
 			DisplayName string `json:"displayName"`
@@ -336,6 +396,19 @@ func ensureMod(owner, name, version string, update, dependency bool, seen map[st
 	case exists && have == want:
 		if !managed {
 			writeMarker(target, owner, name, want)
+		} else if storeShared() {
+			if isLink(target) {
+				touchStore(target)
+			} else { // this server's own copy: share it
+				final, err := fillStore(owner, name, want, m.DownloadURL, target)
+				if err == nil {
+					err = linkMod(target, final)
+				}
+				if err != nil {
+					return err
+				}
+				mlog("%s %s: moved into the shared store", label, want)
+			}
 		}
 		mlog("%s %s: up to date", label, want)
 	case exists && have != "" && !managed:
