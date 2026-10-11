@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import time
+from calendar import timegm
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -29,6 +30,8 @@ WEBHOOK = os.environ.get("STATUS_WEBHOOK", "").strip()
 STATE = os.environ.get("STATUS_STATE", "/state/status.json")
 INTERVAL = max(15, int(os.environ.get("STATUS_INTERVAL", "60")))         # seconds between checks
 REFRESH = max(1, int(os.environ.get("STATUS_REFRESH_MINUTES", "5"))) * 60  # edit at least this often
+# A wide transparent image: Discord sizes each card to its content, an image makes them all full width.
+SPACER = os.environ.get("STATUS_SPACER", "https://raw.githubusercontent.com/dudedankdave/docker-reskate-server/dev/assets/status-spacer.png")
 JOIN_CODE = os.environ.get("STATUS_JOIN_CODE", "true").strip().lower() not in ("0", "false", "no", "off")
 
 UP = re.compile(r"^.+ is up on (.+) for (\d+) players\.$")
@@ -140,43 +143,50 @@ class Board:
 
     # ---- the cards ---------------------------------------------------------------------------
     def card(self, number, server, infos):
+        """One server's card. Every card has the same rows (empty ones show a dash) and the spacer
+        image, so they all come out the same size."""
         role = server.get("role") or f"Server {number}"
         running = [i for i in infos if i["State"].get("Running")]
+        info = running[0] if running else (infos[0] if infos else None)
+        env = env_of(info) if info else {}
+        name = env.get("SERVER_NAME") or role
+        players = most = mp = code = None
+        total, up = 0, False
         if not running:
+            title, color = f"🔴 {role}", RED
             last = max((i["State"].get("FinishedAt", "")[:19] for i in infos), default="")
-            since = ""
+            status = "**Offline**"
             if last and not last.startswith("0001"):
-                t = int(datetime.strptime(last, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
-                since = f" since <t:{t}:R>"
-            return {"title": f"🔴 {role}", "color": RED, "description": f"**Offline**{since}",
-                    "footer": {"text": f"Server {number}"}}, 0, False
-        info = running[0]
-        s = self.follow(info)
-        health = (info["State"].get("Health") or {}).get("Status")
-        up = health in (None, "healthy") and s.map is not None
-        env = env_of(info)
-        name = env.get("SERVER_NAME", "")
-        players = s.players if s.ok else None
-        most = s.max or env.get("MAX_PLAYERS") or "?"
+                status += f" since <t:{timegm(time.strptime(last, '%Y-%m-%dT%H:%M:%S'))}:R>"
+        else:
+            s = self.follow(info)
+            health = (info["State"].get("Health") or {}).get("Status")
+            up = health in (None, "healthy") and s.map is not None
+            players = s.players if s.ok else None
+            most, mp = s.max or env.get("MAX_PLAYERS"), s.map or env.get("MAP")
+            code = s.code if up and JOIN_CODE else None
+            total = players or 0
+            started = started_at(info)
+            if up:
+                title, color = f"🟢 {role}", GREEN
+                status = "**Online**" + (f" since <t:{started}:R>" if started else "")
+            else:
+                title, color, status = f"🟡 {role}", YELLOW, "**Starting…**"
+            for other in running[1:]:          # an older version still draining its players
+                o = self.follow(other)
+                total += o.players if o.ok else 0
+                status += f" · {o.players if o.ok else '?'} still on {version_of(other) or 'the old version'}"
         fields = [
-            {"name": "Players", "value": f"**{players if players is not None else '?'}** / {most}", "inline": True},
-            {"name": "Map", "value": s.map or env.get("MAP") or "?", "inline": True},
-            {"name": "Version", "value": version_of(info) or "?", "inline": True},
+            {"name": "Players", "value": f"**{players if players is not None else '–'}** / {most or '–'}", "inline": True},
+            {"name": "Version", "value": (version_of(info) if info else "") or "–", "inline": True},
+            {"name": "Map", "value": mp or "–", "inline": False},
         ]
-        if JOIN_CODE and s.code and up:
-            fields.append({"name": "Join code", "value": f"`{s.code}`", "inline": False})
-        for other in running[1:]:              # an older version still draining its players
-            o = self.follow(other)
-            fields.append({"name": f"Still on {version_of(other) or 'the old version'}",
-                           "value": f"{o.players if o.ok else '?'} player(s) until they switch", "inline": False})
-        started = started_at(info)
-        footer = f"Server {number}" + (" · up since" if started else "")
-        card = {"title": f"{'🟢' if up else '🟡'} {role}", "color": GREEN if up else YELLOW,
-                "description": (f"`{name}`" if name else "") + ("" if up else "\n**Starting…**"),
-                "fields": fields, "footer": {"text": footer}}
-        if started:
-            card["timestamp"] = datetime.fromtimestamp(started, timezone.utc).isoformat()
-        total = (players or 0) + sum(self.seen[o["Id"]].players for o in running[1:] if o["Id"] in self.seen)
+        if JOIN_CODE:
+            fields.append({"name": "Join code", "value": f"`{code}`" if code else "–", "inline": False})
+        card = {"title": title, "color": color, "description": f"`{name}`\n{status}", "fields": fields,
+                "footer": {"text": f"Server {number}"}}
+        if SPACER:
+            card["image"] = {"url": SPACER}
         return card, total, up
 
     def message(self):

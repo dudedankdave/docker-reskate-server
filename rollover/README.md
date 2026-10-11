@@ -66,6 +66,7 @@ logs the message it would post.
 | `STATUS_WEBHOOK` | | Webhook URL of the channel. |
 | `STATUS_INTERVAL` | `60` | Seconds between checks. |
 | `STATUS_REFRESH_MINUTES` | `5` | Edit at least this often, so "Updated" shows the board is alive. |
+| `STATUS_SPACER` | `assets/status-spacer.png` on `dev` | Wide transparent image on every card so they are all the same size; empty = none. |
 | `STATUS_JOIN_CODE` | `true` | Show the join code on the cards. |
 | `STATUS_MESSAGE_ID` | | Edit this message instead of the remembered one (e.g. after losing the volume). |
 | `STATUS_STATE` | `/state/status.json` | Where the message id is kept. |
