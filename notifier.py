@@ -128,7 +128,7 @@ def clean(line):
 
 
 JOINED = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$")
-LEFT = re.compile(r"^(.+) left \(.*\)$")
+LEFT = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")   # "Name left (reason) [connection details]"
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
 TAGGED = re.compile(r"^\[(?:chat|admin|join|objects)\] ")
 LINE = re.compile(r"^\[(\d\d:\d\d:\d\d)\] (.*)$")
