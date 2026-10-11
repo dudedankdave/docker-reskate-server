@@ -34,7 +34,8 @@ except ImportError:  # no locking: fine for a file only one server uses
 
 LINE = re.compile(r"^\[(\d\d:\d\d:\d\d)\] (.*)$")
 JOINED = re.compile(r"^(.+) joined \((\d+)(?:, admin)?\), \d+/\d+ players")
-LEFT = re.compile(r"^(.+) left \(.*\)$")
+# "Name left (reason) [connection details]": the server appends the details in brackets.
+LEFT = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
 MODDED = re.compile(r"^\[anticheat\] (.+)'s mods change scoring or physics: (.*) \(scoring [^)]*\)\.$")
 CLEARED = re.compile(r"^\[anticheat\] (.+) may take part in throwdowns again ")

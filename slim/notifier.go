@@ -259,7 +259,7 @@ func clean(line string) string {
 
 var (
 	joinedRe = regexp.MustCompile(`^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$`)
-	leftRe   = regexp.MustCompile(`^(.+) left \(.*\)$`)
+	leftRe   = regexp.MustCompile(`^(.+?) left \(.*\)(?: \[.*\])?$`) // "Name left (reason) [connection details]"
 	upRe     = regexp.MustCompile(`^.+ is up on .+ for \d+ players\.$`)
 	taggedRe = regexp.MustCompile(`^\[(?:chat|admin|join|objects)\] `)
 	lineRe   = regexp.MustCompile(`^\[(\d\d:\d\d:\d\d)\] (.*)$`)
