@@ -9,6 +9,9 @@ them runs the server. When a newer ReSkate release is out:
   running until it has been empty for DRAIN_GRACE minutes, then it is stopped (not removed,
   so it can be started again by hand).
 
+A newer version of an unpinned MODS entry (a map) is handled the same way: nobody on -> restart
+(mods install on start), players on -> a copy on the same ReSkate version in the other slot.
+
 The copy is a clone of the running container (env, mounts, restart policy) with the slot's
 ports, token, volume and a new SERVER_NAME. If Docker Hub has an image tag for the release it
 runs that; otherwise it runs the current image with the release installed into its volume
@@ -172,6 +175,10 @@ class Instance:
         health = (info["State"].get("Health") or {}).get("Status")
         self.healthy = self.running and health in (None, "healthy")
         self.managed = labels.get(LABEL) == "true"
+        self.generation = int(labels.get("reskate.generation") or 0)   # newer copy of the same version
+
+    def rank(self):
+        return numbers(self.version), self.generation
 
 
 class Rollover:
@@ -184,6 +191,7 @@ class Rollover:
         self.empty_since = {}          # container id -> first time it was seen empty
         self.seen = {}                 # (server, release) -> when it was first seen as due
         self.waiting = set()           # messages already logged, so a waiting state is said once
+        self.mods_checked = {}         # container id -> (time, pending mod updates)
 
     def once(self, key, message):
         if key not in self.waiting:
@@ -223,10 +231,10 @@ class Rollover:
         live = [s for s in instances if s.running]
         if not live:
             return
-        newest = max(live, key=lambda s: numbers(s.version))
+        newest = max(live, key=Instance.rank)
         # drain: older instances stop once the newest is healthy and they have been empty long enough
         for s in live:
-            if s is newest or numbers(s.version) >= numbers(newest.version):
+            if s is newest or s.rank() >= newest.rank():
                 continue
             if s.name in self.protect:
                 self.once(("protect", s.name), f"Server {number}: {s.name} ({s.version}) is protected, leaving it running.")
@@ -236,30 +244,77 @@ class Rollover:
             if self.empty_for(s) >= self.grace:
                 self.stop(s, f"Server {number}: {s.name} ({s.version}) empty for {self.grace / 60:.0f} min, "
                              f"{newest.name} ({newest.version}) takes over")
-        if numbers(newest.version) >= numbers(latest):
-            return
-        if newest.name in self.protect:
-            return self.once(("protect-new", newest.name, latest),
-                             f"Server {number}: ReSkate {latest} is out, {newest.name} is protected, nothing started.")
+        if numbers(newest.version) < numbers(latest):
+            what = f"ReSkate {latest} is out"
+            if newest.name in self.protect:
+                return self.once(("protect-new", newest.name, latest),
+                                 f"Server {number}: {what}, {newest.name} is protected, nothing started.")
+            return self.roll(number, server, newest, live, instances, latest, what, latest)
+        if len(live) > 1 or not newest.healthy or newest.name in self.protect:
+            return                                     # mid-rollover: one change at a time
+        updates = self.pending_mods(number, server, newest)
+        if updates:
+            what = "map/mod update " + ", ".join(f"{o}-{n} {have} -> {new}" for o, n, new, have in updates)
+            key = "mods:" + ",".join(f"{o}-{n}-{new}" for o, n, new, _ in updates)
+            self.roll(number, server, newest, live, instances, newest.version, what, key, mods=True)
+
+    def roll(self, number, server, newest, live, instances, version, what, key, mods=False):
+        """Bring the server onto `version` (or onto new mods): in place when empty, else a copy."""
         count = players(newest.info)
-        due = time.time() - self.seen.setdefault((number, latest), time.time())
-        least = int(setting(self.cfg, server, "copy_min_players", 1))
-        wait = float(setting(self.cfg, server, "copy_wait_minutes", 60)) * 60
+        due = time.time() - self.seen.setdefault((number, key), time.time())
+        if mods:      # map/mod updates have their own pair, MODUPDATE_MIN_PLAYERS / MODUPDATE_WAIT
+            least = int(setting(self.cfg, server, "modupdate_min_players", 1))
+            wait = float(setting(self.cfg, server, "modupdate_wait", 60)) * 60
+        else:
+            least = int(setting(self.cfg, server, "copy_min_players", 1))
+            wait = float(setting(self.cfg, server, "copy_wait_minutes", 60)) * 60
         if 0 < count < least and due < wait:           # a few players: wait for them to leave first
-            return self.once(("few", number, latest),
-                             f"Server {number}: ReSkate {latest} is out, {count} player(s) on {newest.name} "
-                             f"(fewer than {least}); replacing it once empty, or starting a copy after "
+            return self.once(("few", number, key),
+                             f"Server {number}: {what}, {count} player(s) on {newest.name} "
+                             f"(fewer than {least}); updating it once empty, or starting a copy after "
                              f"{wait / 60:.0f} min.")
         if count == 0:
+            if mods:                                   # mods install on start: a restart is enough
+                return self.restart(newest, f"Server {number}: {what}, nobody is on {newest.name}, restarting it")
             slot = newest.slot                         # nobody on: replace it in place
         else:
             slot = next(n for n in server["slots"] if n != newest.slot)
             busy = [s for s in live if s.slot == slot]
             if busy:
-                return self.once(("busy", number, latest),
-                                 f"Server {number}: ReSkate {latest} is out, but slot {slot.upper()} still runs "
+                return self.once(("busy", number, key),
+                                 f"Server {number}: {what}, but slot {slot.upper()} still runs "
                                  f"{busy[0].name}; waiting until it is stopped.")
-        self.start_copy(number, server, newest, slot, latest, count, instances)
+        self.start_copy(number, server, newest, slot, version, count, instances, what,
+                        suffix=time.strftime("-m%m%d%H%M", time.gmtime()) if mods else "")
+
+    def pending_mods(self, number, server, inst):
+        """Newer Thunderstore versions of the server's unpinned MODS entries, asked inside the
+        container with the image's own mods.py; [] when off, not due or not answerable."""
+        if not setting(self.cfg, server, "mod_updates", True) or not inst.env.get("MODS", "").strip():
+            return []
+        if inst.env.get("MODS_UPDATE", "true").strip().lower() in ("0", "false", "no", "off"):
+            return []                                  # a restart would not install them anyway
+        every = float(setting(self.cfg, server, "mod_check_minutes", 30)) * 60
+        when, cached = self.mods_checked.get(inst.info["Id"], (0, []))
+        if time.time() - when < every:
+            return cached
+        script = ("import json,os,sys; sys.path.insert(0,'/app'); import mods\n"
+                  "print('PENDING ' + json.dumps(mods.pending_updates(os.environ.get('MODS',''))))")
+        try:
+            out = exec_in(inst.info, ["python3", "-c", script])
+            line = [l for l in out.splitlines() if l.startswith("PENDING ")][-1]
+            cached = [tuple(u) for u in json.loads(line[8:])]
+        except Exception as e:
+            self.once(("mods-check", inst.name), f"Server {number}: can't check {inst.name} for mod updates ({e}).")
+            cached = []
+        self.mods_checked[inst.info["Id"]] = (time.time(), cached)
+        return cached
+
+    def restart(self, s, why):
+        self.notify(why + (" (dry run, not restarted)" if self.dry else ""))
+        if not self.dry:
+            docker("POST", f"/containers/{s.info['Id']}/restart?t=60", timeout=180)
+            self.mods_checked.pop(s.info["Id"], None)
 
     def empty_for(self, s):
         try:
@@ -288,28 +343,30 @@ class Rollover:
                     return s.env["STEAM_TOKEN"]
         return token
 
-    def start_copy(self, number, server, old, slot, version, count, instances):
+    def start_copy(self, number, server, old, slot, version, count, instances, what, suffix=""):
         s = server["slots"][slot]
         token = self.token(number, slot, instances)
         if not token:
             return self.once(("token", number, slot), f"Server {number}: no Steam token for slot {slot.upper()}, "
                                                       f"set STEAM_TOKEN_{number}{slot.upper()}.")
-        name = f"{self.cfg.get('container_prefix', 'reskate-server-')}{number}-{version}"
+        name = f"{self.cfg.get('container_prefix', 'reskate-server-')}{number}-{version}{suffix}"
         if any(x.name == name for x in instances):
             return self.once(("exists", name), f"Server {number}: {name} exists but is not running; start it by hand.")
-        tag = version if hub_has(self.repo, version) else None
+        # a mod copy keeps the old image; a release copy takes the Hub tag when there is one
+        tag = None if suffix else (version if hub_has(self.repo, version) else None)
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
+        install = not tag and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
         in_place = slot == old.slot
         how = (f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
                f"{count} player(s) on {old.name} ({old.version}), starting a copy in slot {slot.upper()}")
-        self.notify(f"Server {number}: ReSkate {version} is out, {how}: {name} on ports {s['port']}/{s['query_port']}, "
-                    f"image {image}" + ("" if tag else " + release installed into its volume")
+        self.notify(f"Server {number}: {what}, {how}: {name} on ports {s['port']}/{s['query_port']}, "
+                    f"image {image}" + (" + release installed into its volume" if install else "")
                     + (" (dry run, nothing done)" if self.dry else ""))
         if self.dry:
             return
         if tag:
             self.pull(self.repo, tag)
-        else:
+        elif install:
             self.preinstall(image, s["volume"], version)
         if in_place:
             docker("POST", f"/containers/{old.info['Id']}/stop?t=60", timeout=120)
@@ -322,7 +379,7 @@ class Rollover:
         for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "PATH",
                   "LD_LIBRARY_PATH", "HOME", "SteamAppId"):
             env.pop(k, None)               # image defaults come back from the image
-        if not tag:                        # run the installed release; later ones are ours to roll out
+        if install:                        # run the installed release; later ones are ours to roll out
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")
         host = old.info["HostConfig"]
         cfg = old.info["Config"]
@@ -330,7 +387,8 @@ class Rollover:
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
             "Tty": cfg.get("Tty", True), "OpenStdin": cfg.get("OpenStdin", True), "StdinOnce": False,
-            "Labels": {LABEL: "true", "reskate.server": str(number), "reskate.slot": slot, "reskate.version": version},
+            "Labels": {LABEL: "true", "reskate.server": str(number), "reskate.slot": slot, "reskate.version": version,
+                       "reskate.generation": str(int(time.time()))},
             "HostConfig": {
                 "NetworkMode": host.get("NetworkMode", "host"),
                 "RestartPolicy": host.get("RestartPolicy") or {"Name": "unless-stopped"},
@@ -374,9 +432,25 @@ class Rollover:
             docker("DELETE", f"/containers/{made['Id']}?force=1")
 
 
+def exec_in(info, cmd, timeout=120):
+    """Run cmd inside a running container and return its output."""
+    made = docker("POST", f"/containers/{info['Id']}/exec",
+                  {"Cmd": cmd, "AttachStdout": True, "AttachStderr": True, "Tty": False})
+    out = docker("POST", f"/exec/{made['Id']}/start", {"Detach": False, "Tty": False}, raw=True, timeout=timeout)
+    frames, i = [], 0                                  # multiplexed: 8-byte frame headers
+    while i + 8 <= len(out) and out[i] in (0, 1, 2):
+        size = int.from_bytes(out[i + 4:i + 8], "big")
+        frames.append(out[i + 8:i + 8 + size])
+        i += 8 + size
+    text = b"".join(frames).decode("utf-8", "replace")
+    if docker("GET", f"/exec/{made['Id']}/json").get("ExitCode") not in (0, None):
+        raise RuntimeError(text.strip()[-300:] or "exec failed")
+    return text
+
+
 def setting(cfg, server, key, default):
-    """A server's own value for key, else the top-level one, else default."""
-    return server.get(key, cfg.get(key, default))
+    """A server's own value for key, else the top-level one, else the KEY env var, else default."""
+    return server.get(key, cfg.get(key, os.environ.get(key.upper()) or default))
 
 
 def server_name(cfg, number, server, version):
