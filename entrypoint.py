@@ -380,7 +380,9 @@ if (value := env("COMMANDS")) is not None:
 lb_commands = {c["name"]: c for c in leaderboard.COMMANDS}
 lb_on = (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value)
 lb_commands_on = lb_on and as_bool("LEADERBOARD_COMMANDS", env("LEADERBOARD_COMMANDS") or "true")
-commands = [c for c in cfg.get("commands") or [] if not (isinstance(c, dict) and lb_commands.get(c.get("name")) == c)]
+commands = [c for c in cfg.get("commands") or []
+            if not (isinstance(c, dict) and (lb_commands.get(c.get("name")) == c
+                                             or c.get("name") in lb_commands and c.get("reply") in leaderboard.OLD_REPLIES))]
 if lb_commands_on:
     taken = {c.get("name") for c in commands if isinstance(c, dict)}
     commands += [c for name, c in lb_commands.items() if name not in taken]

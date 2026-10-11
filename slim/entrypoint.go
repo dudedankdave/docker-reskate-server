@@ -582,6 +582,9 @@ func entrypointMain(serverArgs []string) {
 				if reflect.DeepEqual(map[string]any(lc), m) {
 					return true
 				}
+				if reply, _ := m["reply"].(string); m["name"] == lc["name"] && lbOldReplies[reply] {
+					return true
+				}
 			}
 			return false
 		}

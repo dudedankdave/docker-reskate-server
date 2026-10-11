@@ -61,6 +61,8 @@ TUNING = re.compile(r"^Players skate with (the game's|their) own physics tuning\
 # typed slash command is "[command] Name: /text" and is ignored: the server may have refused it).
 COMMAND = re.compile(r"^\[command\] (.+)$")
 
+RULE = "-" * 30       # above and below every answer to a chat command
+
 CHECK_AFTER = 15      # seconds after joining before the mod report is taken as complete
 CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
 ASK_EVERY = 3         # seconds between two answers to the same player
@@ -78,16 +80,22 @@ UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods
 UNRANKED_SPEED = "You are NOT ranked until you rejoin: your game ran faster than normal."
 UNRANKED_TUNING = ("Nobody is ranked right now: this server lets players skate with their own physics tuning. "
                    "Points count again once it is back on the game's own.")
+UNAVAILABLE = "The leaderboard is not available right now."
 CONFIG = "/data/ReSkateServer.json"
 
-# The chat commands the image adds to the server's "commands" (entrypoint.py): the reply is the
-# header, the rows follow as a DM from this module.
+# The chat commands the image adds to the server's "commands" (entrypoint.py): the server replies with the
+# top rule, the title, the rows and the bottom rule follow as DMs from this module.
 COMMANDS = [
-    {"name": "top", "reply": "Leaderboard (/top week, /top skate, /top week jam, /boards):"},
-    {"name": "rank", "reply": "Your rank (/rank week, /rank event):"},
-    {"name": "boards", "reply": "Leaderboards:"},
-    {"name": "lb", "admin": True, "reply": "Leaderboard admin (/lb help):"},
+    {"name": "top", "reply": RULE},
+    {"name": "rank", "reply": RULE},
+    {"name": "boards", "reply": RULE},
+    {"name": "lb", "admin": True, "reply": RULE},
 ]
+
+
+# Replies of the same commands in earlier builds: a command with one of these is ours, to be replaced.
+OLD_REPLIES = {"Leaderboard (/top week, /top event, /boards):", "Leaderboard (/top week, /top skate, /top week jam, /boards):",
+               "Your rank (/rank week, /rank event):", "Leaderboards:", "Leaderboard admin (/lb help):"}
 
 
 def env(name, default=""):
@@ -504,13 +512,13 @@ class Leaderboard:
             if verb == "lb":
                 if steam_id not in self.admins:
                     return                              # the server logs only allowed commands; belt and braces
-                lines = self.admin(name, arg, now)
+                title, lines = "Leaderboard admin", self.admin(name, arg, now)
             else:
-                lines = getattr(self, "cmd_" + verb)(steam_id, arg, now)
+                title, lines = getattr(self, "cmd_" + verb)(steam_id, arg, now)
         except Exception as e:                          # a bad command must not stop the log reader
             print(f"[leaderboard] /{verb} {arg!r}: {e!r}", flush=True)
-            lines = ["Something went wrong with that command."]
-        for text in lines:
+            title, lines = "Leaderboard", ["Something went wrong with that command."]
+        for text in [title] + lines + [RULE]:           # the server's own reply was the first rule: title, rows, rule
             self.send(fit(f"msg {steam_id} {text}", CHAT_MAX + 30))
 
     @staticmethod
@@ -518,12 +526,14 @@ class Leaderboard:
         """Chat lines of at most CHAT_MAX bytes: head, then the entries side by side."""
         lines, line = [], head
         for entry in entries:
-            if len((line + "  " + entry).encode("utf-8")) > CHAT_MAX:
+            if not line:
+                line = entry
+            elif len((line + "  " + entry).encode("utf-8")) > CHAT_MAX:
                 lines.append(line)
                 line = entry
             else:
                 line += "  " + entry
-        return lines + [line]
+        return lines + [line] if line else lines
 
     def cmd_top(self, steam_id, arg, now):
         def get(cur):
@@ -531,13 +541,13 @@ class Leaderboard:
             return board, board and Store.top(cur, board["id"], self.size)
         res = self.store.run(get, write=False)
         if res is None:
-            return ["The leaderboard is not available right now."]
+            return "Leaderboard", [UNAVAILABLE]
         board, rows = res
         if not board:
-            return [f"No board called '{arg}'. Try /boards."]
+            return "Leaderboard", [f"No board called '{arg}'. Try /boards."]
         if not rows:
-            return [f"{board['name']}: nobody has points yet."]
-        return self.pack(f"{board['name']}:", [f"{i}. {r['name']} {r['points']}" for i, r in enumerate(rows, 1)])
+            return f"Top - {board['name']}", ["Nobody has points yet."]
+        return f"Top {len(rows)} - {board['name']}", self.pack("", [f"{i}. {r['name']} {r['points']}" for i, r in enumerate(rows, 1)])
 
     def cmd_rank(self, steam_id, arg, now):
         def get(cur):
@@ -545,15 +555,15 @@ class Leaderboard:
             return board, board and Store.rank(cur, board["id"], steam_id)
         res = self.store.run(get, write=False)
         if res is None:
-            return ["The leaderboard is not available right now."]
+            return "Leaderboard", [UNAVAILABLE]
         board, found = res
         if not board:
-            return [f"No board called '{arg}'. Try /boards."]
+            return "Leaderboard", [f"No board called '{arg}'. Try /boards."]
+        title = f"Your rank - {board['name']}"
         if not found:
-            return [f"{board['name']}: you have no points yet. Finish a ranked throwdown with two or more players."]
+            return title, ["You have no points yet. Finish a ranked throwdown with two or more players."]
         rank, total, row = found
-        return [f"{board['name']}: you are #{rank} of {total} with {row['points']} points "
-                f"({row['wins']} won / {row['played']} played)."]
+        return title, [f"You are #{rank} of {total} with {row['points']} points ({row['wins']} won / {row['played']} played)."]
 
     def cmd_boards(self, steam_id, arg, now):
         def get(cur):
@@ -563,9 +573,9 @@ class Leaderboard:
                 "FROM boards b WHERE b.kind != 'mode' ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12").fetchall()
         rows = self.store.run(get)
         if rows is None:
-            return ["The leaderboard is not available right now."]
+            return "Leaderboard", [UNAVAILABLE]
         entries = [f"{r['name']}{' (ended)' if r['closed_at'] else ''}: {r['n']}" for r in rows]
-        return self.pack("Boards (players):", entries) + ["Add jam, skate or spot for one game: /top week skate."]
+        return "Boards (players with points)", self.pack("", entries)
 
     def admin(self, by, arg, now):
         word, _, rest = arg.partition(" ")

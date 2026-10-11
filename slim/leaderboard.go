@@ -54,11 +54,16 @@ var (
 // lbCommands are added to the server's "commands" (entrypoint.go): the reply is the header, the
 // rows follow as a DM from the leaderboard.
 var lbCommands = []map[string]any{
-	{"name": "top", "reply": "Leaderboard (/top week, /top skate, /top week jam, /boards):"},
-	{"name": "rank", "reply": "Your rank (/rank week, /rank event):"},
-	{"name": "boards", "reply": "Leaderboards:"},
-	{"name": "lb", "admin": true, "reply": "Leaderboard admin (/lb help):"},
+	{"name": "top", "reply": lbRule},
+	{"name": "rank", "reply": lbRule},
+	{"name": "boards", "reply": lbRule},
+	{"name": "lb", "admin": true, "reply": lbRule},
 }
+
+// lbOldReplies are the replies of the same commands in earlier builds: a command with one of them is ours, to be replaced.
+var lbOldReplies = map[string]bool{"Leaderboard (/top week, /top event, /boards):": true,
+	"Leaderboard (/top week, /top skate, /top week jam, /boards):": true, "Your rank (/rank week, /rank event):": true,
+	"Leaderboards:": true, "Leaderboard admin (/lb help):": true}
 
 var (
 	lbJoinedRe   = regexp.MustCompile(`^(.+) joined \((\d+)(, admin)?\), \d+/\d+ players`)
@@ -738,21 +743,22 @@ func (b *leaderboard) command(rest string) {
 		return
 	}
 	b.asked[steam] = now
-	var lines []string
+	title, lines := "Leaderboard", []string(nil)
 	switch verb {
 	case "top":
-		lines = b.cmdTop(arg, now)
+		title, lines = b.cmdTop(arg, now)
 	case "rank":
-		lines = b.cmdRank(steam, arg, now)
+		title, lines = b.cmdRank(steam, arg, now)
 	case "boards":
-		lines = b.cmdBoards(now)
+		title, lines = b.cmdBoards(now)
 	case "lb":
 		if !b.admins[steam] {
 			return // the server logs only allowed commands; belt and braces
 		}
-		lines = b.admin(name, arg, now)
+		title, lines = "Leaderboard admin", b.admin(name, arg, now)
 	}
-	for _, l := range lines {
+	// the server's own reply was the first rule: the title, the rows and a closing rule follow
+	for _, l := range append(append([]string{title}, lines...), lbRule) {
 		b.send(fit("msg "+steam+" "+l, chatMax+30))
 	}
 }
@@ -762,67 +768,75 @@ func lbPack(head string, entries []string) []string {
 	var lines []string
 	line := head
 	for _, e := range entries {
-		if len(line)+2+len(e) > chatMax {
+		if line == "" {
+			line = e
+		} else if len(line)+2+len(e) > chatMax {
 			lines = append(lines, line)
 			line = e
 		} else {
 			line += "  " + e
 		}
 	}
+	if line == "" {
+		return lines
+	}
 	return append(lines, line)
 }
 
+// lbRule goes above and below every answer to a chat command.
+const lbRule = "------------------------------"
+
 const lbUnavailable = "The leaderboard is not available right now."
 
-func (b *leaderboard) cmdTop(arg string, now time.Time) []string {
-	var lines []string
-	if !b.run(func(tx *sql.Tx) error {
+func (b *leaderboard) cmdTop(arg string, now time.Time) (string, []string) {
+	title, lines := "Leaderboard", []string{lbUnavailable}
+	b.run(func(tx *sql.Tx) error {
 		bd, ok := lbFind(tx, arg, now)
 		if !ok {
 			lines = []string{"No board called '" + arg + "'. Try /boards."}
 			return nil
 		}
+		title = "Top - " + bd.name
 		rows := lbTop(tx, bd.id, b.size)
 		if len(rows) == 0 {
-			lines = []string{bd.name + ": nobody has points yet."}
+			lines = []string{"Nobody has points yet."}
 			return nil
 		}
 		var entries []string
 		for i, r := range rows {
 			entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, r.name, r.points))
 		}
-		lines = lbPack(bd.name+":", entries)
+		title = fmt.Sprintf("Top %d - %s", len(rows), bd.name)
+		lines = lbPack("", entries)
 		return nil
-	}) {
-		return []string{lbUnavailable}
-	}
-	return lines
+	})
+	return title, lines
 }
 
-func (b *leaderboard) cmdRank(steam, arg string, now time.Time) []string {
-	var lines []string
-	if !b.run(func(tx *sql.Tx) error {
+func (b *leaderboard) cmdRank(steam, arg string, now time.Time) (string, []string) {
+	title, lines := "Leaderboard", []string{lbUnavailable}
+	b.run(func(tx *sql.Tx) error {
 		bd, ok := lbFind(tx, arg, now)
 		if !ok {
 			lines = []string{"No board called '" + arg + "'. Try /boards."}
 			return nil
 		}
+		title = "Your rank - " + bd.name
 		rank, total, row, ok := lbRank(tx, bd.id, steam)
 		if !ok {
-			lines = []string{bd.name + ": you have no points yet. Finish a ranked throwdown with two or more players."}
+			lines = []string{"You have no points yet. Finish a ranked throwdown with two or more players."}
 			return nil
 		}
-		lines = []string{fmt.Sprintf("%s: you are #%d of %d with %d points (%d won / %d played).", bd.name, rank, total, row.points, row.wins, row.played)}
+		lines = []string{fmt.Sprintf("You are #%d of %d with %d points (%d won / %d played).", rank, total, row.points, row.wins, row.played)}
 		return nil
-	}) {
-		return []string{lbUnavailable}
-	}
-	return lines
+	})
+	return title, lines
 }
 
-func (b *leaderboard) cmdBoards(now time.Time) []string {
-	var lines []string
-	if !b.run(func(tx *sql.Tx) error {
+func (b *leaderboard) cmdBoards(now time.Time) (string, []string) {
+	lines := []string{lbUnavailable}
+	title := "Leaderboard"
+	b.run(func(tx *sql.Tx) error {
 		b.active(tx, now)
 		rows, err := tx.Query(`SELECT b.name, b.closed_at IS NOT NULL, (SELECT COUNT(*) FROM scores s WHERE s.board = b.id AND s.points > 0) ` +
 			`FROM boards b WHERE b.kind != 'mode' ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12`)
@@ -843,12 +857,11 @@ func (b *leaderboard) cmdBoards(now time.Time) []string {
 				entries = append(entries, fmt.Sprintf("%s%s: %d", name, end, n))
 			}
 		}
-		lines = append(lbPack("Boards (players):", entries), "Add jam, skate or spot for one game: /top week skate.")
+		title = "Boards (players with points)"
+		lines = lbPack("", entries)
 		return nil
-	}) {
-		return []string{lbUnavailable}
-	}
-	return lines
+	})
+	return title, lines
 }
 
 func (b *leaderboard) admin(by, arg string, now time.Time) []string {
