@@ -1,29 +1,36 @@
 package main
 
-// Ranked play and the leaderboard (LEADERBOARD=true), as leaderboard.py: players are told by DM
+// Ranked play and the leaderboards (LEADERBOARD=true), as leaderboard.py: players are told by DM
 // whether they are ranked (no scoring/physics mods, no sped-up game this session, and the server
-// not letting players skate with their own physics tuning, which it cannot check), finished
-// throwdowns with two or more players give points by place, and the board goes to chat and
-// Discord every LEADERBOARD_INTERVAL minutes. LEADERBOARD_SCOPE=shared (default) keeps one board in
-// /shared for every server that mounts it there (else this server's own); server: /data only.
+// not letting players skate with their own physics tuning, which it cannot check), and finished
+// throwdowns with two or more players give points by place. The points live in a SQLite database
+// (leaderboard.db, with a ledger of every award) on several boards at once: General (all time),
+// the current Week and the Events admins have open (LEADERBOARD_BOARDS). Chat commands /top, /rank,
+// /boards and, for admins, /lb answer by DM to the "[command] Name /top week" line the server
+// logs for each allowed command. The board goes to chat and Discord every LEADERBOARD_INTERVAL
+// minutes. LEADERBOARD_SCOPE=shared (default) keeps one database in /shared for every server
+// that mounts it there (else this server's own); server: /data only.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 const (
 	rankCheckAfter = 15 * time.Second // the mod report arrives after the join line
 	chatMax        = 200              // bytes in one chat line (multiplayer_chat_max_bytes)
+	lbAskEvery     = 3 * time.Second  // between two answers to the same player
 	rankedText     = "You are RANKED: your throwdown results count for the leaderboard."
 	unrankedMods   = "You are NOT ranked: your mods change scoring or physics ({mods}). " +
 		"Restart Skate without them to earn leaderboard points."
@@ -32,8 +39,20 @@ const (
 		"Points count again once it is back on the game's own."
 )
 
+// lbKinds are the board kinds LEADERBOARD_BOARDS may name.
+var lbKinds = []string{"general", "week", "event"}
+
+// lbCommands are added to the server's "commands" (entrypoint.go): the reply is the header, the
+// rows follow as a DM from the leaderboard.
+var lbCommands = []map[string]any{
+	{"name": "top", "reply": "Leaderboard (/top week, /top event, /boards):"},
+	{"name": "rank", "reply": "Your rank (/rank week, /rank event):"},
+	{"name": "boards", "reply": "Leaderboards:"},
+	{"name": "lb", "admin": true, "reply": "Leaderboard admin (/lb help):"},
+}
+
 var (
-	lbJoinedRe   = regexp.MustCompile(`^(.+) joined \((\d+)(?:, admin)?\), \d+/\d+ players`)
+	lbJoinedRe   = regexp.MustCompile(`^(.+) joined \((\d+)(, admin)?\), \d+/\d+ players`)
 	lbModdedRe   = regexp.MustCompile(`^\[anticheat\] (.+)'s mods change scoring or physics: (.*) \(scoring [^)]*\)\.$`)
 	lbClearedRe  = regexp.MustCompile(`^\[anticheat\] (.+) may take part in throwdowns again `)
 	lbSpeedingRe = regexp.MustCompile(`^\[anticheat\] (.+)'s game is running at [\d.]+x speed`)
@@ -41,21 +60,14 @@ var (
 	lbEntryRe    = regexp.MustCompile(`^(.+) (-?\d{1,3}(?:,\d{3})*)( \(quit\))?$`)
 	lbTriedRe    = regexp.MustCompile(`(?: \d+ landed / \d+ missed)( \(quit\))?(?:, |$)`)
 	lbTuningRe   = regexp.MustCompile(`^Players skate with (the game's|their) own physics tuning\.$`)
+	lbCommandRe  = regexp.MustCompile(`^\[command\] (.+)$`)
+	lbControl    = regexp.MustCompile(`[\x00-\x1f\x7f]+`)
+	lbWeekNumRe  = regexp.MustCompile(`^(?:week[ -]?|w)?(\d{1,2})$`)
+	lbAwardRe    = regexp.MustCompile(`^(-?\d{1,6})\s+(.+?)(?:\s+board:(\S+))?$`)
+	lbSteamRe    = regexp.MustCompile(`^\d{17}$`)
+	lbSlugRe     = regexp.MustCompile(`[^a-z0-9]+`)
+	lbSpaceRe    = regexp.MustCompile(`\s+`)
 )
-
-type lbPlayer struct {
-	Name   string `json:"name"`
-	Points int    `json:"points"`
-	Wins   int    `json:"wins"`
-	Played int    `json:"played"`
-}
-
-type lbData struct {
-	Players       map[string]*lbPlayer `json:"players"`
-	Version       int                  `json:"version,omitempty"`
-	PostedAt      float64              `json:"posted_at,omitempty"`
-	PostedVersion int                  `json:"posted_version,omitempty"`
-}
 
 type lbResult struct {
 	name  string
@@ -63,10 +75,24 @@ type lbResult struct {
 	quit  bool
 }
 
+type lbBoard struct {
+	id, name, kind      string
+	closed              bool
+	version, postedVers int
+}
+
+type lbRow struct {
+	name, steam          string
+	points, wins, played int
+}
+
 type leaderboard struct {
 	send             func(string) bool
 	post             func(string)
+	db               *sql.DB
 	path, label      string
+	server           string
+	kinds            map[string]bool
 	interval         time.Duration
 	size             int
 	points           []int
@@ -75,11 +101,13 @@ type leaderboard struct {
 
 	mu       sync.Mutex
 	online   map[string]string    // name -> SteamID64
+	admins   map[string]bool      // SteamID64s that joined as admin
 	waiting  map[string]time.Time // name -> when the ranked DM is due
 	modded   map[string]string
 	speeding map[string]bool
 	told     map[string]bool
-	free     bool // own physics tuning allowed: nobody is ranked
+	asked    map[string]time.Time // SteamID64 -> their last command answer
+	free     bool                 // own physics tuning allowed: nobody is ranked
 	chatAt   time.Time
 	postAt   time.Time
 }
@@ -93,6 +121,7 @@ func lbEnv(name, def string) string {
 
 // fit cuts text to n bytes without splitting a character.
 func fit(text string, n int) string {
+	text = lbControl.ReplaceAllString(text, " ")
 	if len(text) <= n {
 		return text
 	}
@@ -128,16 +157,16 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	}
 	b := &leaderboard{
 		send: send, post: post,
-		path: "/data/leaderboard.json", label: "this server",
-		interval: 60 * time.Minute, size: 5,
+		path: "/data/leaderboard.db", label: "this server", server: lbEnv("SERVER_NAME", "server"),
+		interval: 60 * time.Minute, size: 5, kinds: map[string]bool{},
 		ranked: lbEnv("RANKED_MESSAGE", rankedText), unranked: lbEnv("UNRANKED_MESSAGE", unrankedMods),
 		tuning: lbEnv("UNRANKED_TUNING_MESSAGE", unrankedTuning), speed: lbEnv("UNRANKED_SPEED_MESSAGE", unrankedSpeed),
-		online: map[string]string{}, waiting: map[string]time.Time{}, modded: map[string]string{},
-		speeding: map[string]bool{}, told: map[string]bool{}, free: freeTuning(),
+		online: map[string]string{}, admins: map[string]bool{}, waiting: map[string]time.Time{}, modded: map[string]string{},
+		speeding: map[string]bool{}, told: map[string]bool{}, asked: map[string]time.Time{}, free: freeTuning(),
 		chatAt: time.Now(), postAt: time.Now(),
 	}
 	if strings.ToLower(lbEnv("LEADERBOARD_SCOPE", "shared")) != "server" {
-		path := lbEnv("LEADERBOARD_FILE", "/shared/leaderboard.json")
+		path := lbEnv("LEADERBOARD_FILE", "/shared/leaderboard.db")
 		dir := filepath.Dir(path)
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			b.path, b.label = path, "all servers"
@@ -147,6 +176,10 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		}
 	} else {
 		b.path = lbEnv("LEADERBOARD_FILE", b.path)
+	}
+	legacy := filepath.Join(filepath.Dir(b.path), "leaderboard.json")
+	if strings.HasSuffix(b.path, ".json") { // an old LEADERBOARD_FILE: the points move to a .db beside it
+		legacy, b.path = b.path, strings.TrimSuffix(b.path, ".json")+".db"
 	}
 	if v, err := strconv.Atoi(lbEnv("LEADERBOARD_INTERVAL", "60")); err == nil && v > 0 {
 		b.interval = time.Duration(v) * time.Minute
@@ -159,64 +192,270 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 			b.points = append(b.points, v)
 		}
 	}
+	for _, k := range asList(strings.ToLower(lbEnv("LEADERBOARD_BOARDS", strings.Join(lbKinds, ",")))) {
+		for _, known := range lbKinds {
+			b.kinds[known] = b.kinds[known] || k == known
+		}
+	}
+	if len(b.kinds) == 0 || !(b.kinds["general"] || b.kinds["week"] || b.kinds["event"]) {
+		b.kinds["general"] = true
+	}
+	if !b.setup(legacy) {
+		return nil
+	}
 	guarded(b.loop)
 	return b
 }
 
-// ---- the points file, changed under an exclusive lock ------------------------------------
+// ---- the database ------------------------------------------------------------------------
 
-func (b *leaderboard) locked(exclusive bool, fn func(*lbData) bool) {
-	lock, err := os.OpenFile(b.path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+const lbSchema = `
+CREATE TABLE IF NOT EXISTS boards (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
+  created_at REAL NOT NULL, closed_at REAL,
+  version INTEGER NOT NULL DEFAULT 0, posted_version INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS players (steam_id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scores (
+  board TEXT NOT NULL REFERENCES boards(id), steam_id TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, played INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (board, steam_id));
+CREATE INDEX IF NOT EXISTS scores_by_points ON scores (board, points DESC);
+CREATE TABLE IF NOT EXISTS ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, board TEXT NOT NULL, steam_id TEXT NOT NULL,
+  points INTEGER NOT NULL, reason TEXT NOT NULL, server TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
+
+func unixf(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
+
+// run does fn in one write transaction (several servers may share the file), logging a failure.
+func (b *leaderboard) run(fn func(tx *sql.Tx) error) bool {
+	tx, err := b.db.Begin()
+	if err == nil {
+		if err = fn(tx); err != nil {
+			_ = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}
 	if err != nil {
 		fmt.Printf("[leaderboard] cannot use %s: %v\n", b.path, err)
-		return
+		return false
 	}
-	defer lock.Close()
-	how := syscall.LOCK_SH
-	if exclusive {
-		how = syscall.LOCK_EX
-	}
-	_ = syscall.Flock(int(lock.Fd()), how)
-	d := &lbData{}
-	if raw, err := os.ReadFile(b.path); err == nil {
-		_ = json.Unmarshal(raw, d)
-	}
-	if d.Players == nil {
-		d.Players = map[string]*lbPlayer{}
-	}
-	if !fn(d) || !exclusive {
-		return
-	}
-	raw, _ := json.MarshalIndent(d, "", " ")
-	if err := os.WriteFile(b.path+".tmp", raw, 0o644); err == nil {
-		err = os.Rename(b.path+".tmp", b.path)
-	}
-	if err != nil {
-		fmt.Printf("[leaderboard] cannot write %s: %v\n", b.path, err)
-	}
+	return true
 }
 
-func lbTop(d *lbData, n int) []*lbPlayer {
-	var rows []*lbPlayer
-	for _, p := range d.Players {
-		if p.Points > 0 {
-			rows = append(rows, p)
-		}
+func (b *leaderboard) setup(legacy string) bool {
+	dsn := "file:" + (&url.URL{Path: b.path}).EscapedPath() +
+		"?_pragma=busy_timeout(15000)&_pragma=journal_mode(WAL)&_txlock=immediate"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		fmt.Printf("[leaderboard] cannot use %s: %v\n", b.path, err)
+		return false
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		a, c := rows[i], rows[j]
-		if a.Points != c.Points {
-			return a.Points > c.Points
+	db.SetMaxOpenConns(1)
+	b.db = db
+	imported := false
+	ok := b.run(func(tx *sql.Tx) error {
+		for _, stmt := range strings.Split(lbSchema, ";") {
+			if strings.TrimSpace(stmt) == "" {
+				continue
+			}
+			if _, err := tx.Exec(stmt); err != nil {
+				return err
+			}
 		}
-		if a.Wins != c.Wins {
-			return a.Wins > c.Wins
+		lbBoardInsert(tx, "general", "General", "general")
+		var one int
+		if tx.QueryRow(`SELECT 1 FROM meta WHERE key='legacy_imported'`).Scan(&one) == nil {
+			return nil
 		}
-		return strings.ToLower(a.Name) < strings.ToLower(c.Name)
+		if _, err := tx.Exec(`INSERT INTO meta VALUES ('legacy_imported', ?)`, strconv.FormatFloat(unixf(time.Now()), 'f', 0, 64)); err != nil {
+			return err
+		}
+		if _, err := os.Stat(legacy); err != nil {
+			return nil
+		}
+		var err error
+		imported, err = b.importLegacy(tx, legacy)
+		return err
 	})
-	if len(rows) > n {
-		rows = rows[:n]
+	if ok && imported {
+		_ = os.Rename(legacy, legacy+".migrated")
 	}
-	return rows
+	return ok
+}
+
+// importLegacy: the leaderboard.json of the versions before the database becomes General.
+func (b *leaderboard) importLegacy(tx *sql.Tx, legacy string) (bool, error) {
+	raw, err := os.ReadFile(legacy)
+	if err != nil {
+		return false, nil
+	}
+	var old struct {
+		Players map[string]struct {
+			Name                 string `json:"name"`
+			Points, Wins, Played int
+		} `json:"players"`
+	}
+	if json.Unmarshal(raw, &old) != nil {
+		return false, nil
+	}
+	now := unixf(time.Now())
+	for key, p := range old.Players {
+		name := p.Name
+		if name == "" {
+			name = key
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO players VALUES (?, ?)`, key, name); err != nil {
+			return false, err
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO scores VALUES ('general', ?, ?, ?, ?)`, key, p.Points, p.Wins, p.Played); err != nil {
+			return false, err
+		}
+		if _, err := tx.Exec(`INSERT INTO ledger (at, board, steam_id, points, reason, server) VALUES (?, 'general', ?, ?, 'imported', ?)`,
+			now, key, p.Points, b.server); err != nil {
+			return false, err
+		}
+	}
+	_, err = tx.Exec(`UPDATE boards SET version = version + 1 WHERE id = 'general'`)
+	fmt.Printf("[leaderboard] imported %d players from %s into General\n", len(old.Players), legacy)
+	return err == nil, err
+}
+
+func lbBoardInsert(tx *sql.Tx, id, name, kind string) {
+	_, _ = tx.Exec(`INSERT OR IGNORE INTO boards (id, name, kind, created_at) VALUES (?, ?, ?, ?)`, id, name, kind, unixf(time.Now()))
+}
+
+func lbWeek(now time.Time) (id, name string, year int) {
+	year, week := now.UTC().ISOWeek()
+	return fmt.Sprintf("week-%d-%02d", year, week), fmt.Sprintf("Week %d", week), year
+}
+
+// active: the boards that count new points: General, this week, the open events.
+func (b *leaderboard) active(tx *sql.Tx, now time.Time) []string {
+	var ids []string
+	if b.kinds["general"] {
+		ids = append(ids, "general")
+	}
+	if b.kinds["week"] {
+		id, name, _ := lbWeek(now)
+		lbBoardInsert(tx, id, name, "week")
+		ids = append(ids, id)
+	}
+	if b.kinds["event"] {
+		if rows, err := tx.Query(`SELECT id FROM boards WHERE kind='event' AND closed_at IS NULL ORDER BY created_at`); err == nil {
+			for rows.Next() {
+				var id string
+				if rows.Scan(&id) == nil {
+					ids = append(ids, id)
+				}
+			}
+			rows.Close()
+		}
+	}
+	return ids
+}
+
+type lbAward struct {
+	steam, name string
+	points      int
+	won, played int
+}
+
+// add gives every award to every board in boards, with a ledger line each.
+func (b *leaderboard) add(tx *sql.Tx, boards []string, awards []lbAward, reason string, now time.Time) error {
+	for _, a := range awards {
+		if _, err := tx.Exec(`INSERT INTO players VALUES (?, ?) ON CONFLICT(steam_id) DO UPDATE SET name=excluded.name`, a.steam, a.name); err != nil {
+			return err
+		}
+		for _, board := range boards {
+			if _, err := tx.Exec(`INSERT INTO scores VALUES (?, ?, ?, ?, ?) ON CONFLICT(board, steam_id) DO UPDATE SET `+
+				`points = points + excluded.points, wins = wins + excluded.wins, played = played + excluded.played`,
+				board, a.steam, a.points, a.won, a.played); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT INTO ledger (at, board, steam_id, points, reason, server) VALUES (?, ?, ?, ?, ?, ?)`,
+				unixf(now), board, a.steam, a.points, reason, b.server); err != nil {
+				return err
+			}
+		}
+	}
+	for _, board := range boards {
+		if _, err := tx.Exec(`UPDATE boards SET version = version + 1 WHERE id = ?`, board); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func lbTop(tx *sql.Tx, board string, n int) []lbRow {
+	rows, err := tx.Query(`SELECT p.name, s.steam_id, s.points, s.wins, s.played FROM scores s JOIN players p USING (steam_id) `+
+		`WHERE s.board = ? AND s.points > 0 ORDER BY s.points DESC, s.wins DESC, p.name COLLATE NOCASE LIMIT ?`, board, n)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []lbRow
+	for rows.Next() {
+		var r lbRow
+		if rows.Scan(&r.name, &r.steam, &r.points, &r.wins, &r.played) == nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// lbRank is the player's place (ties share one), how many have points, and their row; ok is false without points.
+func lbRank(tx *sql.Tx, board, steam string) (rank, total int, row lbRow, ok bool) {
+	if tx.QueryRow(`SELECT points, wins, played FROM scores WHERE board=? AND steam_id=?`, board, steam).Scan(&row.points, &row.wins, &row.played) != nil || row.points <= 0 {
+		return
+	}
+	var ahead int
+	_ = tx.QueryRow(`SELECT COUNT(*) FROM scores WHERE board=? AND points > ?`, board, row.points).Scan(&ahead)
+	_ = tx.QueryRow(`SELECT COUNT(*) FROM scores WHERE board=? AND points > 0`, board).Scan(&total)
+	return ahead + 1, total, row, true
+}
+
+func lbScan(row *sql.Row) (lbBoard, bool) {
+	var bd lbBoard
+	var closed sql.NullFloat64
+	if row.Scan(&bd.id, &bd.name, &bd.kind, &closed, &bd.version, &bd.postedVers) != nil {
+		return bd, false
+	}
+	bd.closed = closed.Valid
+	return bd, true
+}
+
+const lbBoardCols = `SELECT id, name, kind, closed_at, version, posted_version FROM boards `
+
+// lbFind: a board by what a player types: general, week, event, a week number, an id or (the start of) a name.
+func lbFind(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
+	spec = strings.ToLower(strings.TrimSpace(spec))
+	switch spec {
+	case "", "general", "all", "alltime", "all-time", "g":
+		return lbScan(tx.QueryRow(lbBoardCols + `WHERE id='general'`))
+	case "week", "w", "weekly":
+		id, _, _ := lbWeek(now)
+		return lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, id))
+	case "event", "e":
+		return lbScan(tx.QueryRow(lbBoardCols + `WHERE kind='event' ORDER BY closed_at IS NOT NULL, created_at DESC`))
+	}
+	if m := lbWeekNumRe.FindStringSubmatch(spec); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		_, _, year := lbWeek(now)
+		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, fmt.Sprintf("week-%d-%02d", year, n))); ok {
+			return bd, true
+		}
+		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE kind='week' AND name=? ORDER BY created_at DESC`, fmt.Sprintf("Week %d", n))); ok {
+			return bd, true
+		}
+	}
+	for _, where := range []string{`lower(id) = ? OR lower(name) = ?`, `lower(id) LIKE ? || '%' OR lower(name) LIKE ? || '%'`} {
+		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE `+where+` ORDER BY closed_at IS NOT NULL, created_at DESC`, spec, spec)); ok {
+			return bd, true
+		}
+	}
+	return lbBoard{}, false
 }
 
 // ---- log lines ---------------------------------------------------------------------------
@@ -233,14 +472,16 @@ func (b *leaderboard) feed(line string) {
 	}
 	if upRe.MatchString(text) {
 		b.online, b.waiting, b.modded = map[string]string{}, map[string]time.Time{}, map[string]string{}
-		b.speeding, b.told = map[string]bool{}, map[string]bool{}
+		b.speeding, b.told, b.admins = map[string]bool{}, map[string]bool{}, map[string]bool{}
 		b.free = freeTuning()
 	} else if m := lbJoinedRe.FindStringSubmatch(text); m != nil {
 		forget(m[1])
 		b.online[m[1]] = m[2]
+		b.admins[m[2]] = m[3] != ""
 		b.waiting[m[1]] = time.Now().Add(rankCheckAfter)
 	} else if m := leftRe.FindStringSubmatch(text); m != nil {
 		forget(m[1])
+		delete(b.admins, b.online[m[1]])
 		delete(b.online, m[1])
 	} else if m := lbModdedRe.FindStringSubmatch(text); m != nil {
 		b.modded[m[1]] = m[2]
@@ -258,6 +499,8 @@ func (b *leaderboard) feed(line string) {
 		for name := range b.online {
 			b.tell(name)
 		}
+	} else if m := lbCommandRe.FindStringSubmatch(text); m != nil {
+		b.command(m[1])
 	}
 }
 
@@ -293,6 +536,519 @@ func (b *leaderboard) tell(name string) {
 	b.send(fit("msg "+id+" "+text, chatMax+30))
 }
 
+func (b *leaderboard) score(results []lbResult) {
+	var finished []lbResult
+	for _, r := range results {
+		if !r.quit {
+			finished = append(finished, r)
+		}
+	}
+	if len(finished) < 2 || len(b.points) == 0 {
+		return
+	}
+	var awards []lbAward
+	for _, r := range finished {
+		if !b.isRanked(r.name) {
+			continue
+		}
+		i := len(b.points) - 1
+		if r.place > 0 {
+			i = min(r.place, len(b.points)) - 1
+		}
+		key := b.online[r.name]
+		if key == "" {
+			key = "name:" + r.name
+		}
+		won := 0
+		if r.place == 1 {
+			won = 1
+		}
+		awards = append(awards, lbAward{key, r.name, b.points[i], won, 1})
+	}
+	if len(awards) == 0 {
+		return
+	}
+	now := time.Now()
+	var boards []string
+	if !b.run(func(tx *sql.Tx) error {
+		boards = b.active(tx, now)
+		return b.add(tx, boards, awards, "throwdown", now)
+	}) {
+		return
+	}
+	var parts []string
+	for _, a := range awards {
+		parts = append(parts, fmt.Sprintf("%s +%d", a.name, a.points))
+	}
+	fmt.Println("[leaderboard] " + strings.Join(parts, ", ") + " (" + strings.Join(boards, ", ") + ")")
+}
+
+// ---- chat commands -----------------------------------------------------------------------
+
+// command answers "Name /top week" (the text after "[command] "). The name is whoever is online and
+// fits. If the line could also be another player's typed text in the colon form ("Other: /lb ..."),
+// someone named to look like it must not get a say, so the line is dropped.
+func (b *leaderboard) command(rest string) {
+	for other := range b.online {
+		if strings.HasPrefix(rest, other+": /") {
+			return
+		}
+	}
+	name := ""
+	for n := range b.online {
+		if strings.HasPrefix(rest, n+" /") && len(n) > len(name) {
+			name = n
+		}
+	}
+	if name == "" {
+		return
+	}
+	verb, arg, _ := strings.Cut(rest[len(name)+2:], " ")
+	verb, arg = strings.ToLower(verb), strings.TrimSpace(arg)
+	steam := b.online[name]
+	now := time.Now()
+	if verb != "top" && verb != "rank" && verb != "boards" && verb != "lb" || now.Sub(b.asked[steam]) < lbAskEvery {
+		return
+	}
+	b.asked[steam] = now
+	var lines []string
+	switch verb {
+	case "top":
+		lines = b.cmdTop(arg, now)
+	case "rank":
+		lines = b.cmdRank(steam, arg, now)
+	case "boards":
+		lines = b.cmdBoards(now)
+	case "lb":
+		if !b.admins[steam] {
+			return // the server logs only allowed commands; belt and braces
+		}
+		lines = b.admin(name, arg, now)
+	}
+	for _, l := range lines {
+		b.send(fit("msg "+steam+" "+l, chatMax+30))
+	}
+}
+
+// pack: chat lines of at most chatMax bytes, head first, then the entries side by side.
+func lbPack(head string, entries []string) []string {
+	var lines []string
+	line := head
+	for _, e := range entries {
+		if len(line)+2+len(e) > chatMax {
+			lines = append(lines, line)
+			line = e
+		} else {
+			line += "  " + e
+		}
+	}
+	return append(lines, line)
+}
+
+const lbUnavailable = "The leaderboard is not available right now."
+
+func (b *leaderboard) cmdTop(arg string, now time.Time) []string {
+	var lines []string
+	if !b.run(func(tx *sql.Tx) error {
+		bd, ok := lbFind(tx, arg, now)
+		if !ok {
+			lines = []string{"No board called '" + arg + "'. Try /boards."}
+			return nil
+		}
+		rows := lbTop(tx, bd.id, b.size)
+		if len(rows) == 0 {
+			lines = []string{bd.name + ": nobody has points yet."}
+			return nil
+		}
+		var entries []string
+		for i, r := range rows {
+			entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, r.name, r.points))
+		}
+		lines = lbPack(bd.name+":", entries)
+		return nil
+	}) {
+		return []string{lbUnavailable}
+	}
+	return lines
+}
+
+func (b *leaderboard) cmdRank(steam, arg string, now time.Time) []string {
+	var lines []string
+	if !b.run(func(tx *sql.Tx) error {
+		bd, ok := lbFind(tx, arg, now)
+		if !ok {
+			lines = []string{"No board called '" + arg + "'. Try /boards."}
+			return nil
+		}
+		rank, total, row, ok := lbRank(tx, bd.id, steam)
+		if !ok {
+			lines = []string{bd.name + ": you have no points yet. Finish a ranked throwdown with two or more players."}
+			return nil
+		}
+		lines = []string{fmt.Sprintf("%s: you are #%d of %d with %d points (%d won / %d played).", bd.name, rank, total, row.points, row.wins, row.played)}
+		return nil
+	}) {
+		return []string{lbUnavailable}
+	}
+	return lines
+}
+
+func (b *leaderboard) cmdBoards(now time.Time) []string {
+	var lines []string
+	if !b.run(func(tx *sql.Tx) error {
+		b.active(tx, now)
+		rows, err := tx.Query(`SELECT b.name, b.closed_at IS NOT NULL, (SELECT COUNT(*) FROM scores s WHERE s.board = b.id AND s.points > 0) ` +
+			`FROM boards b ORDER BY b.kind='general' DESC, b.closed_at IS NOT NULL, b.created_at DESC LIMIT 12`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var entries []string
+		for rows.Next() {
+			var name string
+			var closed bool
+			var n int
+			if rows.Scan(&name, &closed, &n) == nil {
+				end := ""
+				if closed {
+					end = " (ended)"
+				}
+				entries = append(entries, fmt.Sprintf("%s%s: %d", name, end, n))
+			}
+		}
+		lines = append(lbPack("Boards (players):", entries), "Use /top <board> or /rank <board>, e.g. /top week.")
+		return nil
+	}) {
+		return []string{lbUnavailable}
+	}
+	return lines
+}
+
+func (b *leaderboard) admin(by, arg string, now time.Time) []string {
+	word, rest, _ := strings.Cut(arg, " ")
+	word, rest = strings.ToLower(word), strings.TrimSpace(rest)
+	switch word {
+	case "award":
+		return b.adminAward(by, rest, now)
+	case "event":
+		return b.adminEvent(rest, now)
+	}
+	return []string{"/lb award <points> <player> [board:<board>] | /lb event start <name> | /lb event end [name]"}
+}
+
+func (b *leaderboard) adminAward(by, rest string, now time.Time) []string {
+	m := lbAwardRe.FindStringSubmatch(rest)
+	if m == nil {
+		return []string{"Usage: /lb award <points> <player or SteamID64> [board:<board>]"}
+	}
+	points, _ := strconv.Atoi(m[1])
+	who, spec := strings.TrimSpace(m[2]), m[3]
+	steam := ""
+	if lbSteamRe.MatchString(who) {
+		steam = who
+	} else {
+		for n, id := range b.online {
+			if strings.EqualFold(n, who) {
+				steam = id
+			}
+		}
+	}
+	reply := "The leaderboard could not be changed."
+	if !b.run(func(tx *sql.Tx) error {
+		sid, name := steam, who
+		if sid == "" {
+			rows, err := tx.Query(`SELECT steam_id, name FROM players WHERE name = ? COLLATE NOCASE`, who)
+			if err != nil {
+				return err
+			}
+			var ids, names []string
+			for rows.Next() {
+				var i, n string
+				if rows.Scan(&i, &n) == nil {
+					ids, names = append(ids, i), append(names, n)
+				}
+			}
+			rows.Close()
+			if len(ids) != 1 {
+				reply = "Player not found: use the name of someone online or a SteamID64."
+				if len(ids) > 1 {
+					reply = "Several players have that name: use the SteamID64."
+				}
+				return nil
+			}
+			sid, name = ids[0], names[0]
+		} else {
+			name = sid
+			_ = tx.QueryRow(`SELECT name FROM players WHERE steam_id = ?`, sid).Scan(&name)
+			for n, id := range b.online {
+				if id == sid {
+					name = n
+				}
+			}
+		}
+		boards := b.active(tx, now)
+		if spec != "" {
+			bd, ok := lbFind(tx, spec, now)
+			if !ok || bd.closed {
+				reply = "No open board called '" + spec + "'."
+				return nil
+			}
+			boards = []string{bd.id}
+		}
+		if err := b.add(tx, boards, []lbAward{{sid, name, points, 0, 0}}, "admin:"+by, now); err != nil {
+			return err
+		}
+		reply = fmt.Sprintf("Gave %+d points to %s on %d board(s).", points, name, len(boards))
+		return nil
+	}) {
+		return []string{reply}
+	}
+	fmt.Printf("[leaderboard] %s: award %+d to %s: %s\n", by, points, who, reply)
+	return []string{reply}
+}
+
+func (b *leaderboard) adminEvent(rest string, now time.Time) []string {
+	word, event, _ := strings.Cut(rest, " ")
+	word, event = strings.ToLower(word), strings.TrimSpace(event)
+	if !b.kinds["event"] {
+		return []string{"Events are off (LEADERBOARD_BOARDS)."}
+	}
+	slug := func(s string) string {
+		s = strings.Trim(lbSlugRe.ReplaceAllString(strings.ToLower(s), "-"), "-")
+		return s[:min(len(s), 32)]
+	}
+	switch word {
+	case "start":
+		name := lbSpaceRe.ReplaceAllString(event, " ")
+		if len(name) > 40 {
+			name = name[:40]
+		}
+		if slug(name) == "" {
+			return []string{"Usage: /lb event start <name>"}
+		}
+		reply, started := "The leaderboard could not be changed.", false
+		b.run(func(tx *sql.Tx) error {
+			id := "event-" + slug(name)
+			var closed sql.NullFloat64
+			if err := tx.QueryRow(`SELECT closed_at FROM boards WHERE id=?`, id).Scan(&closed); err == nil {
+				if !closed.Valid {
+					reply = "Event '" + name + "' is already running."
+					return nil
+				}
+				id += "-" + now.UTC().Format("20060102") // same name again: a board of its own
+				var one int
+				if tx.QueryRow(`SELECT 1 FROM boards WHERE id=?`, id).Scan(&one) == nil {
+					reply = "An event '" + name + "' already ran today; pick another name."
+					return nil
+				}
+			}
+			lbBoardInsert(tx, id, name, "event")
+			reply, started = "Event '"+name+"' started: every ranked result now counts there as well. End it with /lb event end.", true
+			return nil
+		})
+		if started {
+			b.send("say " + fit("Leaderboard event '"+name+"' has started! Ranked throwdown results count for it too: /top event", chatMax))
+		}
+		return []string{reply}
+	case "end":
+		reply := "The leaderboard could not be changed."
+		var ended *lbBoard
+		b.run(func(tx *sql.Tx) error {
+			q, args := lbBoardCols+`WHERE kind='event' AND closed_at IS NULL`, []any{}
+			if event != "" {
+				q, args = q+` AND (lower(name) = lower(?) OR id = ?)`, []any{event, "event-" + slug(event)}
+			}
+			rows, err := tx.Query(q, args...)
+			if err != nil {
+				return err
+			}
+			var found []lbBoard
+			for rows.Next() {
+				var bd lbBoard
+				var closed sql.NullFloat64
+				if rows.Scan(&bd.id, &bd.name, &bd.kind, &closed, &bd.version, &bd.postedVers) == nil {
+					found = append(found, bd)
+				}
+			}
+			rows.Close()
+			switch {
+			case len(found) == 0 && event != "":
+				reply = "No such event is running."
+			case len(found) == 0:
+				reply = "No event is running."
+			case len(found) > 1:
+				reply = "Several events are running: /lb event end <name>"
+			default:
+				if _, err := tx.Exec(`UPDATE boards SET closed_at = ?, version = version + 1 WHERE id = ?`, unixf(now), found[0].id); err != nil {
+					return err
+				}
+				ended, reply = &found[0], "Event '"+found[0].name+"' ended."
+			}
+			return nil
+		})
+		if ended != nil {
+			b.final(*ended)
+		}
+		return []string{reply}
+	}
+	return []string{"Usage: /lb event start <name> | /lb event end [name]"}
+}
+
+// final: the result of a finished event goes to chat and Discord.
+func (b *leaderboard) final(bd lbBoard) {
+	var rows []lbRow
+	b.run(func(tx *sql.Tx) error { rows = lbTop(tx, bd.id, 10); return nil })
+	if len(rows) == 0 {
+		return
+	}
+	var entries []string
+	for i, r := range rows[:min(3, len(rows))] {
+		entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, r.name, r.points))
+	}
+	for _, l := range lbPack("Event '"+bd.name+"' is over:", entries) {
+		b.send("say " + fit(l, chatMax))
+	}
+	if b.post != nil {
+		b.post("**Event finished: " + bd.name + "**\n```\n" + lbTable(rows) + "\n```")
+	}
+}
+
+// ---- timers ------------------------------------------------------------------------------
+
+func (b *leaderboard) tick() {
+	now := time.Now()
+	b.mu.Lock()
+	for name, due := range b.waiting {
+		if !now.Before(due) {
+			delete(b.waiting, name)
+			b.tell(name)
+		}
+	}
+	playersOn := len(b.online) > 0
+	b.mu.Unlock()
+	if now.Sub(b.chatAt) >= b.interval {
+		b.chatAt = now
+		if playersOn {
+			b.postChat(now)
+		}
+	}
+	if b.post != nil && now.Sub(b.postAt) >= time.Minute {
+		b.postAt = now
+		b.postDiscord(now)
+	}
+}
+
+type lbShown struct {
+	board lbBoard
+	rows  []lbRow
+}
+
+// current: the boards shown now (General, this week, the open events) with their top 10.
+func (b *leaderboard) current(tx *sql.Tx, now time.Time) []lbShown {
+	var out []lbShown
+	for _, id := range b.active(tx, now) {
+		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, id)); ok {
+			out = append(out, lbShown{bd, lbTop(tx, id, 10)})
+		}
+	}
+	return out
+}
+
+func (b *leaderboard) postChat(now time.Time) {
+	var shown []lbShown
+	b.run(func(tx *sql.Tx) error { shown = b.current(tx, now); return nil })
+	first := true
+	for _, s := range shown {
+		rows := s.rows[:min(len(s.rows), b.size)]
+		if len(rows) == 0 {
+			continue
+		}
+		var entries []string
+		for i, p := range rows {
+			entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, p.name, p.points))
+		}
+		if first {
+			b.send("announce " + fit(s.board.name+": "+strings.Join(entries[:min(3, len(entries))], " | "), chatMax))
+			first = false
+		}
+		head := s.board.name + ":"
+		if s.board.kind == "general" {
+			head = "Leaderboard (" + b.label + ", ranked throwdowns):"
+		}
+		for _, l := range lbPack(head, entries) {
+			b.send("say " + fit(l, chatMax))
+		}
+	}
+}
+
+func lbTable(rows []lbRow) string {
+	width := 0
+	for _, p := range rows {
+		width = max(width, len(p.name))
+	}
+	var lines []string
+	for i, p := range rows {
+		lines = append(lines, fmt.Sprintf("%2d. %-*s  %5d pts  %d won / %d played", i+1, width, p.name, p.points, p.wins, p.played))
+	}
+	return strings.ReplaceAll(strings.Join(lines, "\n"), "```", "'''")
+}
+
+func (b *leaderboard) postDiscord(now time.Time) {
+	var shown []lbShown
+	b.run(func(tx *sql.Tx) error {
+		var at string
+		if tx.QueryRow(`SELECT value FROM meta WHERE key='posted_at'`).Scan(&at) == nil {
+			if v, err := strconv.ParseFloat(at, 64); err == nil && unixf(now)-v < b.interval.Seconds() {
+				return nil // another server posted lately
+			}
+		}
+		all := b.current(tx, now)
+		changed := false
+		for _, s := range all {
+			changed = changed || s.board.version != s.board.postedVers
+		}
+		if !changed {
+			return nil // nothing new since the last post
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO meta VALUES ('posted_at', ?)`, strconv.FormatFloat(unixf(now), 'f', 3, 64)); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE boards SET posted_version = version`); err != nil {
+			return err
+		}
+		shown = all
+		return nil
+	})
+	var parts []string
+	for _, s := range shown {
+		if len(s.rows) == 0 {
+			continue
+		}
+		n := 5
+		if s.board.kind == "general" {
+			n = 10
+		}
+		parts = append(parts, "**"+s.board.name+"** ("+b.label+", ranked throwdowns)\n```\n"+lbTable(s.rows[:min(len(s.rows), n)])+"\n```")
+	}
+	if len(parts) > 0 {
+		b.post(strings.Join(parts, "\n"))
+	}
+}
+
+func (b *leaderboard) loop() {
+	for {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("[leaderboard] %v\n", r)
+				}
+			}()
+			b.tick()
+		}()
+		time.Sleep(time.Second)
+	}
+}
+
 // lbResults reads the results of a finished line: "1. Anna 12,345, 2. Ben 9,876 (quit)" or,
 // for S.K.A.T.E., "Anna 7 landed / 3 missed, Ben 2 landed / 5 missed (quit)".
 func lbResults(mode, results string) []lbResult {
@@ -319,157 +1075,4 @@ func lbResults(mode, results string) []lbResult {
 		}
 	}
 	return out
-}
-
-type lbAward struct {
-	name, key string
-	points    int
-	won       bool
-}
-
-func (b *leaderboard) score(results []lbResult) {
-	var finished []lbResult
-	for _, r := range results {
-		if !r.quit {
-			finished = append(finished, r)
-		}
-	}
-	if len(finished) < 2 || len(b.points) == 0 {
-		return
-	}
-	var awards []lbAward
-	for _, r := range finished {
-		if !b.isRanked(r.name) {
-			continue
-		}
-		i := len(b.points) - 1
-		if r.place > 0 {
-			i = min(r.place, len(b.points)) - 1
-		}
-		key := b.online[r.name]
-		if key == "" {
-			key = "name:" + r.name
-		}
-		awards = append(awards, lbAward{r.name, key, b.points[i], r.place == 1})
-	}
-	if len(awards) == 0 {
-		return
-	}
-	b.locked(true, func(d *lbData) bool {
-		for _, a := range awards {
-			p := d.Players[a.key]
-			if p == nil {
-				p = &lbPlayer{}
-				d.Players[a.key] = p
-			}
-			p.Name = a.name
-			p.Points += a.points
-			p.Played++
-			if a.won {
-				p.Wins++
-			}
-		}
-		d.Version++
-		return true
-	})
-	var parts []string
-	for _, a := range awards {
-		parts = append(parts, fmt.Sprintf("%s +%d", a.name, a.points))
-	}
-	fmt.Println("[leaderboard] " + strings.Join(parts, ", "))
-}
-
-// ---- timers ------------------------------------------------------------------------------
-
-func (b *leaderboard) tick() {
-	now := time.Now()
-	b.mu.Lock()
-	for name, due := range b.waiting {
-		if !now.Before(due) {
-			delete(b.waiting, name)
-			b.tell(name)
-		}
-	}
-	playersOn := len(b.online) > 0
-	b.mu.Unlock()
-	if now.Sub(b.chatAt) >= b.interval {
-		b.chatAt = now
-		if playersOn {
-			b.postChat()
-		}
-	}
-	if b.post != nil && now.Sub(b.postAt) >= time.Minute {
-		b.postAt = now
-		b.postDiscord(now)
-	}
-}
-
-func (b *leaderboard) postChat() {
-	var rows []*lbPlayer
-	b.locked(false, func(d *lbData) bool { rows = lbTop(d, b.size); return false })
-	if len(rows) == 0 {
-		return
-	}
-	var entries []string
-	for i, p := range rows {
-		entries = append(entries, fmt.Sprintf("%d. %s %d", i+1, p.Name, p.Points))
-	}
-	b.send("announce " + fit("Leaderboard: "+strings.Join(entries[:min(3, len(entries))], " | "), chatMax))
-	line := "Leaderboard (" + b.label + ", ranked throwdowns):"
-	for _, e := range entries {
-		if len(line)+2+len(e) > chatMax {
-			b.send("say " + line)
-			line = e
-		} else {
-			line += "  " + e
-		}
-	}
-	b.send("say " + line)
-}
-
-func (b *leaderboard) postDiscord(now time.Time) {
-	stamp := float64(now.UnixNano()) / 1e9
-	due := func(d *lbData) bool {
-		return stamp-d.PostedAt >= b.interval.Seconds() && d.Version != d.PostedVersion
-	}
-	ready := false
-	b.locked(false, func(d *lbData) bool { ready = due(d); return false })
-	if !ready {
-		return
-	}
-	var rows []*lbPlayer
-	b.locked(true, func(d *lbData) bool {
-		if !due(d) {
-			return false // another server posted meanwhile
-		}
-		d.PostedAt, d.PostedVersion = stamp, d.Version
-		rows = lbTop(d, 10)
-		return true
-	})
-	if len(rows) == 0 {
-		return
-	}
-	width := 0
-	for _, p := range rows {
-		width = max(width, len(p.Name))
-	}
-	var lines []string
-	for i, p := range rows {
-		lines = append(lines, fmt.Sprintf("%2d. %-*s  %5d pts  %d won / %d played", i+1, width, p.Name, p.Points, p.Wins, p.Played))
-	}
-	b.post("**Leaderboard** (" + b.label + ", ranked throwdowns)\n```\n" + strings.ReplaceAll(strings.Join(lines, "\n"), "```", "'''") + "\n```")
-}
-
-func (b *leaderboard) loop() {
-	for {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("[leaderboard] %v\n", r)
-				}
-			}()
-			b.tick()
-		}()
-		time.Sleep(time.Second)
-	}
 }

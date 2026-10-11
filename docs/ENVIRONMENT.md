@@ -201,8 +201,10 @@ How ranking and points work: [Ranked and leaderboard](../README.md#ranked-and-le
 | `LEADERBOARD` | `true` to turn it on (default off). |
 | `LEADERBOARD_INTERVAL` | Minutes between posts, 1-1440 (default 60). |
 | `LEADERBOARD_SIZE` | Players listed in chat, 1-10 (default 5). |
+| `LEADERBOARD_BOARDS` | Board kinds to keep, comma-separated from `general`, `week`, `event` (default all three). `week` creates one board per ISO week (UTC) by itself; `event` lets admins open and close boards with `/lb event start <name>` / `/lb event end`. |
+| `LEADERBOARD_COMMANDS` | `false` to leave the chat commands `/top`, `/rank`, `/boards` and the admin command `/lb` out of the server's `commands` (default `true`). A command of the same name in `COMMANDS` stays and ours is skipped; the server allows 32 commands in all. |
 | `LEADERBOARD_POINTS` | Points per place, comma-separated; the last value is for every later place (default `10,6,4,2`). |
-| `LEADERBOARD_SCOPE` | `shared` (default): one board for every server that mounts the same folder at `/shared`, e.g. `- /root/reskate/shared:/shared` on each one (writable by uid 1000). Without that mount the server keeps its own board and says so in its log. `server`: always this server's own board, in `/data`. |
-| `LEADERBOARD_FILE` | Use another file than `/shared/leaderboard.json` / `/data/leaderboard.json`. The shared file is locked while changed, and only one server posts it to Discord per interval. |
+| `LEADERBOARD_SCOPE` | `shared` (default): one database for every server that mounts the same folder at `/shared`, e.g. `- /root/reskate/shared:/shared` on each one (writable by uid 1000). Without that mount the server keeps its own board and says so in its log. `server`: always this server's own board, in `/data`. |
+| `LEADERBOARD_FILE` | Use another database file than `/shared/leaderboard.db` / `/data/leaderboard.db`. An old `leaderboard.json` next to it is imported into General once. SQLite locks the file while it is changed, and only one server posts it to Discord per interval. |
 | `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
 | `UNRANKED_TUNING_MESSAGE` / `UNRANKED_SPEED_MESSAGE` | The DMs when nobody is ranked because players may use their own physics tuning, and when a player's game ran sped up. At most 200 bytes. |
