@@ -1,0 +1,142 @@
+# Builds and pushes dudedankdave/reskate-server for each new ReSkate release.
+# Every 30 min it reads the latest release's launcher.json; if Docker Hub has no tag for that
+# version yet, it downloads the Linux server (checked against its SHA-256), builds both images
+# from main and pushes <ver>, <major>.<minor>, latest, <ver>-slim and slim.
+# Pull requests build the default image without pushing.
+# Needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access token).
+name: Release image
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build and push even if Docker Hub already has this version"
+        type: boolean
+        default: false
+      push:
+        description: "Push to Docker Hub (off = test build only)"
+        type: boolean
+        default: true
+  pull_request:
+
+concurrency:
+  group: release-image-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: dudedankdave/reskate-server
+  UPSTREAM: Dingo-Shenanigans/ReSkate
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the latest ReSkate release
+        id: release
+        run: |
+          set -euo pipefail
+          curl -fsSL -m 30 "https://github.com/$UPSTREAM/releases/latest/download/launcher.json" -o launcher.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          info = json.load(open("launcher.json", encoding="utf-8-sig"))["server_linux"]
+          v = info["version"]
+          assert re.fullmatch(r"\d+(\.\d+)+", v), v
+          url = info["url"]
+          if url.startswith("asset:"):
+              url = f"https://github.com/{os.environ['UPSTREAM']}/releases/download/v{v}/{url[6:]}"
+          assert url.startswith("https://"), url
+          print(f"version={v}")
+          print(f"minor={'.'.join(v.split('.')[:2])}")
+          print(f"url={url}")
+          print(f"sha256={info['sha256'].lower()}")
+          print(f"exe_sha256={info.get('exe_sha256', '').lower()}")
+          PY
+          rm launcher.json
+
+      - name: Already on Docker Hub?
+        id: hub
+        run: |
+          v=${{ steps.release.outputs.version }}
+          case "${{ github.event_name }}" in
+            pull_request) echo "push=false" >> "$GITHUB_OUTPUT" ;;
+            workflow_dispatch) echo "push=${{ inputs.push }}" >> "$GITHUB_OUTPUT" ;;
+            *) echo "push=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+          if [ "${{ github.event_name }}" = pull_request ] || [ "${{ inputs.force }}" = true ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif curl -fsS -m 20 "https://hub.docker.com/v2/repositories/$IMAGE/tags/$v" >/dev/null; then
+            echo "$IMAGE:$v is on Docker Hub, nothing to do"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$IMAGE:$v is not on Docker Hub yet, building it"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the server
+        if: steps.hub.outputs.build == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL -m 600 "${{ steps.release.outputs.url }}" -o server.tar.gz
+          echo "${{ steps.release.outputs.sha256 }}  server.tar.gz" | sha256sum -c -
+          mkdir unpacked Server
+          tar -xzf server.tar.gz -C unpacked --no-same-owner
+          top=$(find unpacked -mindepth 1 -maxdepth 1 -type d)
+          for f in ReSkateServer libsteam_api.so libtier0_s.so libvstdlib_s.so steamclient.so; do
+            cp "$top/$f" Server/
+          done
+          exe=${{ steps.release.outputs.exe_sha256 }}
+          if [ -n "$exe" ]; then echo "$exe  Server/ReSkateServer" | sha256sum -c -; fi
+          rm -rf unpacked server.tar.gz
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.hub.outputs.build == 'true'
+
+      - name: Log in to Docker Hub
+        if: steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build (and push) the default image
+        if: steps.hub.outputs.build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: VERSION=${{ steps.release.outputs.version }}
+          push: ${{ steps.hub.outputs.push == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
+            ${{ env.IMAGE }}:${{ steps.release.outputs.minor }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Build (and push) the slim image
+        if: steps.hub.outputs.build == 'true' && github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: slim/Dockerfile
+          build-args: VERSION=${{ steps.release.outputs.version }}
+          push: ${{ steps.hub.outputs.push == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-slim
+            ${{ env.IMAGE }}:slim
+
+      - name: Docker Hub README
+        continue-on-error: true
+        if: steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true'
+        run: |
+          python3 hub-readme.py > hub-readme.md
+          token=$(curl -fsS -X POST https://hub.docker.com/v2/users/login -H 'Content-Type: application/json' \
+            -d "$(python3 -c 'import json,os;print(json.dumps({"username":os.environ["U"],"password":os.environ["P"]}))')" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+          python3 -c 'import json;print(json.dumps({"full_description":open("hub-readme.md",encoding="utf-8").read()}))' \
+            | curl -fsS -X PATCH "https://hub.docker.com/v2/repositories/$IMAGE/" -H "Authorization: JWT $token" \
+                   -H 'Content-Type: application/json' --data @- >/dev/null
+        env:
+          U: ${{ secrets.DOCKERHUB_USERNAME }}
+          P: ${{ secrets.DOCKERHUB_TOKEN }}
