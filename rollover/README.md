@@ -21,7 +21,8 @@ the other slot (same ReSkate version and image, named `<name>-m<MMDDHHMM>`) and 
 above. Like `copy_min_players` / `copy_wait_minutes` for releases, `MODUPDATE_MIN_PLAYERS` (default `1`)
 and `MODUPDATE_WAIT` (minutes, default `60`) hold a map update back while only a few players are on;
 set them as env vars on the rollover container, or as `modupdate_min_players` / `modupdate_wait` in
-`servers.json` (globally or per server). `mod_updates: false` (globally or per
+`servers.json` (globally or per server). An env var on the container wins over the file's top-level
+value; a per-server value wins over both. `mod_updates: false` (globally or per
 server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are never rolled for mods.
 
 ## Slots
