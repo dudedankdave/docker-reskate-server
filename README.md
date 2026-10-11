@@ -303,7 +303,7 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `healthcheck.py` | Reports healthy once the log shows the server is up |
 | `check-update.sh` | Host-side release check |
 | `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
-| `rollover/` | Host-side service: starts a copy on a new ReSkate release while players are on, stops the old server once empty |
+| `rollover/` | Host-side services: starts a copy on a new ReSkate release while players are on, stops the old server once empty; live server status cards in Discord |
 | `hub-readme.py` | README for Docker Hub (relative links made absolute, 25 KB limit) |
 | `docs/ENVIRONMENT.md` | All environment variables |
 | `slim/` | Source and Dockerfile of the slim (distroless) image |
