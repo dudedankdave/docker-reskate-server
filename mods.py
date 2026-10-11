@@ -11,11 +11,26 @@ folder you copied in by hand is left alone (and adopted, without a download, whe
 manifest.json already has the wanted version). A failure is logged and never stops the
 server from starting. The default image has no Python HTTPS or zip support, so this shells
 out to curl and unzip.
+
+Shared store: with a volume mounted at /mods (MODS_STORE), every package version is downloaded
+once into /mods/packages/<Owner>-<Name>-<version> and each server only gets a symlink
+/data/Mods/<Name> to the version it wants. A version is never changed after it is written, so a
+server still running (or draining players) on an older map keeps its files while another one
+already moved on, and a lock per version makes servers starting together wait for one download
+instead of repeating it. `python3 /app/mods.py gc [days]` removes versions no server has
+started with for that long (never the newest of a package).
 """
 import json
 import os
 import re
 import subprocess
+import sys
+import time
+
+try:
+    import fcntl
+except ImportError:  # no locking: fine while only one server installs
+    fcntl = None
 
 MODS_DIR = "/data/Mods"
 TMP_DIR = "/data/.mods-tmp"          # same volume as Mods, so renames are atomic
@@ -25,6 +40,43 @@ BASE = os.environ.get("THUNDERSTORE_URL", "https://thunderstore.io").rstrip("/")
 MAX_UNPACKED = 8 * 1024 ** 3        # refuse zips that unpack to more than 8 GiB
 ID = re.compile(r"^([A-Za-z0-9_]+)-([A-Za-z0-9_]+)(?:-(\d+\.\d+\.\d+))?$")
 URL = re.compile(r"/(?:p|package)/(?:download/)?([A-Za-z0-9_]+)/([A-Za-z0-9_]+)(?:/(\d+\.\d+\.\d+))?")
+
+
+STORE = os.environ.get("MODS_STORE", "/mods").rstrip("/")
+PACKAGES = STORE + "/packages"
+STORE_TMP = STORE + "/.tmp"
+LOCK_WAIT = 4000                     # seconds to wait for another server's download of the same version
+
+
+def shared():
+    """True when a volume is mounted at the store path: packages are shared between servers."""
+    return os.path.ismount(STORE)
+
+
+class Lock:
+    """An exclusive lock on a file in the store (a no-op without fcntl)."""
+
+    def __init__(self, name):
+        os.makedirs(STORE + "/.locks", exist_ok=True)
+        self.path = f"{STORE}/.locks/{name}.lock"
+
+    def __enter__(self):
+        self.file = open(self.path, "a")
+        if fcntl:
+            deadline = time.time() + LOCK_WAIT
+            while True:
+                try:
+                    fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.time() > deadline:
+                        self.file.close()
+                        raise RuntimeError("another server has been installing this for too long")
+                    time.sleep(2)
+        return self
+
+    def __exit__(self, *exc):
+        self.file.close()                # closing releases the lock
 
 
 def rmtree(path):
@@ -104,12 +156,9 @@ def check_zip(path):
         raise RuntimeError("zip unpacks to more than 8 GiB")
 
 
-def install(owner, name, version, url, old=None):
-    target = os.path.join(MODS_DIR, name)
-    work = os.path.join(TMP_DIR, name)
-    rmtree(TMP_DIR)
-    os.makedirs(work)
-    archive = os.path.join(TMP_DIR, f"{name}-{version}.zip")
+def unpack(owner, name, version, url, work):
+    """Download the package and unpack it into the empty folder `work`, with the marker written."""
+    archive = work + ".zip"
     log(f"{owner}-{name} {version}: downloading")
     run = subprocess.run(["curl", "-fsSL", "--retry", "3", "--retry-delay", "5", "-m", "3600", "-o", archive, url],
                          capture_output=True)
@@ -124,14 +173,91 @@ def install(owner, name, version, url, old=None):
         raise RuntimeError("package has no manifest.json")
     with open(os.path.join(work, MARKER), "w", encoding="utf-8") as f:
         json.dump({"owner": owner, "name": name, "version": version}, f)
-    backup = target + ".old"
-    if os.path.isdir(target):
-        rmtree(backup)
-        os.rename(target, backup)
+
+
+def stored(owner, name, version):
+    return f"{PACKAGES}/{owner}-{name}-{version}"
+
+
+def clean_store_tmp():
+    """Leftovers of installs that died half way (nothing else uses these folders after an hour)."""
+    try:
+        for entry in os.scandir(STORE_TMP):
+            if time.time() - entry.stat().st_mtime > 3600 * 2:
+                rmtree(entry.path)
+    except OSError:
+        pass
+
+
+def fill_store(owner, name, version, url, adopt=None):
+    """Make sure the shared store holds this version, downloading it once however many servers ask.
+    `adopt` is a folder this installer wrote earlier with exactly this version: copied, not downloaded."""
+    final = stored(owner, name, version)
+    with Lock(f"{owner}-{name}-{version}"):
+        if os.path.exists(os.path.join(final, MARKER)):      # another server finished while we waited
+            return final
+        os.makedirs(PACKAGES, exist_ok=True)
+        os.makedirs(STORE_TMP, exist_ok=True)
+        clean_store_tmp()
+        work = f"{STORE_TMP}/{owner}-{name}-{version}.{os.getpid()}"
+        rmtree(work)
+        if adopt:
+            run = subprocess.run(["cp", "-a", adopt, work], capture_output=True)
+            if run.returncode != 0:
+                rmtree(work)
+                raise RuntimeError("copying into the shared store failed: " + run.stderr.decode(errors="replace").strip())
+        else:
+            os.makedirs(work)
+            unpack(owner, name, version, url, work)
+        rmtree(final)                                         # a folder without marker is a dead leftover
+        os.rename(work, final)                                # complete or absent, never half
+    return final
+
+
+def touch(folder):
+    """Mark a store folder as in use right now (what gc goes by)."""
+    try:
+        os.utime(folder)
+    except OSError:
+        pass
+
+
+def link(target, final):
+    """Point /data/Mods/<name> at a store folder; an earlier symlink is swapped atomically, a folder
+    this installer made earlier (it has the marker) is moved aside and removed."""
     os.makedirs(MODS_DIR, exist_ok=True)
-    os.rename(work, target)
-    rmtree(backup)
-    rmtree(TMP_DIR)
+    tmp = target + ".link"
+    if os.path.lexists(tmp):
+        os.remove(tmp)
+    os.symlink(final, tmp)
+    old = None
+    if os.path.isdir(target) and not os.path.islink(target):
+        old = target + ".old"
+        rmtree(old)
+        os.rename(target, old)
+    os.replace(tmp, target)
+    if old:
+        rmtree(old)
+    touch(final)
+
+
+def install(owner, name, version, url, old=None):
+    target = os.path.join(MODS_DIR, name)
+    if shared():
+        link(target, fill_store(owner, name, version, url))
+    else:
+        work = os.path.join(TMP_DIR, name)
+        rmtree(TMP_DIR)
+        os.makedirs(work)
+        unpack(owner, name, version, url, work)
+        backup = target + ".old"
+        if os.path.isdir(target):
+            rmtree(backup)
+            os.rename(target, backup)
+        os.makedirs(MODS_DIR, exist_ok=True)
+        os.rename(work, target)
+        rmtree(backup)
+        rmtree(TMP_DIR)
     maps = []
     try:
         with open(os.path.join(target, "reskate-levels.json"), encoding="utf-8-sig") as f:
@@ -157,6 +283,12 @@ def ensure(owner, name, version, update, dependency=False, seen=None):
         if marker is None:
             with open(os.path.join(target, MARKER), "w", encoding="utf-8") as f:
                 json.dump({"owner": owner, "name": name, "version": want}, f)
+        elif shared():
+            if os.path.islink(target):
+                touch(os.path.realpath(target))
+            else:                                             # this server's own copy: share it
+                link(target, fill_store(owner, name, want, m["download_url"], adopt=target))
+                log(f"{label} {want}: moved into the shared store")
         log(f"{label} {want}: up to date")
     elif have is not None and marker is None:
         log(f"{label}: {MODS_DIR}/{name} ({have}) was not installed by MODS, leaving it alone")
@@ -208,6 +340,31 @@ def install_all(spec, update=True):
             log(f"{token}: {e}")
 
 
-if __name__ == "__main__":  # docker exec <container> python3 /app/mods.py
+def gc(days):
+    """Remove store folders nobody started with for `days` days, except the newest of each package.
+    A running server keeps using the version it started with, so keep `days` above how long a
+    server may run without a restart."""
+    newest = {}
+    for entry in os.scandir(PACKAGES) if os.path.isdir(PACKAGES) else []:
+        m = read_marker(entry.path)
+        if m:
+            key = (m["owner"], m["name"])
+            if key not in newest or version_key(m["version"]) > version_key(newest[key][0]):
+                newest[key] = (m["version"], entry.path)
+    for entry in os.scandir(PACKAGES) if os.path.isdir(PACKAGES) else []:
+        m = read_marker(entry.path)
+        if not m or newest[(m["owner"], m["name"])][1] == entry.path:
+            continue
+        age = (time.time() - entry.stat().st_mtime) / 86400
+        if age >= days:
+            with Lock(f"{m['owner']}-{m['name']}-{m['version']}"):
+                rmtree(entry.path)
+            log(f"removed {entry.name} (unused for {age:.0f} days)")
+
+
+if __name__ == "__main__":  # docker exec <container> python3 /app/mods.py [gc [days]]
+    if sys.argv[1:2] == ["gc"]:
+        gc(float(sys.argv[2]) if len(sys.argv) > 2 else 30)
+        sys.exit(0)
     install_all(os.environ.get("MODS", ""),
                 os.environ.get("MODS_UPDATE", "true").strip().lower() in ("1", "true", "yes", "on"))

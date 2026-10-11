@@ -28,8 +28,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl unzip python3-minimal tini \
  && rm -rf /var/lib/apt/lists/* \
  && useradd -m -u 1000 reskate \
- && mkdir -p /data /home/reskate/.steam/sdk64 \
- && chown reskate:reskate /data /home/reskate/.steam /home/reskate/.steam/sdk64
+ && mkdir -p /data /mods /home/reskate/.steam/sdk64 \
+ && chown reskate:reskate /data /mods /home/reskate/.steam /home/reskate/.steam/sdk64
 WORKDIR /app
 # --chown on COPY avoids a second 49 MB layer from a recursive chown
 COPY --from=server --chown=reskate:reskate /out/ /app/

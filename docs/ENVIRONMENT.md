@@ -156,6 +156,7 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 |---|---|---|
 | `MODS` | package list | Thunderstore packages to install into `/data/Mods` on start: `Owner-Name`, `Owner-Name-1.2.3` or a package URL, comma or space separated. See [Custom maps and mods](../README.md#custom-maps-and-mods). |
 | `MODS_UPDATE` | `true` / `false` | `false` keeps installed versions even when a newer one exists (pinned entries and missing packages are still installed). Default `true`. |
+| `MODS_STORE` | path | Where a shared volume for maps/mods is mounted, default `/mods`. Used only when something is mounted there: each version is then downloaded once for all servers, see [Custom maps and mods](../README.md#custom-maps-and-mods). |
 
 <br/>
 
