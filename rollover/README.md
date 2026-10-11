@@ -25,6 +25,8 @@ set them as env vars on the rollover container, or as `modupdate_min_players` / 
 value; a per-server value wins over both. `mod_updates: false` (globally or per
 server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are never rolled for mods.
 
+**Shared map store:** set `MAPS_VOLUME` (env var, or `maps_volume` in `servers.json`, globally or per server) to a volume name, e.g. `reskate-mods`, and every container the rollover creates also gets it at `/mods`, so servers share one download of each map version (see the main README). A copy keeps its predecessor's map version available there until `mods.py gc` removes it. The existing servers need the same mount added once, the next time they are recreated.
+
 ## Slots
 
 Each server has two slots with their own ports, Steam token and `/data` volume (`servers.example.json`).

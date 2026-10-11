@@ -383,6 +383,7 @@ class Rollover:
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")
         host = old.info["HostConfig"]
         cfg = old.info["Config"]
+        maps_volume = setting(self.cfg, server, "maps_volume", "")   # shared map/mod store, mounted at /mods
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
@@ -392,7 +393,7 @@ class Rollover:
             "HostConfig": {
                 "NetworkMode": host.get("NetworkMode", "host"),
                 "RestartPolicy": host.get("RestartPolicy") or {"Name": "unless-stopped"},
-                "Binds": [f"{s['volume']}:/data"],
+                "Binds": [f"{s['volume']}:/data"] + ([f"{maps_volume}:/mods"] if maps_volume else []),
                 "LogConfig": host.get("LogConfig") or {},
             },
         }
