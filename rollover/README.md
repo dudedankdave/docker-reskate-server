@@ -45,7 +45,7 @@ proxy). `PRETEND_LATEST=2.0.9 python3 rollover.py --once` shows what a release w
 ## Status cards in Discord
 
 `status.py` keeps one message in a Discord channel up to date: a card per server with online/offline,
-players, map, version and join code, and the total on top. It posts the message once through a webhook
+players, map, version and join code, and the total at the bottom. It posts the message once through a webhook
 and then only edits it (every minute when something changed, at least every 5 minutes), so the channel
 never fills up. Players come from the server log like above; a server with no running container shows
 as offline, one that is still coming up as starting, and an older version still draining its players

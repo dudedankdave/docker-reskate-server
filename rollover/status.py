@@ -200,8 +200,12 @@ class Board:
             online += up
         for gone in set(self.seen) - {i["Id"] for infos in found.values() for i in infos}:
             del self.seen[gone]
-        head = (f"**{total} player{'s' if total != 1 else ''} online** · {online}/{len(cards)} servers up")
-        return {"content": head, "embeds": cards[:10], "allowed_mentions": {"parse": []}}
+        summary = {"title": f"{total} player{'s' if total != 1 else ''} online · {online}/{len(cards)} servers up",
+                   "color": GREEN if online == len(cards) else YELLOW if online else RED}
+        if SPACER:
+            summary["image"] = {"url": SPACER}
+        # the summary goes last, under the cards; no text above them, so the first card starts the message
+        return {"content": "", "embeds": cards[:9] + [summary], "allowed_mentions": {"parse": []}}
 
     # ---- Discord ---------------------------------------------------------------------------
     def load(self):
@@ -224,8 +228,8 @@ class Board:
             say(f"could not save {STATE} ({e}); a restart would post a new message")
 
     def publish(self, payload):
-        stamp = f"\nUpdated <t:{int(time.time())}:R>"
-        body = dict(payload, content=payload["content"] + stamp)
+        summary = dict(payload["embeds"][-1], description=f"Updated <t:{int(time.time())}:R>")
+        body = dict(payload, embeds=payload["embeds"][:-1] + [summary])
         msg = self.state.get("message")
         if msg:
             code, _ = discord("PATCH", f"{WEBHOOK}/messages/{msg}", body)
