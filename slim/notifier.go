@@ -267,6 +267,7 @@ var (
 	joinedRe = regexp.MustCompile(`^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$`)
 	leftRe   = regexp.MustCompile(`^(.+?) left \(.*\)(?: \[.*\])?$`) // "Name left (reason) [connection details]"
 	upRe     = regexp.MustCompile(`^.+ is up on .+ for \d+ players\.$`)
+	upOnRe   = regexp.MustCompile(`^.+? is up on (.+ for \d+ players\.)$`)
 	taggedRe = regexp.MustCompile(`^\[(?:chat|admin|join|objects)\] `)
 	lineRe   = regexp.MustCompile(`^\[(\d\d:\d\d:\d\d)\] (.*)$`)
 )
@@ -330,23 +331,42 @@ func essentialLine(line string) string {
 }
 
 // feed batches console lines for one webhook; convert filters/rewrites them (nil = every line).
+// posted is a line as a feed posts it. Discord already shows the server's name (the webhook name)
+// and when it was posted, so the server-up line drops the name and, unless stamp (the log), the time goes.
+func posted(line string, stamp bool) string {
+	m := lineRe.FindStringSubmatch(line)
+	if m == nil {
+		return line
+	}
+	text := m[2]
+	if up := upOnRe.FindStringSubmatch(text); up != nil {
+		text = "Up on " + up[1]
+	}
+	if stamp {
+		return "[" + m[1] + "] " + text
+	}
+	return text
+}
+
 type feed struct {
 	h       *hook
 	convert func(string) string
+	stamp   bool // keep each line's [HH:MM:SS]
 	pending []string
 	first   time.Time
 }
 
 func (f *feed) add(lines []string) {
-	if f.convert != nil {
-		var out []string
-		for _, l := range lines {
-			if c := f.convert(l); c != "" {
-				out = append(out, c)
-			}
+	var out []string
+	for _, l := range lines {
+		if f.convert != nil {
+			l = f.convert(l)
 		}
-		lines = out
+		if l != "" {
+			out = append(out, posted(l, f.stamp))
+		}
 	}
+	lines = out
 	if len(lines) > 0 && len(f.pending) == 0 {
 		f.first = time.Now()
 	}
@@ -595,7 +615,7 @@ func (n *notifier) track(line string) {
 
 func (n *notifier) consoleLoop() {
 	var feeds []*feed
-	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log, convert: logLine}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
+	for _, f := range []*feed{{h: n.essentials, convert: essentialLine}, {h: n.log, convert: logLine, stamp: true}, {h: n.public, convert: publicLine}, {h: n.chat, convert: chatLine}} {
 		if f.h.url != "" {
 			feeds = append(feeds, f)
 		}

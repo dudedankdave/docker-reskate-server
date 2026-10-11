@@ -141,6 +141,7 @@ def clean(line):
 JOINED = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$")
 LEFT = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")   # "Name left (reason) [connection details]"
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
+UP_ON = re.compile(r"^.+? is up on (.+ for \d+ players\.)$")
 TAGGED = re.compile(r"^\[(?:chat|admin|join|objects)\] ")
 LINE = re.compile(r"^\[(\d\d:\d\d:\d\d)\] (.*)$")
 ESSENTIAL = re.compile(r"(?i)\bcode\b|Config problem|\bWARNING\b|\bERROR\b|\bfailed\b")
@@ -189,16 +190,30 @@ def essential_line(line):
     return line if UP.match(text) or ESSENTIAL.search(text) else None
 
 
-class Feed:
-    """Batches console lines for one webhook; `convert` filters/rewrites them (None = every line)."""
+def posted(line, stamp):
+    """A line as a feed posts it. Discord already shows the server's name (the webhook name) and when
+    it was posted, so the server-up line drops the name and, unless stamp (the log), the time goes."""
+    m = LINE.match(line)
+    if not m:
+        return line
+    text = m.group(2)
+    if up := UP_ON.match(text):
+        text = "Up on " + up.group(1)
+    return f"[{m.group(1)}] {text}" if stamp else text
 
-    def __init__(self, hook, convert=None):
-        self.hook, self.convert = hook, convert
+
+class Feed:
+    """Batches console lines for one webhook; `convert` filters/rewrites them (None = every line),
+    `stamp` keeps each line's [HH:MM:SS]."""
+
+    def __init__(self, hook, convert=None, stamp=False):
+        self.hook, self.convert, self.stamp = hook, convert, stamp
         self.pending, self.first = [], 0.0
 
     def add(self, lines):
         if self.convert:
             lines = [x for x in map(self.convert, lines) if x]
+        lines = [posted(x, self.stamp) for x in lines]
         if lines and not self.pending:
             self.first = time.time()
         self.pending += lines
@@ -341,8 +356,8 @@ class Notifier:
             self.players.discard(left.group(1))
 
     def console_loop(self):
-        feeds = [Feed(h, c) for h, c in ((self.essentials, essential_line), (self.log, log_line),
-                                         (self.public, public_line), (self.chat, chat_line)) if h.url]
+        feeds = [Feed(h, c, h is self.log) for h, c in ((self.essentials, essential_line), (self.log, log_line),
+                                                        (self.public, public_line), (self.chat, chat_line)) if h.url]
         try:
             st = os.stat(LOG)
             state = {"ino": st.st_ino, "pos": st.st_size}   # only what the server writes from now on
