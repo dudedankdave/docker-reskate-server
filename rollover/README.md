@@ -18,7 +18,10 @@ So most of the time each server runs one container; two only while the old one s
 each server, with the image's own `mods.py`, whether an unpinned `MODS` entry has a newer version on
 Thunderstore. If so, an empty server is restarted (mods install on start); a busy one gets a copy in
 the other slot (same ReSkate version and image, named `<name>-m<MMDDHHMM>`) and the old one drains as
-above. `copy_min_players` and `copy_wait_minutes` apply too. `mod_updates: false` (globally or per
+above. Like `copy_min_players` / `copy_wait_minutes` for releases, `MODUPDATE_MIN_PLAYERS` (default `1`)
+and `MODUPDATE_WAIT` (minutes, default `60`) hold a map update back while only a few players are on;
+set them as env vars on the rollover container, or as `modupdate_min_players` / `modupdate_wait` in
+`servers.json` (globally or per server). `mod_updates: false` (globally or per
 server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are never rolled for mods.
 
 ## Slots

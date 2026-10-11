@@ -9,6 +9,8 @@ services:
     network_mode: host        # needs no Docker network of its own (cocojambo has none left)
     environment:
       DRY_RUN: "true"
+      # MODUPDATE_MIN_PLAYERS: "3"   # map updates: below this many players, wait for the server to empty
+      # MODUPDATE_WAIT: "60"         # ...for at most this many minutes, then start a copy anyway
       # DISCORD_WEBHOOK: https://discord.com/api/webhooks/...   # where it says what it does
       # STEAM_TOKEN_1B: ...   # only for a slot with no container yet to take the token from
     volumes:

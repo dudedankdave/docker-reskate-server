@@ -262,8 +262,12 @@ class Rollover:
         """Bring the server onto `version` (or onto new mods): in place when empty, else a copy."""
         count = players(newest.info)
         due = time.time() - self.seen.setdefault((number, key), time.time())
-        least = int(setting(self.cfg, server, "copy_min_players", 1))
-        wait = float(setting(self.cfg, server, "copy_wait_minutes", 60)) * 60
+        if mods:      # map/mod updates have their own pair, MODUPDATE_MIN_PLAYERS / MODUPDATE_WAIT
+            least = int(setting(self.cfg, server, "modupdate_min_players", 1))
+            wait = float(setting(self.cfg, server, "modupdate_wait", 60)) * 60
+        else:
+            least = int(setting(self.cfg, server, "copy_min_players", 1))
+            wait = float(setting(self.cfg, server, "copy_wait_minutes", 60)) * 60
         if 0 < count < least and due < wait:           # a few players: wait for them to leave first
             return self.once(("few", number, key),
                              f"Server {number}: {what}, {count} player(s) on {newest.name} "
@@ -445,8 +449,8 @@ def exec_in(info, cmd, timeout=120):
 
 
 def setting(cfg, server, key, default):
-    """A server's own value for key, else the top-level one, else default."""
-    return server.get(key, cfg.get(key, default))
+    """A server's own value for key, else the top-level one, else the KEY env var, else default."""
+    return server.get(key, cfg.get(key, os.environ.get(key.upper()) or default))
 
 
 def server_name(cfg, number, server, version):
