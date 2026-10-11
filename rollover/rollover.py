@@ -449,8 +449,11 @@ def exec_in(info, cmd, timeout=120):
 
 
 def setting(cfg, server, key, default):
-    """A server's own value for key, else the top-level one, else the KEY env var, else default."""
-    return server.get(key, cfg.get(key, os.environ.get(key.upper()) or default))
+    """A server's own value for key, else the KEY env var (so the container can override the
+    file), else the top-level one, else default."""
+    if key in server:
+        return server[key]
+    return os.environ.get(key.upper()) or cfg.get(key, default)
 
 
 def server_name(cfg, number, server, version):
