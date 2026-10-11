@@ -10,6 +10,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 
 [Per server](#per-server) · [Access](#access) · [Gameplay](#gameplay) · [Anti-cheat](#anti-cheat) · [Voice](#voice) · [Network](#network) · [Voting](#voting) · [Announcements](#announcements) · [Parks and layers](#parks-and-layers) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard)
 
+<br/>
+
 ## Per server
 
 | Variable | Values | Description |
@@ -21,6 +23,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `PORT` | number | Game port. Only used with `USE_STEAM_RELAY=false`. |
 | `QUERY_PORT` | number | Server browser / A2S queries. |
 | `STEAM_TOKEN` | token, `off` | Steam game server token: keeps the Steam ID across restarts (not always the join code). One per server from steamcommunity.com/dev/managegameservers (App ID 3354750) and keep it private. Empty = anonymous sign-in, a new Steam ID on every start. `off` clears it. |
+
+<br/>
 
 ## Access
 
@@ -36,6 +40,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `CHAT_COLOR` | `#RRGGBB` | Colour of the server's "Server" badge and name in chat (default `#8E5CFF`). |
 | `CHAT_TEXT_COLOR` | `#RRGGBB` | Colour of the text of the server's chat lines (default `#D9C8FF`). Pick one that reads on a dark background. |
 | `RESERVED` | SteamID64 list | Players with a reserved slot (merged). They and admins can join a full server, on top of `MAX_PLAYERS`. |
+
+<br/>
 
 ## Gameplay
 
@@ -59,6 +65,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
 
+<br/>
+
 ## Anti-cheat
 
 | Variable | Values | Description |
@@ -67,12 +75,16 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `SCORE_CHECK` | `off` `warn` `kick` | Catch players whose mods change trick scoring or handling. `warn` (default) takes them out of throwdowns and coop challenges. |
 | `SCORE_ALLOW` | hex list | Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list. |
 
+<br/>
+
 ## Voice
 
 | Variable | Values | Description |
 |---|---|---|
 | `VOICE_CHAT` | `true` / `false` | Allow voice chat. |
 | `VOICE_RANGE` | 50-1000 | How far proximity voice reaches, in metres. |
+
+<br/>
 
 ## Network
 
@@ -89,6 +101,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `DISTANCE_HALF_RATE_START` | metres | Players farther than this update at half rate. |
 | `DISTANCE_HALF_RATE_RETURN` | metres | Players closer than this are back at half rate. |
 | `DISTANCE_LOW_RATE_START` | metres | Players farther than this update at the low rate. |
+
+<br/>
 
 ## Voting
 
@@ -110,6 +124,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `POLLS` | `off` `admins` `everyone` | Who may ask everyone a question (`/poll Next map? \| Grom \| Stadium`, answers with `/1`, `/2`...). Default `admins`. |
 | `POLL_SECONDS` | seconds | How long a poll runs. Default `60`. |
 
+<br/>
+
 ## Announcements
 
 | Variable | Values | Description |
@@ -119,6 +135,8 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `COMMANDS` | JSON list, `off` | Chat commands of your own, e.g. `[{"name": "discord", "reply": "Join us: discord.gg/xyz"}, {"name": "rules", "command": "announce-to {player} No griefing!"}]`. Each has a `name` (1-16 of `a-z 0-9 - _`) and a `reply` (chat line back), a `command` (server command or list of up to 8, run as the console; `{player}` = SteamID64, `{map}`, `{arg}`) or both, and `admin` (default `false`). Up to 32; not listed in `/help`. Pins the list; `off` clears it. Single-quote the value in env files. |
 
 ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `ANNOUNCEMENT_CARD` is ignored since then.
+
+<br/>
 
 ## Parks and layers
 
@@ -130,12 +148,16 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 | `WORLD_LAYER_SYNC` | `true` / `false` | Force the `LAYERS` below on every player. |
 | `LAYERS` | `key=on\|off\|default` list | World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting. |
 
+<br/>
+
 ## Mods
 
 | Variable | Values | Description |
 |---|---|---|
 | `MODS` | package list | Thunderstore packages to install into `/data/Mods` on start: `Owner-Name`, `Owner-Name-1.2.3` or a package URL, comma or space separated. See [Custom maps and mods](../README.md#custom-maps-and-mods). |
 | `MODS_UPDATE` | `true` / `false` | `false` keeps installed versions even when a newer one exists (pinned entries and missing packages are still installed). Default `true`. |
+
+<br/>
 
 ## Updates
 
@@ -153,6 +175,8 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 - Downloads come from the release's `launcher.json` and are checked against its SHA-256 before anything is replaced. The previous version is kept in `/data/server.old`; if the new server stops within 3 minutes it is rolled back and the essentials feed says so.
 - The container keeps running through an update: the entrypoint runs the server as a child and restarts it. Console input is passed through as before.
 
+<br/>
+
 ## Discord
 
 Webhooks come in pairs that share a suffix (`1`, `2`, `admin`, ...); add as many as you need. What each scope gets is described under [Discord webhook](../README.md#discord-webhook).
@@ -165,6 +189,8 @@ Webhooks come in pairs that share a suffix (`1`, `2`, `admin`, ...); add as many
 | `DISCORD_USERNAME` | Name shown on the posts. Default is `SERVER_NAME` without any `discord...` word, which Discord rejects in webhook names. |
 
 The older names still work, next to the new ones: `DISCORD_WEBHOOK_ESSENTIALS` = admin, `DISCORD_WEBHOOK_LOG` = log + chat, `DISCORD_WEBHOOK_PUBLIC` = public, `DISCORD_WEBHOOK_CHAT` = chat, `LEADERBOARD_WEBHOOK` = leaderboard, `DISCORD_WEBHOOK_ADMIN` / `DISCORD_WEBHOOK` = admin + log + chat (`DISCORD_CONSOLE=false` drops log and chat), `DISCORD_WEBHOOK_USER` = public. So the older names keep the chat in their console as before. Update approval needs a bot, see [Updates](#updates).
+
+<br/>
 
 ## Leaderboard
 

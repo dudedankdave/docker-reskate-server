@@ -17,7 +17,14 @@ Docker image for the [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) ded
 
 > **The server must run the same ReSkate version as the players.** If it falls behind, it can vanish from the in-game list and join codes time out, even though the container is `healthy`. See [Keeping up to date](#keeping-up-to-date).
 
-**Contents:** [Quick start](#quick-start) · [Tags](#tags) · [Configuration](#configuration) · [Custom maps and mods](#custom-maps-and-mods) · [Discord webhook](#discord-webhook) · [Ranked and leaderboard](#ranked-and-leaderboard) · [Multi-server support](#multi-server-support) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Slim image](#slim-image) · [Building](#building)
+---
+
+## Contents
+
+[Quick start](#quick-start) · [Tags](#tags) · [Configuration](#configuration) · [Custom maps and mods](#custom-maps-and-mods) · [Discord webhook](#discord-webhook) · [Ranked and leaderboard](#ranked-and-leaderboard) · [Multi-server support](#multi-server-support) · [Keeping up to date](#keeping-up-to-date) · [Networking](#networking) · [Troubleshooting](#troubleshooting) · [Slim image](#slim-image) · [Building](#building)
+
+---
+<br/>
 
 ## Quick start
 
@@ -50,6 +57,10 @@ volumes:
 
 Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join code**. Either way a restart disconnects the players.
 
+<br/>
+
+---
+
 ## Tags
 
 | Tag | What it is | Size on disk (download) |
@@ -61,6 +72,10 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 
 The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) of the server inside and has to match the players' game. Older tags stay available. ReSkate 2.0.3 changed the multiplayer protocol: 2.0.2 and 2.0.3+ can't join each other. 2.0.4 and 2.0.5 ship the same server as 2.0.3.
 
+<br/>
+
+---
+
 ## Configuration
 
 Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists every variable** (per server, access, gameplay, anti-cheat, voice, network, voting, announcements, parks and layers, mods, updates, Discord, leaderboard), and [`example.env`](example.env) is a ready-made starting point.
@@ -68,6 +83,10 @@ Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists ev
 - Variables are written to `/data/ReSkateServer.json` on every start. Unset or empty ones leave the existing value alone; `off` clears a value where supported.
 - Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one.
 - `/data` (a volume) holds `ReSkateServer.json`, `ReSkateServer.log`, `data/bans.json`, `Mods/` and `world-layers.json`.
+
+<br/>
+
+---
 
 ## Custom maps and mods
 
@@ -101,6 +120,10 @@ MODS=zeex64-Full_Skate_3_Map,brassy-Skate2Map
 
 Built-in maps need no mod: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`. Every server has its own `/data` volume, so copy the mod into each server that should use it.
 
+<br/>
+
+---
+
 ## Discord webhook
 
 Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_<n>` (the suffix can be anything). The scope says what the webhook gets, several comma-separated:
@@ -127,6 +150,10 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - The admin and log scopes contain the **join code**; the log also has Steam IDs and chat. The public scope is safe for a public channel.
 - Failures (bad URL, rate limits) never affect the server; they are written to `/data/DiscordWebhook.log`.
 
+<br/>
+
+---
+
 ## Ranked and leaderboard
 
 `LEADERBOARD=true` turns on ranked play and a points leaderboard, built only on what the server logs:
@@ -136,6 +163,10 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` posted in chat (only while players are on), and the top 10 go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when the board changed since the last post.
 
 Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderboard in ENVIRONMENT.md](docs/ENVIRONMENT.md#leaderboard).
+
+<br/>
+
+---
 
 ## Multi-server support
 
@@ -164,6 +195,10 @@ Run one container per server from the same image. Each needs its **own** data vo
 - All servers use `network_mode: host`, so ports must be unique on the host. Use one block per server, e.g. 12400/12401, 12410/12411, 12420/12421.
 - Sharing one `/data` volume makes the servers overwrite each other's config, mods and logs.
 
+<br/>
+
+---
+
 ## Keeping up to date
 
 ReSkate releases often and the game client updates itself, so the server has to follow.
@@ -174,12 +209,20 @@ ReSkate releases often and the game client updates itself, so the server has to 
 - **Get told about releases:** set a webhook with `WEBHOOK_SCOPE_<n>=admin`, see [Discord webhook](#discord-webhook).
 - **Without Discord:** `check-update.sh [container]` compares the running image with the latest ReSkate release (exit code 10 = update available). `NOTIFY_WEBHOOK` sends a POST once per release. Cron: `7 */3 * * * /path/to/check-update.sh reskate-server-1`.
 
+<br/>
+
+---
+
 ## Networking
 
 - Players join through the **Steam relay** on a random ephemeral UDP port. `PORT` is never bound; `QUERY_PORT` serves the server browser.
 - Only `QUERY_PORT` needs to be reachable from the internet. Open it for UDP.
 - With a **stateless firewall**, also allow replies from the Steam relay: UDP from source ports 27000-27200 to destination ports 32768-65535. Without that rule, joins time out.
 - `network_mode: host` is required, the relay breaks behind bridge NAT.
+
+<br/>
+
+---
 
 ## Troubleshooting
 
@@ -192,6 +235,10 @@ ReSkate releases often and the game client updates itself, so the server has to 
 | Restart loop, `Config problem: map ... is not a known map` or `map_pool` | `MAP` or a `MAP_POOL` name is neither built in nor the `displayName` of an installed mod. The `[maps] WARNING` log line lists the installed names; a mod update can rename its map. Check `[mods]` lines if a mod failed to install. |
 | `MODS` entry not installed | Look for `[mods]` lines in `docker logs <container>`. Names are `Owner-Name` as shown on Thunderstore, and `/data` needs free space (maps can be 1 GB or more). |
 | Settings don't change | Empty variables are ignored. Use `off` to clear `SERVER_PASSWORD` / `WELCOME_MESSAGE`. |
+
+<br/>
+
+---
 
 ## Slim image
 
@@ -225,6 +272,10 @@ curl --silent --show-error --fail --max-time 15 --max-filesize N --proto =https 
 ```
 
 The default image ships real `curl`. The slim image ships a stand-in for exactly that command inside `/app/reskate`; if a ReSkate release changes the command, the stand-in refuses the unknown option and needs an update. Without `curl` the log says `The global ban list could not be read` and only the server's own bans apply.
+
+<br/>
+
+---
 
 ## Building
 
