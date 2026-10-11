@@ -767,6 +767,17 @@ func entrypointMain(serverArgs []string) {
 				choice(lbKinds...)("LEADERBOARD_BOARDS", item)
 			}
 		}
+		for _, name := range []string{"LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"} {
+			if v, ok := env(name); ok {
+				for _, item := range asList(v) {
+					kind, minutes, _ := strings.Cut(item, "=")
+					choice(lbKinds...)(name, strings.TrimSpace(kind))
+					if _, err := strconv.ParseUint(strings.TrimSpace(minutes), 10, 31); err != nil {
+						die("%s: expected board=minutes like general=60,week=30,event=0, got %q", name, item)
+					}
+				}
+			}
+		}
 		if v, ok := env("LEADERBOARD_DISCORD"); ok {
 			for _, item := range asList(v) {
 				choice(append([]string{"jam", "spot", "skate"}, lbKinds...)...)("LEADERBOARD_DISCORD", item)

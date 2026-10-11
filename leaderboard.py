@@ -11,7 +11,7 @@ built only on what the vanilla server logs:
   Battle by place (LEADERBOARD_POINTS, default 10,6,4,2: the last value for every later place),
   S.K.A.T.E. (no places in the log) is placed by the fewest missed tricks, then the most landed (equal results share a place), and then scored like those. Unranked
   players keep their place but get nothing.
-* Boards (LEADERBOARD_BOARDS, default general,week,event): every award is counted on All Time (kind "general"), on the current Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
+* Boards (LEADERBOARD_BOARDS, default all): every award is counted on All Time (kind "general"), on the current Year ("2026"), Month ("October 2026") and Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
   are started and ended by admins in the game (/lb event start <name>, /lb event end).
 * Every board also has one per game mode (Jam, Spot Battle, S.K.A.T.E.): /top skate, /top week jam.
 * The points live in a SQLite database (leaderboard.db), with every award kept in a ledger.
@@ -21,7 +21,8 @@ built only on what the vanilla server logs:
   The server logs a "[command] Name /top week" line for each allowed command; this module answers
   it with a DM, so the reply is only seen by the sender.
 * Every LEADERBOARD_INTERVAL minutes (default 60) the top LEADERBOARD_SIZE (default 5) go to
-  chat while players are on, and the top 10 to Discord (LEADERBOARD_WEBHOOK, else the public
+  chat while players are on (LEADERBOARD_INTERVALS: a time per board kind, e.g. general=60,week=30,event=10,
+  0 = never), and the top 10 to Discord (LEADERBOARD_DISCORD_INTERVALS the same way) (LEADERBOARD_WEBHOOK, else the public
   feed) when a board changed since the last post. LEADERBOARD_DISCORD chooses which boards it
   lists (general, week, event and the games jam, spot, skate; default all); players ask for any
   board in chat.
@@ -63,7 +64,7 @@ COMMAND = re.compile(r"^\[command\] (.+)$")
 CHECK_AFTER = 15      # seconds after joining before the mod report is taken as complete
 CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
 ASK_EVERY = 3         # seconds between two answers to the same player
-KINDS = ("general", "week", "event")
+KINDS = ("general", "year", "month", "week", "event")
 VERBS = ("top", "rank", "boards", "lb")
 # The game modes with a board of their own next to every board: "All Time:jam", "Week 41:skate".
 MODES = {"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
@@ -111,13 +112,41 @@ def fit(text, limit=CHAT_MAX):
     return data.decode("utf-8", "ignore")
 
 
+def kind_of(board_id):
+    """general / year / month / week / event, also for a game board ("week-2026-41:jam")."""
+    return board_id.split(":")[0].split("-")[0]
+
+
+def intervals(name, default):
+    """{kind: seconds} from "general=60,week=30,event=0" (minutes, 0 = never); kinds not named use default."""
+    out = {k: default for k in KINDS}
+    for item in env(name).split(","):
+        kind, _, minutes = item.strip().partition("=")
+        if kind.strip().lower() in KINDS and minutes.strip().isdigit():
+            out[kind.strip().lower()] = 60 * int(minutes)
+    return out
+
+
 def slug(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:32]
+
+
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 
 
 def week_of(now):
     year, week, _ = datetime.fromtimestamp(now, timezone.utc).isocalendar()
     return f"week-{year}-{week:02d}", f"Week {week}", week
+
+
+def period_of(kind, now):
+    """(id, name) of the current year / month / week board (UTC)."""
+    t = datetime.fromtimestamp(now, timezone.utc)
+    if kind == "year":
+        return f"year-{t.year}", str(t.year)
+    if kind == "month":
+        return f"month-{t.year}-{t.month:02d}", f"{MONTHS[t.month - 1]} {t.year}"
+    return week_of(now)[:2]
 
 
 SCHEMA = """
@@ -221,10 +250,11 @@ class Store:
         ids = []
         if "general" in kinds:
             ids.append("general")
-        if "week" in kinds:
-            week_id, week_name, _ = week_of(now)
-            self.board(cur, week_id, week_name, "week")
-            ids.append(week_id)
+        for kind in ("year", "month", "week"):
+            if kind in kinds:
+                period_id, period_name = period_of(kind, now)
+                self.board(cur, period_id, period_name, kind)
+                ids.append(period_id)
         if "event" in kinds:
             ids += [r["id"] for r in cur.execute(
                 "SELECT id FROM boards WHERE kind='event' AND closed_at IS NULL ORDER BY created_at")]
@@ -283,10 +313,15 @@ class Store:
         spec = spec.strip().lower()
         if spec in ("", "general", "all", "all time", "alltime", "all-time", "g"):
             return cur.execute("SELECT * FROM boards WHERE id='general'").fetchone()
-        if spec in ("week", "w", "weekly"):
-            return cur.execute("SELECT * FROM boards WHERE id=?", (week_of(now)[0],)).fetchone()
+        for kind, words in (("year", ("year", "y", "yearly")), ("month", ("month", "m", "monthly")), ("week", ("week", "w", "weekly"))):
+            if spec in words:
+                return cur.execute("SELECT * FROM boards WHERE id=?", (period_of(kind, now)[0],)).fetchone()
         if spec in ("event", "e"):
             return cur.execute("SELECT * FROM boards WHERE kind='event' ORDER BY closed_at IS NOT NULL, created_at DESC").fetchone()
+        if re.fullmatch(r"\d{4}", spec):
+            row = cur.execute("SELECT * FROM boards WHERE id=?", (f"year-{spec}",)).fetchone()
+            if row:
+                return row
         number = re.fullmatch(r"(?:week[ -]?|w)?(\d{1,2})", spec)
         if number:
             year = datetime.fromtimestamp(now, timezone.utc).isocalendar()[0]
@@ -341,7 +376,11 @@ class Leaderboard:
         self.told = {}         # name -> what they were told last (True = ranked)
         self.asked = {}        # SteamID64 -> time of their last command answer
         self.free_tuning = free_tuning()  # own physics tuning allowed: nobody is ranked
-        self.chat_at = self.discord_at = time.time()
+        self.chat_every = intervals("LEADERBOARD_INTERVALS", self.interval)
+        self.discord_every = intervals("LEADERBOARD_DISCORD_INTERVALS", self.interval)
+        self.chat_at = {}      # kind -> time of the last chat post
+        self.discord_at = time.time()
+        self.started = time.time()
 
     # ---- log lines ------------------------------------------------------------------
     def feed(self, line):
@@ -631,10 +670,12 @@ class Leaderboard:
                     del self.waiting[name]
                     self.tell(name)
             players_on = bool(self.online)
-        if now - self.chat_at >= self.interval:
-            self.chat_at = now
-            if players_on:
-                self.post_chat()
+        for kind in self.kinds:
+            every = self.chat_every[kind]
+            if every and now - self.chat_at.get(kind, self.started) >= every:
+                self.chat_at[kind] = now
+                if players_on:
+                    self.post_chat(kind)
         if self.post and now - self.discord_at >= 60:
             self.discord_at = now
             self.post_discord(now)
@@ -655,11 +696,11 @@ class Leaderboard:
                 out.append((cur.execute("SELECT * FROM boards WHERE id=?", (shown_id,)).fetchone(), Store.top(cur, shown_id, 10)))
         return out
 
-    def post_chat(self):
+    def post_chat(self, kind):
         shown = self.store.run(lambda cur: self.current(cur, time.time())) or []
         first = True
         for board, rows in shown:
-            rows = rows[:self.size]
+            rows = rows[:self.size] if board["kind"] == kind else []
             if not rows:
                 continue
             entries = [f"{n}. {p['name']} {p['points']}" for n, p in enumerate(rows, 1)]
@@ -678,19 +719,30 @@ class Leaderboard:
 
     def post_discord(self, now):
         def due(cur):
-            at = cur.execute("SELECT value FROM meta WHERE key='posted_at'").fetchone()
-            if at and now - float(at["value"]) < self.interval:
-                return None                           # another server posted lately
             shown = self.current(cur, now, True)
-            if not any(b["version"] != b["posted_version"] for b, _ in shown):
-                return None                           # nothing new since the last post
-            cur.execute("INSERT OR REPLACE INTO meta VALUES ('posted_at', ?)", (str(now),))
-            cur.execute("UPDATE boards SET posted_version = version")
-            return shown
+            late = set()                          # the kinds whose interval is over and that have news
+            for kind in {kind_of(b["id"]) for b, _ in shown}:
+                every = self.discord_every[kind]
+                at = cur.execute("SELECT value FROM meta WHERE key=?", ("posted_at:" + kind,)).fetchone()
+                news = any(b["version"] != b["posted_version"] for b, _ in shown if kind_of(b["id"]) == kind)
+                if every and news and (not at or now - float(at["value"]) >= every):
+                    late.add(kind)                # (another server's post counts: the file is shared)
+            for kind in late:
+                cur.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", ("posted_at:" + kind, str(now)))
+            for b, _ in shown:
+                if kind_of(b["id"]) in late:
+                    cur.execute("UPDATE boards SET posted_version = version WHERE id = ?", (b["id"],))
+            return [(b, rows) for b, rows in shown if kind_of(b["id"]) in late]
         parts = [f"**{board['name']}** ({self.label}, ranked throwdowns)\n```\n{self.table(rows[:10 if board['kind'] == 'general' else 5])}\n```"
                  for board, rows in self.store.run(due) or [] if rows]
-        if parts:
-            self.post("\n".join(parts))
+        message = ""
+        for part in parts:                  # Discord takes 2000 characters per message
+            if message and len(message) + len(part) + 1 > 1900:
+                self.post(message)
+                message = ""
+            message = message + "\n" + part if message else part
+        if message:
+            self.post(message)
 
     def loop(self):
         while True:

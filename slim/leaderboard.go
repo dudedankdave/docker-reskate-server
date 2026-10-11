@@ -41,7 +41,7 @@ const (
 )
 
 // lbKinds are the board kinds LEADERBOARD_BOARDS may name.
-var lbKinds = []string{"general", "week", "event"}
+var lbKinds = []string{"general", "year", "month", "week", "event"}
 
 // Every board also has one per game mode: "All Time - Jam", "Week 41 - S.K.A.T.E.".
 var (
@@ -111,17 +111,44 @@ type leaderboard struct {
 	ranked, unranked string
 	tuning, speed    string
 
-	mu       sync.Mutex
-	online   map[string]string    // name -> SteamID64
-	admins   map[string]bool      // SteamID64s that joined as admin
-	waiting  map[string]time.Time // name -> when the ranked DM is due
-	modded   map[string]string
-	speeding map[string]bool
-	told     map[string]bool
-	asked    map[string]time.Time // SteamID64 -> their last command answer
-	free     bool                 // own physics tuning allowed: nobody is ranked
-	chatAt   time.Time
-	postAt   time.Time
+	mu                      sync.Mutex
+	online                  map[string]string    // name -> SteamID64
+	admins                  map[string]bool      // SteamID64s that joined as admin
+	waiting                 map[string]time.Time // name -> when the ranked DM is due
+	modded                  map[string]string
+	speeding                map[string]bool
+	told                    map[string]bool
+	asked                   map[string]time.Time // SteamID64 -> their last command answer
+	free                    bool                 // own physics tuning allowed: nobody is ranked
+	chatAt                  map[string]time.Time // kind -> the last chat post
+	postAt                  time.Time
+	started                 time.Time
+	chatEvery, discordEvery map[string]time.Duration // per board kind; 0 = never
+}
+
+// lbIntervals reads "general=60,week=30,event=0" (minutes, 0 = never); kinds not named use def.
+func lbIntervals(name string, def time.Duration) map[string]time.Duration {
+	out := map[string]time.Duration{}
+	for _, k := range lbKinds {
+		out[k] = def
+	}
+	for _, item := range asList(os.Getenv(name)) {
+		kind, minutes, _ := strings.Cut(item, "=")
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if _, known := out[kind]; known {
+			if n, err := strconv.Atoi(strings.TrimSpace(minutes)); err == nil && n >= 0 {
+				out[kind] = time.Duration(n) * time.Minute
+			}
+		}
+	}
+	return out
+}
+
+// lbKindOf: general / year / month / week / event, also for a game board ("week-2026-41:jam").
+func lbKindOf(id string) string {
+	id, _, _ = strings.Cut(id, ":")
+	kind, _, _ := strings.Cut(id, "-")
+	return kind
 }
 
 func lbEnv(name, def string) string {
@@ -175,7 +202,7 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		tuning: lbEnv("UNRANKED_TUNING_MESSAGE", unrankedTuning), speed: lbEnv("UNRANKED_SPEED_MESSAGE", unrankedSpeed),
 		online: map[string]string{}, admins: map[string]bool{}, waiting: map[string]time.Time{}, modded: map[string]string{},
 		speeding: map[string]bool{}, told: map[string]bool{}, asked: map[string]time.Time{}, free: freeTuning(),
-		chatAt: time.Now(), postAt: time.Now(),
+		chatAt: map[string]time.Time{}, postAt: time.Now(), started: time.Now(),
 	}
 	if strings.ToLower(lbEnv("LEADERBOARD_SCOPE", "shared")) != "server" {
 		path := lbEnv("LEADERBOARD_FILE", "/shared/leaderboard.db")
@@ -199,6 +226,8 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 	if v, err := strconv.Atoi(lbEnv("LEADERBOARD_SIZE", "5")); err == nil {
 		b.size = max(1, min(10, v))
 	}
+	b.chatEvery = lbIntervals("LEADERBOARD_INTERVALS", b.interval)
+	b.discordEvery = lbIntervals("LEADERBOARD_DISCORD_INTERVALS", b.interval)
 	for _, item := range asList(lbEnv("LEADERBOARD_POINTS", "10,6,4,2")) {
 		if v, err := strconv.Atoi(item); err == nil {
 			b.points = append(b.points, v)
@@ -209,7 +238,7 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 			b.kinds[known] = b.kinds[known] || k == known
 		}
 	}
-	if len(b.kinds) == 0 || !(b.kinds["general"] || b.kinds["week"] || b.kinds["event"]) {
+	if len(b.kinds) == 0 || !(b.kinds["general"] || b.kinds["year"] || b.kinds["month"] || b.kinds["week"] || b.kinds["event"]) {
 		b.kinds["general"] = true
 	}
 	for _, k := range asList(strings.ToLower(lbEnv("LEADERBOARD_DISCORD", "general,week,event,jam,spot,skate"))) {
@@ -355,6 +384,21 @@ func lbBoardInsert(tx *sql.Tx, id, name, kind string) {
 	_, _ = tx.Exec(`INSERT OR IGNORE INTO boards (id, name, kind, created_at) VALUES (?, ?, ?, ?)`, id, name, kind, unixf(time.Now()))
 }
 
+var lbMonths = []string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
+
+// lbPeriod is the id and name of the current year / month / week board (UTC).
+func lbPeriod(kind string, now time.Time) (id, name string) {
+	t := now.UTC()
+	switch kind {
+	case "year":
+		return fmt.Sprintf("year-%d", t.Year()), strconv.Itoa(t.Year())
+	case "month":
+		return fmt.Sprintf("month-%d-%02d", t.Year(), int(t.Month())), fmt.Sprintf("%s %d", lbMonths[t.Month()-1], t.Year())
+	}
+	id, name, _ = lbWeek(now)
+	return
+}
+
 func lbWeek(now time.Time) (id, name string, year int) {
 	year, week := now.UTC().ISOWeek()
 	return fmt.Sprintf("week-%d-%02d", year, week), fmt.Sprintf("Week %d", week), year
@@ -366,10 +410,12 @@ func (b *leaderboard) active(tx *sql.Tx, now time.Time) []string {
 	if b.kinds["general"] {
 		ids = append(ids, "general")
 	}
-	if b.kinds["week"] {
-		id, name, _ := lbWeek(now)
-		lbBoardInsert(tx, id, name, "week")
-		ids = append(ids, id)
+	for _, kind := range []string{"year", "month", "week"} {
+		if b.kinds[kind] {
+			id, name := lbPeriod(kind, now)
+			lbBoardInsert(tx, id, name, kind)
+			ids = append(ids, id)
+		}
 	}
 	if b.kinds["event"] {
 		if rows, err := tx.Query(`SELECT id FROM boards WHERE kind='event' AND closed_at IS NULL ORDER BY created_at`); err == nil {
@@ -488,11 +534,17 @@ func lbFindBase(tx *sql.Tx, spec string, now time.Time) (lbBoard, bool) {
 	switch spec {
 	case "", "general", "all", "all time", "alltime", "all-time", "g":
 		return lbScan(tx.QueryRow(lbBoardCols + `WHERE id='general'`))
-	case "week", "w", "weekly":
-		id, _, _ := lbWeek(now)
+	case "year", "y", "yearly", "month", "m", "monthly", "week", "w", "weekly":
+		kind := map[byte]string{'y': "year", 'm': "month", 'w': "week"}[spec[0]]
+		id, _ := lbPeriod(kind, now)
 		return lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, id))
 	case "event", "e":
 		return lbScan(tx.QueryRow(lbBoardCols + `WHERE kind='event' ORDER BY closed_at IS NOT NULL, created_at DESC`))
+	}
+	if len(spec) == 4 && strings.Trim(spec, "0123456789") == "" {
+		if bd, ok := lbScan(tx.QueryRow(lbBoardCols+`WHERE id=?`, "year-"+spec)); ok {
+			return bd, true
+		}
 	}
 	if m := lbWeekNumRe.FindStringSubmatch(spec); m != nil {
 		n, _ := strconv.Atoi(m[1])
@@ -1001,10 +1053,17 @@ func (b *leaderboard) tick() {
 	}
 	playersOn := len(b.online) > 0
 	b.mu.Unlock()
-	if now.Sub(b.chatAt) >= b.interval {
-		b.chatAt = now
-		if playersOn {
-			b.postChat(now)
+	for kind := range b.kinds {
+		every := b.chatEvery[kind]
+		last, ok := b.chatAt[kind]
+		if !ok {
+			last = b.started
+		}
+		if every > 0 && now.Sub(last) >= every {
+			b.chatAt[kind] = now
+			if playersOn {
+				b.postChat(now, kind)
+			}
 		}
 	}
 	if b.post != nil && now.Sub(b.postAt) >= time.Minute {
@@ -1048,13 +1107,13 @@ func (b *leaderboard) current(tx *sql.Tx, now time.Time, discord bool) []lbShown
 	return out
 }
 
-func (b *leaderboard) postChat(now time.Time) {
+func (b *leaderboard) postChat(now time.Time, kind string) {
 	var shown []lbShown
 	b.run(func(tx *sql.Tx) error { shown = b.current(tx, now, false); return nil })
 	first := true
 	for _, s := range shown {
 		rows := s.rows[:min(len(s.rows), b.size)]
-		if len(rows) == 0 {
+		if len(rows) == 0 || s.board.kind != kind {
 			continue
 		}
 		var entries []string
@@ -1090,27 +1149,42 @@ func lbTable(rows []lbRow) string {
 func (b *leaderboard) postDiscord(now time.Time) {
 	var shown []lbShown
 	b.run(func(tx *sql.Tx) error {
-		var at string
-		if tx.QueryRow(`SELECT value FROM meta WHERE key='posted_at'`).Scan(&at) == nil {
-			if v, err := strconv.ParseFloat(at, 64); err == nil && unixf(now)-v < b.interval.Seconds() {
-				return nil // another server posted lately
+		all := b.current(tx, now, true)
+		late := map[string]bool{} // the kinds whose interval is over and that have news
+		kinds := map[string]bool{}
+		for _, s := range all {
+			kinds[lbKindOf(s.board.id)] = true
+		}
+		for kind := range kinds {
+			every := b.discordEvery[kind]
+			news := false
+			for _, s := range all {
+				news = news || lbKindOf(s.board.id) == kind && s.board.version != s.board.postedVers
+			}
+			var at string
+			due := true // another server's post counts: the file is shared
+			if tx.QueryRow(`SELECT value FROM meta WHERE key=?`, "posted_at:"+kind).Scan(&at) == nil {
+				if v, err := strconv.ParseFloat(at, 64); err == nil && unixf(now)-v < every.Seconds() {
+					due = false
+				}
+			}
+			if every > 0 && news && due {
+				late[kind] = true
 			}
 		}
-		all := b.current(tx, now, true)
-		changed := false
+		for kind := range late {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO meta VALUES (?, ?)`, "posted_at:"+kind, strconv.FormatFloat(unixf(now), 'f', 3, 64)); err != nil {
+				return err
+			}
+		}
 		for _, s := range all {
-			changed = changed || s.board.version != s.board.postedVers
+			if late[lbKindOf(s.board.id)] {
+				if _, err := tx.Exec(`UPDATE boards SET posted_version = version WHERE id = ?`, s.board.id); err != nil {
+					return err
+				}
+				shown = append(shown, s)
+			}
 		}
-		if !changed {
-			return nil // nothing new since the last post
-		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO meta VALUES ('posted_at', ?)`, strconv.FormatFloat(unixf(now), 'f', 3, 64)); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE boards SET posted_version = version`); err != nil {
-			return err
-		}
-		shown = all
 		return nil
 	})
 	var parts []string
@@ -1124,8 +1198,19 @@ func (b *leaderboard) postDiscord(now time.Time) {
 		}
 		parts = append(parts, "**"+s.board.name+"** ("+b.label+", ranked throwdowns)\n```\n"+lbTable(s.rows[:min(len(s.rows), n)])+"\n```")
 	}
-	if len(parts) > 0 {
-		b.post(strings.Join(parts, "\n"))
+	message := ""
+	for _, part := range parts { // Discord takes 2000 characters per message
+		if message != "" && len(message)+len(part)+1 > 1900 {
+			b.post(message)
+			message = ""
+		}
+		if message != "" {
+			message += "\n"
+		}
+		message += part
+	}
+	if message != "" {
+		b.post(message)
 	}
 }
 

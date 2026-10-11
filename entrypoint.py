@@ -497,6 +497,12 @@ if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
     for item in as_list(env("LEADERBOARD_BOARDS") or ""):
         choice(*leaderboard.KINDS)("LEADERBOARD_BOARDS", item)
+    for var in ("LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"):
+        for item in as_list(env(var) or ""):
+            kind, _, minutes = item.partition("=")
+            choice(*leaderboard.KINDS)(var, kind.strip())
+            if not minutes.strip().isdigit():
+                sys.exit(f"{var}: expected board=minutes like general=60,week=30,event=0, got {item!r}")
     for item in as_list(env("LEADERBOARD_DISCORD") or ""):
         choice(*leaderboard.KINDS, *leaderboard.MODES)("LEADERBOARD_DISCORD", item)
     for item in as_list(env("LEADERBOARD_POINTS") or ""):
