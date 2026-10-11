@@ -71,6 +71,7 @@ type leaderboard struct {
 	size             int
 	points           []int
 	ranked, unranked string
+	tuning, speed    string
 
 	mu       sync.Mutex
 	online   map[string]string    // name -> SteamID64
@@ -130,6 +131,7 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		path: "/data/leaderboard.json", label: "this server",
 		interval: 60 * time.Minute, size: 5,
 		ranked: lbEnv("RANKED_MESSAGE", rankedText), unranked: lbEnv("UNRANKED_MESSAGE", unrankedMods),
+		tuning: lbEnv("UNRANKED_TUNING_MESSAGE", unrankedTuning), speed: lbEnv("UNRANKED_SPEED_MESSAGE", unrankedSpeed),
 		online: map[string]string{}, waiting: map[string]time.Time{}, modded: map[string]string{},
 		speeding: map[string]bool{}, told: map[string]bool{}, free: freeTuning(),
 		chatAt: time.Now(), postAt: time.Now(),
@@ -283,9 +285,9 @@ func (b *leaderboard) tell(name string) {
 			}
 			text = strings.ReplaceAll(b.unranked, "{mods}", mods)
 		} else if b.free {
-			text = unrankedTuning
+			text = b.tuning
 		} else {
-			text = unrankedSpeed
+			text = b.speed
 		}
 	}
 	b.send(fit("msg "+id+" "+text, chatMax+30))

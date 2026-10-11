@@ -140,6 +140,8 @@ class Leaderboard:
         self.points = [int(x) for x in env("LEADERBOARD_POINTS", "10,6,4,2").split(",") if x.strip()]
         self.ranked_text = env("RANKED_MESSAGE", RANKED)
         self.unranked_text = env("UNRANKED_MESSAGE", UNRANKED_MODS)
+        self.tuning_text = env("UNRANKED_TUNING_MESSAGE", UNRANKED_TUNING)
+        self.speed_text = env("UNRANKED_SPEED_MESSAGE", UNRANKED_SPEED)
         self.lock = threading.Lock()
         self.online = {}       # name -> SteamID64
         self.waiting = {}      # name -> time the ranked DM is due
@@ -200,9 +202,9 @@ class Leaderboard:
         elif name in self.modded:
             text = self.unranked_text.replace("{mods}", self.modded[name] or "your mods")
         elif self.free_tuning:
-            text = UNRANKED_TUNING
+            text = self.tuning_text
         else:
-            text = UNRANKED_SPEED
+            text = self.speed_text
         self.send(fit(f"msg {self.online[name]} {text}", CHAT_MAX + 30))
 
     # ---- points ---------------------------------------------------------------------
