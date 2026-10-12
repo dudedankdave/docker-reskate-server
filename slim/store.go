@@ -1,7 +1,8 @@
 package main
 
-// Shared map/mod store, same as mods.py in the default image: with a volume mounted at /mods
-// (MODS_STORE) every package version is downloaded once into /mods/packages/<Owner>-<Name>-<version>
+// Shared map/mod store, same as mods.py in the default image. MODS_STORE is `shared` (default: the
+// volume mounted at /mods) or a path for a store of this server's own. Every package version is
+// downloaded once into <store>/packages/<Owner>-<Name>-<version>
 // and each server only gets a symlink /data/Mods/<Name> to the version it wants. A version is
 // never changed after it is written, so a server still running (or draining players) on an older
 // map keeps its files while another one already moved on, and a lock per version makes servers
@@ -15,24 +16,48 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
 const lockWait = 4000 * time.Second // how long to wait for another server's download of the same version
 
-func storeDir() string {
-	if s := strings.TrimRight(os.Getenv("MODS_STORE"), "/"); s != "" {
-		return s
+const sharedStore = "/mods" // where the shared volume is mounted
+
+var warnStore sync.Once
+
+// storeSetting reads MODS_STORE: `shared` (default) = the volume at /mods, used only while one is
+// mounted there (needsMount); an absolute path = a store at that path for this server, used as it is.
+func storeSetting() (dir string, needsMount bool) {
+	raw := strings.TrimSpace(os.Getenv("MODS_STORE"))
+	if raw == "" || strings.EqualFold(raw, "shared") {
+		return sharedStore, true
 	}
-	return "/mods"
+	path := filepath.Clean(raw)
+	if filepath.IsAbs(path) && path != "/" && !strings.HasPrefix(path+"/", modsDir+"/") {
+		return path, false
+	}
+	warnStore.Do(func() {
+		mlog("MODS_STORE=%q is neither 'shared' nor an absolute path outside %s, using shared", raw, modsDir)
+	})
+	return sharedStore, true
+}
+
+func storeDir() string {
+	dir, _ := storeSetting()
+	return dir
 }
 
 func storePackages() string { return storeDir() + "/packages" }
 
-// storeShared is true when a volume is mounted at the store path (like Python's os.path.ismount).
+// storeShared is true when packages go into the store: always for a path, for `shared` only while
+// a volume is mounted at /mods (like Python's os.path.ismount), else each server keeps its own copies.
 func storeShared() bool {
-	dir := storeDir()
+	dir, needsMount := storeSetting()
+	if !needsMount {
+		return true
+	}
 	var st, parent syscall.Stat_t
 	if syscall.Lstat(dir, &st) != nil || st.Mode&syscall.S_IFMT != syscall.S_IFDIR {
 		return false

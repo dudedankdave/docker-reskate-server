@@ -448,6 +448,11 @@ func installMods(spec string, update bool) {
 		}
 	}()
 	seen := map[string]bool{}
+	if strings.TrimSpace(spec) != "" && !storeShared() {
+		mlog("no volume mounted at %s: maps are kept in this server's %s. Mount the shared volume there "+
+			"(e.g. reskate-mods:%s) to download each map once for all servers, or set MODS_STORE to a path.",
+			sharedStore, modsDir, sharedStore)
+	}
 	for _, token := range splitRe.Split(strings.TrimSpace(spec), -1) {
 		if token == "" {
 			continue

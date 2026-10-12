@@ -40,8 +40,10 @@ services:
     env_file: [common.env, server1.env]
     volumes:
       - reskate-data:/data
+      - reskate-mods:/mods   # maps, shared by all servers
 volumes:
   reskate-data:
+  reskate-mods:
 ```
 
 1. Copy [`example.env`](example.env) to `common.env` (shared settings) and `server1.env` (name, map, ports).
@@ -115,7 +117,7 @@ Separate entries with commas, spaces or new lines. Dependencies from a package's
 
 ### Share maps between servers
 
-Without anything else every server keeps its own copy of every map in its `/data` volume. Mount one more volume at `/mods`, the same one on every server, and each map version is downloaded once for all of them. [`docker-compose.yml`](docker-compose.yml) already does this:
+By default maps go into one volume at `/mods`, shared by every server, so each map version is downloaded once. [`docker-compose.yml`](docker-compose.yml) mounts it:
 
 ```yaml
     volumes:
@@ -123,12 +125,19 @@ Without anything else every server keeps its own copy of every map in its `/data
       - reskate-mods:/mods   # same volume on every server
 ```
 
-With `docker run`, add `-v reskate-mods:/mods`. Both images (default and slim) support it.
+With `docker run`: `-v reskate-mods:/mods`. Both images support it.
 
-- **Layout:** each version is stored once as `/mods/packages/<Owner>-<Name>-<version>`, and `/data/Mods/<Name>` becomes a symlink to the version that server wants.
-- **Servers can be on different versions.** A stored version is never changed after it is written. A server still running (or draining players) on an older map keeps its files while another one already moved on, so the [rollover](rollover/README.md) can start a copy on a new map version beside the old one.
-- **Starting together:** servers that need the same version at the same time wait for one download instead of each fetching it.
-- **Switching an existing server over:** add the mount and recreate the container. Folders the installer put into `/data/Mods` earlier are moved into the store on that start, without a new download. Folders you copied in by hand stay where they are.
+**`MODS_STORE`**, per server, picks where that server's maps go:
+
+| Value | Maps go to |
+|---|---|
+| `shared` (default) | The shared volume at `/mods`. With nothing mounted there the log says so and the server keeps its own copies in `/data/Mods`. |
+| A path, e.g. `/data/maps` | A store of this server's own at that path, whether or not `/mods` is mounted. Keep it on a volume (inside `/data` is fine), not inside `/data/Mods`. |
+
+- **Layout:** each version is stored once as `<store>/packages/<Owner>-<Name>-<version>`, and `/data/Mods/<Name>` becomes a symlink to the version that server wants.
+- **Servers can be on different versions:** a stored version is never changed, so a server still on an older map keeps its files while another moves on (the [rollover](rollover/README.md) relies on this).
+- **Starting together:** servers needing the same version at once share one download.
+- **Switching an existing server over:** add the mount and recreate the container. Folders the installer put into `/data/Mods` earlier move into the store on that start, without a new download; hand-copied folders stay.
 - **Cleaning up:** old versions stay until you remove them. This removes every version no server has started with for 30 days, never the newest of a package:
 
   ```bash
@@ -136,8 +145,7 @@ With `docker run`, add `-v reskate-mods:/mods`. Both images (default and slim) s
   docker exec reskate-server-1 /app/reskate mods gc 30      # slim image
   ```
 
-  Keep the number of days above how long a server runs without a restart: a running server still uses the version it started with.
-- `MODS_STORE` moves the mount point if `/mods` doesn't suit you. Without a volume mounted there nothing changes.
+  Keep the days above how long a server runs between restarts: it uses the version it started with.
 
 ### Updates
 
@@ -167,7 +175,7 @@ For a map that isn't on Thunderstore:
 2. Set `MAP` to the `displayName` from the mod's `reskate-levels.json`, e.g. `MAP=Skate2Map`.
 3. Restart the server: `docker compose restart reskate-1`
 
-Hand-copied maps are not shared through `/mods`: copy the folder into every server that should use it.
+Hand-copied maps are not shared through the store: copy the folder into every server that should use it.
 
 <br/>
 
@@ -362,7 +370,7 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `app/notifier.py` | Discord feeds and the update policy |
 | `app/updater.py` | `/data/server`, downloading and verifying releases |
 | `app/supervisor.py` | Runs the server as a child: console relay, restart after an update, rollback |
-| `app/mods.py` | Thunderstore maps/mods (`MODS`), the shared store at `/mods` |
+| `app/mods.py` | Thunderstore maps/mods (`MODS`), the map store (`MODS_STORE`) |
 | `app/announcer.py` | Kick and ban announcements in chat |
 | `app/leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `app/healthcheck.py` | Reports healthy once the log shows the server is up |
