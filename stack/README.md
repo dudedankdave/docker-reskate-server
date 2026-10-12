@@ -2,7 +2,7 @@
 
 `docker compose -p tools up -d --build` in this folder runs: `rollover`, `status` (Discord cards),
 `bot` (Discord bot) and `leaderboard-backup`. Each is its own container of the base image `dudedankdave/reskate-server` (full image, the
-`-slim` one has no Python) started with `RESKATE_MODE=rollover|status|bot|backup`; `server` is the game server and the default. Each is its own container, so updating one leaves the others alone.
+`-slim` one has no Python) started with `RESKATE_MODE=rollover|status|bot|backup|bridge`; `server` is the game server and the default. Each is its own container, so updating one leaves the others alone.
 
 The leaderboard database is not a service: the game servers write it themselves (SQLite in
 `/shared`). `leaderboard-backup` is its container: an hourly online backup into `/root/reskate/backup`

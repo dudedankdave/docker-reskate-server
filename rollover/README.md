@@ -92,3 +92,19 @@ logs the message it would post.
 | `STATUS_JOIN_CODE` | `true` | Show the join code on the cards. |
 | `STATUS_MESSAGE_ID` | | Edit this message instead of the remembered one (e.g. after losing the volume). |
 | `STATUS_STATE` | `/state/status.json` | Where the message id is kept. |
+
+## Bridge (servers <-> bot)
+
+`bridge.py` (`RESKATE_MODE=bridge`, container `reskate-bridge` in the `tools` stack) is a small HTTP API on
+the host (`BRIDGE_BIND` 127.0.0.1, `BRIDGE_PORT` 8780) so the bot and scripts talk to the servers without the
+servers knowing about them. Every call needs `Authorization: Bearer $BRIDGE_TOKEN`; without the token it won't start.
+
+| Call | |
+| --- | --- |
+| `GET /v1/actions` | The actions and their inputs: `say`, `announce`, `msg`, `kick`, `poll`, `poll_end`, `console`, and the info actions `players`, `log`. |
+| `GET /v1/servers` | Every server: running, players, max, map. |
+| `POST /v1/servers/<n>/do` | `{"action": "announce", "args": {"text": "..."}, "by": "David"}` types the line into the console of every running container of that server (Docker attach on the host socket). `quit`, `stop`, `restart`, `update` and `reload` are refused. Answers `{"ok": true, "text": "..."}`; the use is logged and appears as an `audit` event. |
+| `GET /v1/events?after=<id>&wait=25&server=<n>&scope=<scope>` | Log lines of the running servers as events (`id`, `server`, `time`, `scopes`, `text`), waiting up to `wait` seconds for new ones. Scopes: `public`, `chat`, `admin`, `log`, `audit`. The last 5000 are kept (`BRIDGE_BUFFER`); nothing from before the bridge started. |
+| `GET /v1/health` | No token needed. |
+
+The bridge checks the token, not who is behind `by`: the caller (the bot) decides who may use admin actions.
