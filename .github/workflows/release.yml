@@ -6,7 +6,7 @@
 # Every build is also tagged <ver>-r<n> (and <ver>-r<n>-slim), n = the commits on main, a tag that
 # never moves; RESKATE_IMAGE_REVISION in the image says which it is. A merge to main that changes the
 # image builds and pushes a new revision for the current release (the rollover's image_updates rolls
-# it out to empty servers). Pull requests build the default image without pushing.
+# it out to empty servers). Pull requests build both images without pushing (slim stays feature-equal).
 # Needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access token).
 # Optional secret DISCORD_WEBHOOK_UPDATES_ADMIN: a Discord webhook told when a run fails (once, not
 # every 30 min) and when it runs through again. New releases and images are announced by the
@@ -164,7 +164,7 @@ jobs:
             ${{ env.IMAGE }}:latest
 
       - name: Build (and push) the slim image
-        if: steps.hub.outputs.slim == 'true' && github.event_name != 'pull_request'
+        if: steps.hub.outputs.slim == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
