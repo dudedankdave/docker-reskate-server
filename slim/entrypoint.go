@@ -759,6 +759,9 @@ func entrypointMain(serverArgs []string) {
 		if v, ok := env("LEADERBOARD_SCOPE"); ok {
 			choice("shared", "server")("LEADERBOARD_SCOPE", v)
 		}
+		if v, ok := env("LEADERBOARD_LEAGUE"); ok {
+			choice("ranked", "unranked")("LEADERBOARD_LEAGUE", v)
+		}
 		if v, ok := env("LEADERBOARD_INTERVAL"); ok {
 			intRange(1, 1440)("LEADERBOARD_INTERVAL", v)
 		}

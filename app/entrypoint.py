@@ -495,6 +495,7 @@ if (value := env("DISCORD_CONSOLE")) is not None:
 announce_kicks = as_bool("ANNOUNCE_KICKS", env("ANNOUNCE_KICKS") or "true")
 if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     choice("shared", "server")("LEADERBOARD_SCOPE", env("LEADERBOARD_SCOPE") or "shared")
+    choice("ranked", "unranked")("LEADERBOARD_LEAGUE", env("LEADERBOARD_LEAGUE") or "ranked")
     int_range(1, 1440)("LEADERBOARD_INTERVAL", env("LEADERBOARD_INTERVAL") or "60")
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
     for item in as_list(env("LEADERBOARD_BOARDS") or ""):

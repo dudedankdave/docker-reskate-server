@@ -35,6 +35,7 @@ const (
 	rankedText     = "You are RANKED: your throwdown results count for the leaderboard."
 	unrankedMods   = "You are NOT ranked: your mods change scoring or physics ({mods}). " +
 		"Restart Skate without them to earn leaderboard points."
+	unrankedServer = "This is an UNRANKED server: your results count on its own Unranked boards, apart from the Ranked ones."
 	unrankedSpeed  = "You are NOT ranked until you rejoin: your game ran faster than normal."
 	unrankedTuning = "Nobody is ranked right now: this server lets players skate with their own physics tuning. " +
 		"Points count again once it is back on the game's own."
@@ -107,6 +108,7 @@ type leaderboard struct {
 	post             func(string)
 	db               *sql.DB
 	path, label      string
+	league           string // "Ranked" or "Unranked": whose boards these are
 	server           string
 	kinds            map[string]bool
 	interval         time.Duration
@@ -212,8 +214,14 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		speeding: map[string]bool{}, told: map[string]bool{}, asked: map[string]time.Time{}, free: freeTuning(),
 		chatAt: map[string]time.Time{}, postAt: time.Now(), started: time.Now(),
 	}
+	b.league = "Ranked"
+	dbName := "leaderboard.db"
+	if strings.ToLower(lbEnv("LEADERBOARD_LEAGUE", "ranked")) == "unranked" {
+		b.league, dbName = "Unranked", "leaderboard-unranked.db"
+	}
+	b.path = "/data/" + dbName
 	if strings.ToLower(lbEnv("LEADERBOARD_SCOPE", "shared")) != "server" {
-		path := lbEnv("LEADERBOARD_FILE", "/shared/leaderboard.db")
+		path := lbEnv("LEADERBOARD_FILE", "/shared/"+dbName)
 		dir := filepath.Dir(path)
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			b.path, b.label = path, "all servers"
@@ -225,6 +233,9 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		b.path = lbEnv("LEADERBOARD_FILE", b.path)
 	}
 	legacy := filepath.Join(filepath.Dir(b.path), "leaderboard.json")
+	if b.league == "Unranked" { // the old points belong to the Ranked league
+		legacy = ""
+	}
 	if strings.HasSuffix(b.path, ".json") { // an old LEADERBOARD_FILE: the points move to a .db beside it
 		legacy, b.path = b.path, strings.TrimSuffix(b.path, ".json")+".db"
 	}
@@ -626,6 +637,9 @@ func (b *leaderboard) feed(line string) {
 }
 
 func (b *leaderboard) isRanked(name string) bool {
+	if b.league == "Unranked" { // nothing is required here, so everybody scores (on the Unranked boards)
+		return true
+	}
 	_, modded := b.modded[name]
 	return !modded && !b.speeding[name] && !b.free
 }
@@ -642,7 +656,9 @@ func (b *leaderboard) tell(name string) {
 	}
 	b.told[name] = ranked
 	text := b.ranked
-	if !ranked {
+	if b.league == "Unranked" {
+		text = unrankedServer
+	} else if !ranked {
 		if mods, ok := b.modded[name]; ok {
 			if mods == "" {
 				mods = "your mods"
@@ -770,6 +786,7 @@ func (b *leaderboard) command(rest string) {
 		title, lines = "Leaderboard admin", b.admin(name, arg, now)
 	}
 	// after the server's own rule: the board, then one row per line
+	title += " (" + b.league + ")"
 	for _, l := range append([]string{title}, lines...) {
 		b.send(fit("msg "+steam+" "+l, chatMax+30))
 	}
@@ -1249,7 +1266,7 @@ func (b *leaderboard) postChat(now time.Time, kind string) {
 		}
 		head := s.board.name + ":"
 		if s.board.kind == "general" {
-			head = "Leaderboard (" + b.label + ", ranked throwdowns):"
+			head = "Leaderboard (" + b.label + ", " + strings.ToLower(b.league) + " throwdowns):"
 		}
 		for _, l := range lbPack(head, entries) {
 			b.send("say " + fit(l, chatMax))
@@ -1324,7 +1341,7 @@ func (b *leaderboard) postDiscord(now time.Time) {
 			n = 10
 		}
 		isProps := strings.HasSuffix(s.board.id, ":props")
-		what := "ranked throwdowns"
+		what := strings.ToLower(b.league) + " throwdowns"
 		if isProps {
 			what = "props from players"
 		}

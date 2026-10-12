@@ -34,6 +34,11 @@ LEADERBOARD_SCOPE picks whose points are counted: "shared" (default) keeps one d
 server that mounts the same folder at /shared (/shared/leaderboard.db); without that mount it
 falls back to "server", this server's own database in /data/leaderboard.db. LEADERBOARD_FILE
 overrides the file in either scope.
+
+LEADERBOARD_LEAGUE keeps two kinds of servers apart. "ranked" (default) is for a server that forces the
+ranked requirements: only ranked players score (see above), in leaderboard.db. "unranked" is for every
+other server: everybody scores, in a database of its own (leaderboard-unranked.db next to it), so
+results from the two never end up on the same boards. Every answer and post names its league.
 """
 import json
 import os
@@ -84,6 +89,7 @@ UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods
 UNRANKED_SPEED = "You are NOT ranked until you rejoin: your game ran faster than normal."
 UNRANKED_TUNING = ("Nobody is ranked right now: this server lets players skate with their own physics tuning. "
                    "Points count again once it is back on the game's own.")
+UNRANKED_SERVER = "This is an UNRANKED server: your results count on its own Unranked boards, apart from the Ranked ones."
 UNAVAILABLE = "The leaderboard is not available right now."
 CONFIG = "/data/ReSkateServer.json"
 
@@ -361,16 +367,19 @@ class Leaderboard:
         """send(console line) types into the server; post(text) goes to Discord (or None)."""
         self.send, self.post = send, post
         self.pool = env("LEADERBOARD_SCOPE", "shared").lower() != "server"
-        path = env("LEADERBOARD_FILE", "/shared/leaderboard.db" if self.pool else "/data/leaderboard.db")
+        self.unranked_league = env("LEADERBOARD_LEAGUE", "ranked").lower() == "unranked"
+        self.league = "Unranked" if self.unranked_league else "Ranked"
+        name = "leaderboard-unranked.db" if self.unranked_league else "leaderboard.db"
+        path = env("LEADERBOARD_FILE", ("/shared/" if self.pool else "/data/") + name)
         if self.pool and not os.path.isdir(os.path.dirname(path) or "."):
             print(f"[leaderboard] {os.path.dirname(path)} is not mounted, so the leaderboard is this server's own "
                   "(LEADERBOARD_SCOPE=server); mount one folder there on every server to share it", flush=True)
-            self.pool, path = False, "/data/leaderboard.db"
+            self.pool, path = False, "/data/" + name
         legacy = os.path.join(os.path.dirname(path) or ".", "leaderboard.json")
         if path.endswith(".json"):                  # an old LEADERBOARD_FILE: the points move to a .db beside it
             legacy, path = path, path[:-5] + ".db"
         self.store = Store(path, env("SERVER_NAME", "server"))
-        self.ok = self.store.setup(legacy if os.path.exists(legacy) else None)
+        self.ok = self.store.setup(legacy if os.path.exists(legacy) and not self.unranked_league else None)
         self.kinds = {k for k in (x.strip().lower() for x in env("LEADERBOARD_BOARDS", ",".join(KINDS)).split(",")) if k in KINDS} or {"general"}
         self.label = "all servers" if self.pool else "this server"
         self.interval = 60 * max(1, int(env("LEADERBOARD_INTERVAL", "60")))
@@ -439,6 +448,8 @@ class Leaderboard:
                 self.command(command.group(1))
 
     def ranked(self, name):
+        if self.unranked_league:        # nothing is required here, so everybody scores (on the Unranked boards)
+            return True
         return name not in self.modded and name not in self.speeding and not self.free_tuning
 
     def tell(self, name):
@@ -450,7 +461,9 @@ class Leaderboard:
         if self.told.get(name) == ranked:
             return
         self.told[name] = ranked
-        if ranked:
+        if self.unranked_league:
+            text = UNRANKED_SERVER
+        elif ranked:
             text = self.ranked_text
         elif name in self.modded:
             text = self.unranked_text.replace("{mods}", self.modded[name] or "your mods")
@@ -528,6 +541,7 @@ class Leaderboard:
         except Exception as e:                          # a bad command must not stop the log reader
             print(f"[leaderboard] /{verb} {arg!r}: {e!r}", flush=True)
             title, lines = "Leaderboard", ["Something went wrong with that command."]
+        title = f"{title} ({self.league})"
         for text in [title] + lines:                    # after the server's own rule: the board, then one row per line
             self.send(fit(f"msg {steam_id} {text}", CHAT_MAX + 30))
 
@@ -783,7 +797,7 @@ class Leaderboard:
             if first:
                 self.send("announce " + fit(f"{board['name']}: " + " | ".join(entries[:3])))
                 first = False
-            head = f"Leaderboard ({self.label}, ranked throwdowns):" if board["kind"] == "general" else f"{board['name']}:"
+            head = f"Leaderboard ({self.label}, {self.league.lower()} throwdowns):" if board["kind"] == "general" else f"{board['name']}:"
             for line in self.pack(head, entries):
                 self.send("say " + fit(line))
 
@@ -810,7 +824,7 @@ class Leaderboard:
                 if kind_of(b["id"]) in late:
                     cur.execute("UPDATE boards SET posted_version = version WHERE id = ?", (b["id"],))
             return [(b, rows) for b, rows in shown if kind_of(b["id"]) in late]
-        parts = [f"**{board['name']}** ({self.label}, {'props from players' if board['id'].endswith(':props') else 'ranked throwdowns'})\n```\n"
+        parts = [f"**{board['name']}** ({self.label}, {'props from players' if board['id'].endswith(':props') else self.league.lower() + ' throwdowns'})\n```\n"
                  f"{self.table(rows[:10 if board['kind'] == 'general' else 5], board['id'].endswith(':props'))}\n```"
                  for board, rows in self.store.run(due) or [] if rows]
         message = ""

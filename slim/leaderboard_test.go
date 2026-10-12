@@ -61,7 +61,7 @@ func TestBoardsAndCommands(t *testing.T) {
 	feed("[command] Anna /lb event end")
 	out := strings.Join(*sent, "\n")
 	for _, want := range []string{"Top 2 - Spring Cup", "1. Ben  10", "2. Anna  6", "Gave +7 points to Ben on 1 board(s).",
-		"Your rank - Spring Cup", "You are #1 of 2 with 17 points", "No board called 'nope'", "Week", "Top 2 - All Time - Jam", "Top 2 - Week 41 - S.K.A.T.E.", "1. Anna  10", "2. Ben  6", "Event 'Spring Cup' ended.", "Event 'Spring Cup' is over:"} {
+		"Your rank - Spring Cup", "You are #1 of 2 with 17 points", "No board called 'nope'", "Week", "Top 2 - All Time - Jam", "- S.K.A.T.E. (Ranked)", "1. Anna  10", "2. Ben  6", "Event 'Spring Cup' ended.", "Event 'Spring Cup' is over:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -91,5 +91,23 @@ func TestForgedNameIsIgnored(t *testing.T) {
 	b.feed("[12:00:00] [command] Eve: /lb award 500 Eve")
 	if len(*sent) != 0 {
 		t.Fatalf("forged command was answered: %v", *sent)
+	}
+}
+
+func TestUnrankedLeagueScoresEveryone(t *testing.T) {
+	t.Setenv("LEADERBOARD_LEAGUE", "unranked")
+	b, sent, _ := newTestBoard(t)
+	if b.league != "Unranked" {
+		t.Fatalf("league = %s", b.league)
+	}
+	b.modded["Modder"] = "Big Wheels"
+	if !b.isRanked("Modder") {
+		t.Fatal("a modded player must still score in the unranked league")
+	}
+	b.feed("[12:00:00] Anna joined (76561198000000001), 1/10 players, x")
+	b.feed("[12:00:00] [command] Anna /top")
+	got := strings.Join(*sent, "|")
+	if !strings.Contains(got, "(Unranked)") || strings.Contains(got, "1. Old 50") {
+		t.Fatalf("expected an Unranked answer without the Ranked league's old points, got %v", *sent)
 	}
 }
