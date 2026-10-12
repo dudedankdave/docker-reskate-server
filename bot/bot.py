@@ -28,6 +28,7 @@ import console  # noqa: E402  (bot/console.py: the console, through the Docker s
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
+import selftest  # noqa: E402  (bot/selftest.py: the bot's rights in each channel, logged at start)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -106,6 +107,9 @@ class Bot(discord.Client):
 
     async def on_ready(self):
         say(f"logged in as {self.user}")
+        if not getattr(self, "checked", False):   # on_ready also fires after a reconnect
+            self.checked = True
+            self.loop.create_task(selftest.run(self))
 
     def save(self):
         try:

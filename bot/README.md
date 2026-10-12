@@ -31,6 +31,12 @@ a server; restarts and updates come in a later phase and will only run on empty 
 
 Without `DISCORD_TOKEN` the bot prints the cards it would post and exits (a dry run).
 
+**Self-test:** after logging in, the bot checks every channel in `bot.json` and logs one line each, e.g.
+`selftest: server 2 admin #admin-2: missing Embed Links` or `cannot see the channel (403 Forbidden)`.
+`docker logs reskate-bot 2>&1 | grep selftest` shows what to fix; restart the bot afterwards to check again.
+Posting channels need View Channel, Send Messages, Embed Links and Read Message History; a `console` channel
+needs View Channel, Send Messages, Read Message History and Add Reactions.
+
 Settings: `BOT_GUILD` (commands appear at once in that server), `BOT_STATUS_CHANNEL`, `STATUS_INTERVAL`
 (seconds, default 60), `LEADERBOARD_FILE` (default `/shared/leaderboard.db`), `BOT_CONFIG`, `BOT_STATE`.
 The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount (the `reskate-mods` volume) is read-write
