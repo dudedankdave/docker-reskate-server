@@ -32,6 +32,35 @@ Also found while reading the repository:
 * **Two ways to run the helpers.** The live host runs them from `/root/reskate-release/rollover` and
   `/root/reskate-bot-src/bot` (`reskate-bot:local`); `stack/docker-compose.yml` is unused.
 
+## What the ReSkate server itself offers
+
+From the upstream [Server/README.txt](https://github.com/Dingo-Shenanigans/ReSkate/blob/main/Server/README.txt),
+[README-roles.txt](https://github.com/Dingo-Shenanigans/ReSkate/blob/main/Server/README-roles.txt) and
+[README-linux.md](https://github.com/Dingo-Shenanigans/ReSkate/blob/main/Server/README-linux.md); this shapes the plan:
+
+* **The console is the only interface.** No RCON or HTTP API; "the console (and scripts that talk to it)"
+  is how the server is driven, and the log (`ReSkateServer.log`, stdout) is how it reports. So the bridge
+  (logs in, `docker attach` out) is the right place for everything outside the server.
+* **Nearly every setting changes at run time** from the console and is saved back to `ReSkateServer.json`:
+  name, password, welcome, listed, voice, distances, placement, objects, object-scaling, effects, noclip,
+  nobail, boosts, tuning, map-pool, rotation, votes, polls, announcements, afk-kick, speed-check,
+  board-check, score-check, score-allow, parties, party-size, chat colours, rate, crowd, bone-scale,
+  bone-reach. Only a few need a restart: `port`, `query_port`, `steam_token`, `max_players`,
+  `use_steam_relay`, `pack_ms`, `threads`.
+* **"Don't edit ReSkateServer.json by hand while the server runs"**: it writes its settings back. Live
+  changes have to go through the console, never into the file.
+* **Reload commands**: `roles reload` (data/roles.json), `words reload` (data/words_*.txt), `maps reload`
+  (a map mod copied into Mods can be switched to at once), `park-mod reload`.
+* **Maps keep themselves current**: `maps.latest_versions` (our `MAP_LATEST_VERSIONS`) writes Thunderstore's
+  newest version into a map's manifest without downloading; players fetch it as they join; the map in play
+  is left until nobody is on it.
+* **Server votes and polls from the console**: `vote ...`, `poll ...`, `poll-run <command> | ...`, so the bot
+  can start them.
+* **Roles** (`player`, `vip`, `moderator`, `admin`, `muted`, up to 32, with ranks and permissions) decide who
+  may do what in game; the bot's `admin_roles` are separate today.
+* **Log lines with a tag** (`[parks]`, `[teleport]`, `[direct]`, `[network]`, activity log): the server's own
+  style, which `[event]` lines should follow.
+
 ## Target
 
 ```
@@ -100,6 +129,27 @@ Unit tests for the log parsers (bot feeds, bridge scopes, leaderboard), for env 
 the entrypoint and for the settings layers; `go test` for `slim/`; `ruff` and `go vet`. They run on every
 pull request next to the image build.
 
+### H. Settings live, through the console
+The settings layers (below) are applied at start as today, and while the server runs by a `settings`
+step of the bridge: when `common.env` or `server-<n>.env` changes, it works out what changed and types the
+matching console commands (`welcome ...`, `map-pool add ...`, `announcements add ...`, `score-check kick`,
+...) into each affected server. The server saves them to its own file as it does for an admin. Only the
+restart-only keys (`PORT`, `QUERY_PORT`, `STEAM_TOKEN`, `MAX_PLAYERS`, relay, `pack_ms`, `threads`) wait for
+the rollover to recreate the server once it is empty.
+
+### I. Roles, words and maps without restarts
+* Shared `roles.json`: after a change (or a `role` command on one server) the bridge sends `roles reload` to
+  every server sharing it; today the others only see it at their next start.
+* `words_filtered.txt` / `words_blocked.txt` shared through `/shared` like `roles.json` (`WORDS_SCOPE`),
+  with `words reload`.
+* New maps from `MODS`: installed into the map store and linked into `Mods`, then `maps reload`, instead of
+  a restart. Map versions follow `MAP_LATEST_VERSIONS`; the rollover's mod-update restart stays only for
+  mods that are not maps.
+
+### J. The kick announcer as a module
+`app/announcer.py` (kick and ban lines in chat) only reads the log and types `say`: it moves to the tools
+image with the leaderboard, the server keeps it for single servers (like A).
+
 ### G. One way to run the stack
 `stack/docker-compose.yml` with the tools image replaces `rollover/docker-compose.yml`,
 `bot/docker-compose.yml`, `bot/Dockerfile`, `rollover/Dockerfile` and `reskate-status`.
@@ -127,8 +177,8 @@ In a stack the settings come in layers, each one overriding the one before:
 * Same `KEY=value` format as `example.env`, so existing env files can be moved over as they are.
 * The entrypoint applies them at start (as it does with the env vars today) and logs where each value
   came from (`[settings] MAP from server-4.env`).
-* The rollover notices a changed settings file and recreates the affected servers once they are empty,
-  the way it already does for mod updates. No forced restart, nobody kicked.
+* While the server runs, a change is typed into its console (H); only restart-only keys make the rollover
+  recreate it once it is empty, the way it already does for mod updates. Nobody is kicked.
 * `roles.json` (`ROLES_SCOPE`) and the leaderboard (`LEADERBOARD_SCOPE`) already follow the same idea:
   `shared` by default, `server` for an own copy.
 
@@ -150,9 +200,9 @@ The modules use the same pattern: `webhooks.json` and `bot.json` have `defaults`
 The Python image and `slim/` both get all five.
 
 Open decisions:
-* What the `[event]` lines look like in `docker logs` / `docker attach`: JSON as above, or readable
-  (`[event] admin: UPDATE AVAILABLE ...`) with the fields after it; or only with `EVENTS=on` (then a stack
-  needs it set once, with that restart).
+* What the `[event]` lines look like in `docker logs` / `docker attach`: JSON as above, or readable in the
+  server's own tagged style (`[event] admin: UPDATE AVAILABLE ...`, the fields as JSON after it); or only
+  with `EVENTS=on` (then a stack needs it set once, with that restart). Suggested: the readable form, always on.
 * Whether the slim image loses its built-in webhooks in a later release (A) or keeps a small webhook part.
 
 ## Order
@@ -161,7 +211,7 @@ Open decisions:
 1. `[event]` lines (`Hook.send` in `app/notifier.py`, the same spot in `slim/notifier.go`).
 2. `/shared/modules.json` hand-over for the leaderboard and the webhooks.
 3. Settings layers and `secrets.env` in the entrypoint (Python and Go); the rollover recreates empty servers
-   whose settings changed.
+   whose restart-only settings changed.
 4. Revision tags: `release.yml` builds on merges to `main`, `RESKATE_IMAGE_REVISION`, rollover rolls revisions out.
 5. Bridge: parses `[event]` lines into events with their scope; `/v1/servers` with slot, map, players.
 6. Tests and lint in CI (F), first for everything touched above.
@@ -174,7 +224,8 @@ Open decisions:
 2. `leaderboard` module, fed from the bridge, answering through bridge actions.
 3. `webhooks` module with `webhooks.json`.
 4. Bot only through the bridge (no Docker socket).
-5. Per server, flip `/shared/modules.json` to `external`, check, then remove the `WEBHOOK_*` env vars at the next
+5. Live settings (H), `roles reload` / `words reload` / `maps reload` (I), the announcer module (J).
+6. Per server, flip `/shared/modules.json` to `external`, check, then remove the `WEBHOOK_*` env vars at the next
    regular restart.
 
 **Phase C, a later release, announced beforehand:**
