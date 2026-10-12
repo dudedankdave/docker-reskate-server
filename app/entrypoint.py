@@ -24,6 +24,8 @@ import leaderboard
 
 # The same image also runs the helper services, one per container: RESKATE_MODE (or the first
 # argument) = rollover | status | bot | backup | bridge; the default "server" is the game server.
+# "config" only writes ReSkateServer.json and the data files from the env vars, then exits
+# (a check of the settings; RESKATE_DATA points it at another folder than /data).
 TOOLS = {
     "rollover": "/app/tools/rollover.py",
     "status": "/app/tools/status.py",
@@ -32,12 +34,15 @@ TOOLS = {
     "bridge": "/app/tools/bridge.py",
 }
 _mode = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESKATE_MODE", "server")).strip().lower()
-if _mode != "server":
+if _mode not in ("server", "config"):
     if _mode not in TOOLS:
-        sys.exit(f"RESKATE_MODE: expected server, {', '.join(TOOLS)}; got {_mode!r}")
+        sys.exit(f"RESKATE_MODE: expected server, config, {', '.join(TOOLS)}; got {_mode!r}")
     os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode]])
+CONFIG_ONLY = _mode == "config"
 
-CONFIG = "/data/ReSkateServer.json"
+DATA = os.environ.get("RESKATE_DATA") or "/data"
+MODS_DIR = os.path.join(DATA, "Mods")
+CONFIG = os.path.join(DATA, "ReSkateServer.json")
 
 
 def env(name):
@@ -115,12 +120,12 @@ def warn_unknown_maps(cfg):
     """The server refuses to start on an unknown map. Say which names are available before it does."""
     provided = {}
     try:
-        folders = sorted(os.listdir("/data/Mods"))
+        folders = sorted(os.listdir(MODS_DIR))
     except OSError:
         folders = []
     for folder in folders:
         try:
-            with open(f"/data/Mods/{folder}/reskate-levels.json", encoding="utf-8-sig") as f:
+            with open(f"{MODS_DIR}/{folder}/reskate-levels.json", encoding="utf-8-sig") as f:
                 for level in json.load(f).get("levels", []):
                     if level.get("displayName"):
                         provided[level["displayName"]] = folder
@@ -174,7 +179,7 @@ def clearable(_name, value):
     return "" if value.lower() in ("off", "none") else value
 
 
-os.makedirs("/data/Mods", exist_ok=True)
+os.makedirs(MODS_DIR, exist_ok=True)
 cfg = {}
 if os.path.exists(CONFIG):
     with open(CONFIG, encoding="utf-8") as f:
@@ -499,6 +504,10 @@ for var, name in (("WORDS_FILTERED", "words_filtered.txt"), ("WORDS_BLOCKED", "w
         with open(path + ".tmp", "w", encoding="utf-8") as f:
             f.write(f"# Written from {var} on every start: change it there.\n" + "".join(w + "\n" for w in words))
         os.replace(path + ".tmp", path)
+
+if CONFIG_ONLY:
+    print(f"[config] wrote {CONFIG}", flush=True)
+    sys.exit(0)
 
 # Roles (data/roles.json: who is admin, moderator, vip) shared by all servers that mount the same
 # folder at /shared: the server's file becomes a link to /shared/roles.json (created from this server's

@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import rollover  # noqa: E402
 import status  # noqa: E402
-from rollover import docker, logs, say  # noqa: E402
+from rollover import logs, say  # noqa: E402
 
 TOKEN = os.environ.get("BRIDGE_TOKEN", "").strip()
 BIND = os.environ.get("BRIDGE_BIND", "127.0.0.1")

@@ -14,7 +14,18 @@ import (
 	"syscall"
 )
 
-const configPath = "/data/ReSkateServer.json"
+// dataDir is /data, or RESKATE_DATA (for "reskate config" writing elsewhere).
+var dataDir = func() string {
+	if d := strings.TrimSpace(os.Getenv("RESKATE_DATA")); d != "" {
+		return d
+	}
+	return "/data"
+}()
+
+var configPath = filepath.Join(dataDir, "ReSkateServer.json")
+
+// configOnly: "reskate config" writes ReSkateServer.json and the data files from the env vars, then exits.
+var configOnly bool
 
 func env(name string) (string, bool) {
 	v := strings.TrimSpace(os.Getenv(name))
@@ -196,14 +207,14 @@ var builtinMaps = []string{"San Vansterdam", "Isle of Grom", "Super Ultra Mega R
 // warnUnknownMaps: the server refuses to start on an unknown map. Say which names are available before it does.
 func warnUnknownMaps(cfg map[string]any) {
 	provided := map[string]string{}
-	entries, _ := os.ReadDir("/data/Mods")
+	entries, _ := os.ReadDir(filepath.Join(dataDir, "Mods"))
 	for _, e := range entries {
 		var lv struct {
 			Levels []struct {
 				DisplayName string `json:"displayName"`
 			} `json:"levels"`
 		}
-		if readJSON("/data/Mods/"+e.Name()+"/reskate-levels.json", &lv) {
+		if readJSON(filepath.Join(dataDir, "Mods", e.Name(), "reskate-levels.json"), &lv) {
 			for _, l := range lv.Levels {
 				if l.DisplayName != "" {
 					provided[l.DisplayName] = e.Name()
@@ -382,8 +393,8 @@ func mergeList(cfg map[string]any, section, key, v string, lower bool) {
 }
 
 func entrypointMain(serverArgs []string) {
-	if err := os.MkdirAll("/data/Mods", 0o755); err != nil {
-		die("cannot create /data/Mods: %v", err)
+	if err := os.MkdirAll(filepath.Join(dataDir, "Mods"), 0o755); err != nil {
+		die("cannot create %s: %v", filepath.Join(dataDir, "Mods"), err)
 	}
 	cfg := map[string]any{}
 	if raw, err := os.ReadFile(configPath); err == nil {
@@ -693,6 +704,10 @@ func entrypointMain(serverArgs []string) {
 	sub(cfg, "server")["auto_update"] = false // the server's own updater would replace /app, see below
 	writeJSON(configPath, cfg)
 	writeWords()
+	if configOnly {
+		fmt.Printf("[config] wrote %s\n", configPath)
+		return
+	}
 	shareRoles()
 
 	// Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.

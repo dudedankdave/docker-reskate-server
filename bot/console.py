@@ -4,8 +4,6 @@ The game containers keep stdin open (OpenStdin, with or without a TTY) and the i
 it, so what the Docker attach API writes lands in the console exactly like `docker attach`. The bot runs on the host, so
 the plain unix socket is enough (a WebSocket upgrade is not needed). Only the write side is used;
 the output is read with the log API (rollover.logs)."""
-import json
-import os
 import socket
 
 import rollover

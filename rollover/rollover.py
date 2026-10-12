@@ -33,7 +33,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from calendar import timegm
-from collections import Counter
 from datetime import datetime, timezone
 
 CONFIG = os.environ.get("CONFIG", "/config/servers.json")
