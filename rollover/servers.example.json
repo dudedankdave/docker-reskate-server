@@ -103,7 +103,8 @@
           "query_port": 12453,
           "volume": "reskate-203_data-6"
         }
-      }
+      },
+      "shared_volume": "reskate-mods"
     }
   }
 }

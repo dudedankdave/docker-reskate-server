@@ -17,6 +17,7 @@ ANNOUNCE_KICKS (default true) starts announcer.py, which says admin kicks and ba
 import json
 import os
 import re
+import shutil
 import sys
 
 import leaderboard
@@ -454,6 +455,28 @@ with open(tmp, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 os.replace(tmp, CONFIG)
+
+# Roles (data/roles.json: who is admin, moderator, vip) shared by all servers that mount the same
+# folder at /shared: the server's file becomes a link to /shared/roles.json (created from this server's
+# file the first time). ROLES_SCOPE=server keeps each server's own list.
+ROLES_FILE = os.path.join(os.path.dirname(CONFIG), "data", "roles.json")
+SHARED_ROLES = "/shared/roles.json"
+roles_scope = choice("shared", "server")("ROLES_SCOPE", env("ROLES_SCOPE") or "shared")
+if roles_scope == "shared" and os.path.ismount("/shared"):
+    try:
+        os.makedirs(os.path.dirname(ROLES_FILE), exist_ok=True)
+        linked = os.path.islink(ROLES_FILE) and os.readlink(ROLES_FILE) == SHARED_ROLES
+        if not os.path.exists(SHARED_ROLES) and os.path.isfile(ROLES_FILE) and not os.path.islink(ROLES_FILE):
+            shutil.copyfile(ROLES_FILE, SHARED_ROLES)
+        if os.path.exists(SHARED_ROLES) and not linked:
+            if os.path.lexists(ROLES_FILE):
+                os.replace(ROLES_FILE, ROLES_FILE + ".local")   # kept, not deleted
+            os.symlink(SHARED_ROLES, ROLES_FILE)
+            linked = True
+        if linked:
+            print("[roles] data/roles.json is shared through /shared/roles.json", flush=True)
+    except OSError as exc:  # the server must start even if this breaks
+        print(f"[roles] not shared: {exc!r}", flush=True)
 
 # Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
 if (value := env("MODS")) is not None:

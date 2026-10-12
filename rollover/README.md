@@ -25,6 +25,8 @@ set them as env vars on the rollover container, or as `modupdate_min_players` / 
 value; a per-server value wins over both. `mod_updates: false` (globally or per
 server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are never rolled for mods.
 
+**Shared volume at `/shared`:** `shared_volume` (env var `SHARED_VOLUME`, globally or per server, default none) adds that volume at `/shared` to every container the rollover creates, e.g. so a server's leaderboard database (`LEADERBOARD_SCOPE=shared`) and a copy of it are the same. The Cocojambo config gives server 6 (Ranked) `reskate-mods`, the same volume as the maps.
+
 **Shared map store:** every container the rollover creates (copies, in-place replacements, map-update copies) gets the volume `MODS_VOLUME` at `/mods` (default `reskate-mods`; env var, or `mods_volume` in `servers.json`, globally or per server; `off` leaves it out). Servers share one download of each map version (see the main README); a server started without `/mods` can crash-loop on current images. A copy keeps its predecessor's map version available there until `mods.py gc` removes it. The existing servers need the same mount added once, the next time they are recreated.
 
 **Repair:** a server that is up to date but runs without the shared map volume is recreated (named `<name>-r<MMDDHHMM>`, same image and settings, plus `/mods`) once nobody at all is on it. It never waits for a cutoff and never kicks anyone; `repair_mods: false` (globally or per server) turns it off.
