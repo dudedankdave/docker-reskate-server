@@ -20,7 +20,7 @@ services:
     volumes:
       # ReSkateServer.json, ReSkateServer.log, Mods/, world-layers.json
       - reskate-data:/data
-      # Maps/mods shared by all servers: each version is downloaded once
+      # Maps/mods shared by all servers (MODS_STORE=shared, the default): each version is downloaded once
       - reskate-mods:/mods
   reskate-2:
     <<: *reskate
