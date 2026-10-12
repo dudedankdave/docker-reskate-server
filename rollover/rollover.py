@@ -297,6 +297,11 @@ class Rollover:
         volume = str(setting(self.cfg, server, "mods_volume", "reskate-mods"))
         return "" if volume.lower() in ("off", "none", "false") else volume
 
+    def shared_volume(self, server):
+        """Name of a volume to mount at /shared (leaderboard database, roles), "" when none is set."""
+        volume = str(setting(self.cfg, server, "shared_volume", ""))
+        return "" if volume.lower() in ("", "off", "none", "false") else volume
+
     def lacks_mods(self, server, inst):
         """True when the shared map volume should be at /mods on this container but isn't."""
         if not self.mods_volume(server) or not setting(self.cfg, server, "repair_mods", True):
@@ -435,6 +440,7 @@ class Rollover:
         # shared map/mod store at /mods on every container we create (a server without it can crash-loop);
         # "off" leaves it out
         mods_volume = self.mods_volume(server)
+        shared_volume = self.shared_volume(server)
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
@@ -444,7 +450,8 @@ class Rollover:
             "HostConfig": {
                 "NetworkMode": host.get("NetworkMode", "host"),
                 "RestartPolicy": host.get("RestartPolicy") or {"Name": "unless-stopped"},
-                "Binds": [f"{s['volume']}:/data"] + ([f"{mods_volume}:/mods"] if mods_volume else []),
+                "Binds": [f"{s['volume']}:/data"] + ([f"{mods_volume}:/mods"] if mods_volume else [])
+                         + ([f"{shared_volume}:/shared"] if shared_volume else []),
                 "LogConfig": host.get("LogConfig") or {},
             },
         }
