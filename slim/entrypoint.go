@@ -412,6 +412,8 @@ func entrypointMain(serverArgs []string) {
 		{"GLOBAL_BANS", "access", "use_global_bans", boolConv},
 		{"MAP", "maps", "map", text},
 		{"MAP_ROTATION_MINUTES", "maps", "rotation_minutes", nonNegative},
+		{"MAP_LATEST_VERSIONS", "maps", "latest_versions", boolConv},
+		{"MAP_LATEST_CHECK_MINUTES", "maps", "latest_check_minutes", intRange(1, 1440)},
 		{"WORLD_LAYER_SYNC", "maps", "world_layer_sync", boolConv},
 		{"BOOSTS", "players", "allow_boosts", boolConv},
 		{"NO_BAIL", "players", "allow_no_bail", boolConv},
