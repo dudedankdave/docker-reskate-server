@@ -160,14 +160,21 @@ func username() string {
 }
 
 // hook is one feed; it posts to every webhook URL given for its scope (url is the first, more the rest).
+//
+// With an event scope every message is also an [event] line on stdout (see emit); console feeds and
+// answers go through post and are not: they are in the log already.
 type hook struct {
 	url, name string
 	mentions  []string
 	more      []string
+	scope     string
 }
 
-func newHook(urls []string, name string, mentions []string) *hook {
+func newHook(urls []string, name string, mentions []string, scope ...string) *hook {
 	h := &hook{name: name, mentions: mentions}
+	if len(scope) > 0 {
+		h.scope = scope[0]
+	}
 	if len(urls) > 0 {
 		h.url, h.more = urls[0], urls[1:]
 	}
@@ -236,7 +243,28 @@ func webhooks() map[string][]string {
 	return hooks
 }
 
+// emit prints an [event] line: what a webhook of this scope gets, whether one is set or not, so the
+// modules outside the server (bridge, webhooks, bot) see it too. One line: scope, then JSON.
+func emit(scope, text string, ping bool) {
+	b, err := json.Marshal(map[string]any{"text": text, "ping": ping})
+	if err != nil {
+		return
+	}
+	b = bytes.ReplaceAll(b, []byte(`\u003c`), []byte("<")) // as Python's json.dumps writes them
+	b = bytes.ReplaceAll(b, []byte(`\u003e`), []byte(">"))
+	b = bytes.ReplaceAll(b, []byte(`\u0026`), []byte("&"))
+	fmt.Fprintf(os.Stdout, "[event] %s %s\n", scope, b)
+}
+
 func (h *hook) send(text string, ping bool) bool {
+	if h.scope != "" {
+		emit(h.scope, text, ping)
+	}
+	return h.post(text, ping)
+}
+
+// post sends to the webhooks only, without an [event] line.
+func (h *hook) post(text string, ping bool) bool {
 	if h.url == "" {
 		return true
 	}
@@ -391,7 +419,7 @@ func (f *feed) flushIfDue() {
 	size := 0
 	flush := func() {
 		if len(chunk) > 0 {
-			f.h.send("```\n"+strings.Join(chunk, "\n")+"\n```", false)
+			f.h.post("```\n"+strings.Join(chunk, "\n")+"\n```", false)
 		}
 	}
 	for _, line := range batch {
@@ -547,12 +575,12 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 	hooks := webhooks()
 	n := &notifier{
 		sup: sup, mode: mode, imageVersion: imageVersion, mentions: mentions,
-		essentials: newHook(hooks["essentials"], name, mentions),
+		essentials: newHook(hooks["essentials"], name, mentions, "admin"),
 		log:        newHook(hooks["log"], name, nil),
-		public:     newHook(hooks["public"], name, nil),
+		public:     newHook(hooks["public"], name, nil, "public"),
 		chat:       newHook(hooks["chat"], name, nil),
-		updates:    newHook(hooks["updates"], name, nil),
-		upd:        newHook(hooks["updates-admin"], name, mentions),
+		updates:    newHook(hooks["updates"], name, nil, "updates"),
+		upd:        newHook(hooks["updates-admin"], name, mentions, "updates-admin"),
 		policy:     strings.ToLower(first(os.Getenv("UPDATE_POLICY"), "timed")),
 		countdown:  10,
 		bot:        first(os.Getenv("DISCORD_BOT_TOKEN")),
@@ -563,7 +591,7 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 		n.countdown = v
 	}
 	if n.upd.url == "" { // without an updates-admin webhook, update messages stay in essentials
-		n.upd = n.essentials
+		n.upd = newHook(hooks["essentials"], name, mentions, "updates-admin")
 	}
 	n.sched, _ = parseSchedule(os.Getenv("UPDATE_SCHEDULE"))
 	every := 180
@@ -661,7 +689,7 @@ func (n *notifier) postAnswer(cmd string, lines []string) {
 	size := 0
 	flush := func() {
 		if len(chunk) > 0 {
-			h.send(title+"\n```ini\n"+strings.Join(chunk, "\n")+"\n```", false)
+			h.post(title+"\n```ini\n"+strings.Join(chunk, "\n")+"\n```", false)
 			title = "**Console:** `" + trunc(strings.ReplaceAll(cmd, "`", "'"), 100) + "` (continued)"
 		}
 	}
