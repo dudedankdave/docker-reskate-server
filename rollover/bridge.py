@@ -3,6 +3,9 @@ wants to talk to them (the Discord bot, scripts), so no server needs to know abo
 
 * Server -> outside: it follows the log of every running server container and keeps the last lines
   as events (id, server, time, scopes, text). GET /v1/events?after=<id>&wait=25 waits for new ones.
+  The image's own messages (server up, join code, updates, mods: what its webhooks post) come as
+  "[event] <scope> {json}" lines; they become events of that scope with "kind": "message" and
+  "ping" (console lines have "kind": "console").
 * Outside -> server: POST /v1/servers/<n>/do {"action": "announce", "args": {"text": "..."}, "by": "name"}
   types the matching line into the console of every running container of that server (or only of
   slot "A"/"B" when "slot" is given) (the Docker
@@ -29,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import rollover  # noqa: E402
 import status  # noqa: E402
-from rollover import docker, logs, say  # noqa: E402
+from rollover import logs, say  # noqa: E402
 
 TOKEN = os.environ.get("BRIDGE_TOKEN", "").strip()
 BIND = os.environ.get("BRIDGE_BIND", "127.0.0.1")
@@ -55,13 +58,14 @@ ACTIONS = {
     "log": {"label": "Last log lines", "info": True, "args": [("count", "How many lines (default 15)", 3)]},
 }
 
-events = []              # {"id", "server", "time", "scopes", "text"}
+events = []              # {"id", "server", "time", "scopes", "text", "kind", "ping"}
 next_id = 1
 cond = threading.Condition()
 board = None
 seen = {}                # container id -> last time stamp read
 
 CHAT = re.compile(r"^\[chat\] ")
+EVENT = re.compile(r"^\[event\] ([a-z-]+) (\{.*\})$")
 JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), \d+/\d+ players")
 LEAVE = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 THROW = re.compile(r"^\[throwdown\] .+ has finished: ")
@@ -82,10 +86,23 @@ def scopes_of(text):
     return out
 
 
-def push(server, stamp, text, scopes=None):
+def message(text):
+    """(scope, text, ping) of an [event] line from the image, or None for a console line."""
+    m = EVENT.match(text)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(2))
+    except ValueError:
+        return None
+    return m.group(1), str(data.get("text") or ""), bool(data.get("ping"))
+
+
+def push(server, stamp, text, scopes=None, kind="console", ping=False):
     global next_id
     with cond:
-        events.append({"id": next_id, "server": server, "time": stamp, "scopes": scopes or scopes_of(text), "text": text})
+        events.append({"id": next_id, "server": server, "time": stamp, "scopes": scopes or scopes_of(text),
+                       "text": text, "kind": kind, "ping": ping})
         next_id += 1
         del events[:-BUFFER]
         cond.notify_all()
@@ -127,8 +144,13 @@ def follow():
                         if stamp <= last:
                             continue
                         last = stamp
-                        if not first:
-                            push(number, m.group(1) + "Z", m.group(3).rstrip())
+                        if first:
+                            continue
+                        text = m.group(3).rstrip()
+                        if msg := message(text):
+                            push(number, m.group(1) + "Z", msg[1], [msg[0]], "message", msg[2])
+                        else:
+                            push(number, m.group(1) + "Z", text)
                     seen[info["Id"]] = last or time.strftime("%Y-%m-%dT%H:%M:%S.000000000", time.gmtime())
         except Exception as e:
             say(f"bridge: could not read the logs: {e!r}")

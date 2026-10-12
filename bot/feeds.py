@@ -23,6 +23,7 @@ JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players")
 LEAVE = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 THROW = re.compile(r"^\[throwdown\] .+ has finished: ")
 ADMIN = re.compile(r"^\[(?:kick|ban|anticheat|command|words|spam)\]|\b(?:kicked|banned|warning|error)\b", re.I)
+EVENT = re.compile(r"^\[event\] [a-z-]+ \{")   # the image's own messages, see rollover/bridge.py
 LIMIT = 1900
 
 
@@ -30,6 +31,8 @@ def classify(text):
     """The scopes a console line (without its time stamp) belongs to."""
     m = LINE.match(text)
     body = m.group(1) if m else text
+    if EVENT.match(body):
+        return set()               # not a console line; the bot takes them from the bridge later
     if CHAT.match(body):
         return {"chat"}
     scopes = {"log"}

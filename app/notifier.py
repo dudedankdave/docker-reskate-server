@@ -38,6 +38,7 @@ import threading
 import time
 import urllib.parse
 
+import handover
 import leaderboard
 import updater
 
@@ -231,7 +232,7 @@ class Feed:
                     size += len(line) + 1
                     continue
                 if chunk:
-                    self.hook.send("```\n" + "\n".join(chunk) + "\n```")
+                    self.hook.send("```\n" + "\n".join(chunk) + "\n```", event=False)
                 chunk, size = ([line], len(line) + 1) if line is not None else ([], 0)
 
 
@@ -267,14 +268,32 @@ def webhooks():
     return {scope: list(dict.fromkeys(u for u in urls if u)) for scope, urls in hooks.items()}
 
 
-class Hook:
-    """One feed: posts to every webhook URL given for its scope."""
+EVENT_SCOPES = {"admin", "public", "updates", "updates-admin"}
 
-    def __init__(self, urls, name, mentions=()):
-        self.urls, self.name, self.mentions = list(urls), name, list(mentions)
+
+def emit(scope, text, ping=False):
+    """An [event] line on stdout: what a webhook of this scope gets, whether one is set or not, so the
+    modules outside the server (bridge, webhooks, bot) see it too. One line: scope, then JSON."""
+    try:
+        print(f"[event] {scope} " + json.dumps({"ping": bool(ping), "text": text}, ensure_ascii=False, separators=(",", ":")), flush=True)
+    except (OSError, ValueError):
+        pass
+
+
+class Hook:
+    """One feed: posts to every webhook URL given for its scope. Messages of the EVENT_SCOPES are
+    also [event] lines (console feeds and answers are not: they are in the log already). Nothing is
+    posted while /shared/modules.json hands the scope's webhooks to the webhooks module."""
+
+    def __init__(self, urls, name, mentions=(), scope=None):
+        self.urls, self.name, self.mentions, self.scope = list(urls), name, list(mentions), scope
         self.url = self.urls[0] if self.urls else ""
 
-    def send(self, text, ping=False):
+    def send(self, text, ping=False, event=True):
+        if event and self.scope in EVENT_SCOPES:
+            emit(self.scope, text, ping)
+        if self.scope and handover.external("webhooks", self.scope):
+            return True
         users = self.mentions if ping else []
         if users:
             text = " ".join(f"<@{i}>" for i in users) + " " + text
@@ -321,12 +340,12 @@ class Notifier:
         name = username()
         self.mentions = [i.strip() for i in os.environ.get("DISCORD_MENTION_IDS", "").split(",") if i.strip()]
         hooks = webhooks()
-        self.essentials = Hook(hooks["essentials"], name, self.mentions)
-        self.log = Hook(hooks["log"], name)
-        self.public = Hook(hooks["public"], name)
-        self.chat = Hook(hooks["chat"], name)
-        self.updates = Hook(hooks["updates"], name)
-        self.upd = Hook(hooks["updates-admin"] or hooks["essentials"], name, self.mentions)
+        self.essentials = Hook(hooks["essentials"], name, self.mentions, "admin")
+        self.log = Hook(hooks["log"], name, scope="log")
+        self.public = Hook(hooks["public"], name, scope="public")
+        self.chat = Hook(hooks["chat"], name, scope="chat")
+        self.updates = Hook(hooks["updates"], name, scope="updates")
+        self.upd = Hook(hooks["updates-admin"] or hooks["essentials"], name, self.mentions, "updates-admin")
         self.policy = (os.environ.get("UPDATE_POLICY") or "timed").strip().lower()
         self.countdown = int(os.environ.get("UPDATE_COUNTDOWN") or 10)
         self.schedule = parse_schedule(os.environ["UPDATE_SCHEDULE"]) if self.policy == "scheduled" else None
@@ -337,15 +356,17 @@ class Notifier:
         self.busy = None             # release version being handled
         self.lock = threading.Lock()
         self.installing = threading.Lock()
-        board_hook = Hook(hooks["leaderboard"] or hooks["public"], name)
+        board_hook = Hook(hooks["leaderboard"] or hooks["public"], name, scope="leaderboard")
         self.leaderboard = leaderboard.create(sup.send, board_hook.send if board_hook.url else None)
+        if self.leaderboard:
+            self.leaderboard.active = lambda: not handover.external("leaderboard")
         sup.notify = self.event
         if mode == "auto":
             sup.on_update = lambda: self.check(now=True)
 
     # ---- console ------------------------------------------------------------------
     def track(self, line):
-        if self.leaderboard:
+        if self.leaderboard and self.leaderboard.active():
             self.leaderboard.feed(line)
         m = LINE.match(line)
         text = m.group(2) if m else line
@@ -400,7 +421,7 @@ class Notifier:
                 chunk.append(line)
                 continue
             if chunk:
-                hook.send(f"{title}\n```ini\n" + "\n".join(chunk) + "\n```")
+                hook.send(f"{title}\n```ini\n" + "\n".join(chunk) + "\n```", event=False)
                 title = f"**Console:** `{cmd[:100]}` (continued)"
             chunk = [line] if line is not None else []
 

@@ -367,6 +367,7 @@ class Leaderboard:
     def __init__(self, send, post):
         """send(console line) types into the server; post(text) goes to Discord (or None)."""
         self.send, self.post = send, post
+        self.active = lambda: True
         self.pool = env("LEADERBOARD_SCOPE", "shared").lower() != "server"
         self.unranked_league = env("LEADERBOARD_LEAGUE", "ranked").lower() == "unranked"
         self.league = "Unranked" if self.unranked_league else "Ranked"
@@ -842,7 +843,8 @@ class Leaderboard:
     def loop(self):
         while True:
             try:
-                self.tick()
+                if self.active():           # off while the leaderboard module outside runs it
+                    self.tick()
             except Exception as e:  # never let the sidecar die
                 print(f"[leaderboard] {e!r}", flush=True)
             time.sleep(1)

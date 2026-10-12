@@ -33,6 +33,17 @@ server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are n
 
 **Waiting for the image:** a ReSkate release is announced before its Docker Hub image is built. The rollover waits up to `IMAGE_WAIT_MINUTES` (`image_wait_minutes`, default `60`) for `<image>:<version>` to exist before it updates or starts anything for that release; after that it goes on with the current image and the release installed into the volume. Map updates don't wait.
 
+**Settings files:** with `/shared/settings` (`settings_dir`, globally or per server) mounted into the rollover,
+a server whose `common.env`, `server-<n>.env` or `secrets/` now say something else than what it started with
+(the `[settings] digest` line in its log, see [Settings files](../docs/ENVIRONMENT.md#settings-files)) is
+restarted once nobody is on it. Every container the rollover creates gets `RESKATE_SERVER` (its number), and
+the keys the files set are left out of its env (secrets included), so the files are the one place to change them.
+
+**Image revisions:** with `image_updates: true` (globally or per server, default off), a server whose image has
+a newer build for the same ReSkate version on Docker Hub (`<version>-r<n>`, see [Tags](../README.md#tags)) is
+replaced in its own slot once nobody is on it, named `<name>-r<n>`. Only the default image; image changes never
+start a copy or wait for a cutoff.
+
 ## Slots
 
 Each server has two slots with their own ports, Steam token and `/data` volume (`servers.example.json`).
@@ -104,7 +115,7 @@ servers knowing about them. Every call needs `Authorization: Bearer $BRIDGE_TOKE
 | `GET /v1/actions` | The actions and their inputs: `say`, `announce`, `msg`, `kick`, `poll`, `poll_end`, `console`, and the info actions `players`, `log`. |
 | `GET /v1/servers` | Every server: running, players, max, map, and per slot (`slots.A`, `slots.B`: running, players, max, map, version). |
 | `POST /v1/servers/<n>/do` | `{"action": "announce", "args": {"text": "..."}, "by": "David", "slot": "A"}` types the line into the console of every running container of that server, or only the one in slot `A`/`B` when `slot` is given (Docker attach on the host socket). `quit`, `stop`, `restart`, `update` and `reload` are refused. Answers `{"ok": true, "text": "..."}`; the use is logged and appears as an `audit` event. |
-| `GET /v1/events?after=<id>&wait=25&server=<n>&scope=<scope>` | Log lines of the running servers as events (`id`, `server`, `time`, `scopes`, `text`), waiting up to `wait` seconds for new ones. Scopes: `public`, `chat`, `admin`, `log`, `audit`. The last 5000 are kept (`BRIDGE_BUFFER`); nothing from before the bridge started. |
+| `GET /v1/events?after=<id>&wait=25&server=<n>&scope=<scope>` | Log lines of the running servers as events (`id`, `server`, `time`, `scopes`, `text`, `kind`, `ping`), waiting up to `wait` seconds for new ones. Scopes: `public`, `chat`, `admin`, `log`, `audit`, and from the image's own messages also `updates`, `updates-admin`. `kind` is `console` for a log line and `message` for what the image's webhooks post (server up and join code, crashes, update and mod messages: the `[event]` lines), with `ping` when the webhook would ping. The last 5000 are kept (`BRIDGE_BUFFER`); nothing from before the bridge started. |
 | `GET /v1/health` | No token needed. |
 
 The bridge checks the token, not who is behind `by`: the caller (the bot) decides who may use admin actions.
