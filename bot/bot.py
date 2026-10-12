@@ -85,12 +85,15 @@ class Bot(discord.Client):
         add_admin_commands(self)
 
     async def setup_hook(self):
-        if self.cfg.get("guild"):
-            guild = discord.Object(int(self.cfg["guild"]))
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        else:
-            await self.tree.sync()
+        try:
+            if self.cfg.get("guild"):
+                guild = discord.Object(int(self.cfg["guild"]))
+                self.tree.copy_global_to(guild=guild)
+                await self.tree.sync(guild=guild)
+            else:
+                await self.tree.sync()
+        except discord.HTTPException as e:   # e.g. 403: invited without the applications.commands scope
+            say(f"could not register the slash commands ({e}); invite the bot with the applications.commands scope. Carrying on without them")
         if self.cfg.get("status_channel"):
             self.loop.create_task(self.cards())
         if self.cfg.get("servers"):
