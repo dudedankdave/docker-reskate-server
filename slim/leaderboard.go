@@ -434,6 +434,7 @@ func lbWeek(now time.Time) (id, name string, year int) {
 func (b *leaderboard) active(tx *sql.Tx, now time.Time) []string {
 	var ids []string
 	if b.kinds["general"] {
+		lbBoardInsert(tx, "general", "All Time", "general") // (missing after the points were wiped)
 		ids = append(ids, "general")
 	}
 	for _, kind := range []string{"year", "month", "week"} {
