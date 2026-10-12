@@ -172,8 +172,8 @@ def type_into(info, line, timeout=10):
     """Type `line` into the container's console (Docker attach, stdin only)."""
     if rollover.DOCKER_API:
         raise RuntimeError("console input needs the Docker socket, not DOCKER_API")
-    if not info["Config"].get("Tty") or not info["Config"].get("OpenStdin"):
-        raise RuntimeError("the container has no TTY/stdin open, so there is no console to type into")
+    if not info["Config"].get("OpenStdin"):    # with or without a TTY: attach writes to the server's stdin either way
+        raise RuntimeError("the container keeps no stdin open, so there is no console to type into")
     path = f"/v1.41/containers/{info['Id']}/attach?stream=1&stdin=1&stdout=0&stderr=0"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)

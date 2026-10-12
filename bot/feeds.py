@@ -90,7 +90,7 @@ class Feeds:
     async def post(self, number, scope, lines):
         channel_id = int(self.servers[number][scope])
         channel = self.bot.get_channel(channel_id) or await self.bot.fetch_channel(channel_id)
-        role = self.bot.board.cfg["servers"].get(number, {}).get("role", f"Server {number}")
+        role = self.bot.backend.servers().get(number, {}).get("role", f"Server {number}")
         text, chunks = "", []
         for line in lines:
             line = line[1:][:1500] if line.startswith(RAW) else discord.utils.escape_markdown(line)[:400]
