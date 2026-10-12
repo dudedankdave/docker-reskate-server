@@ -1,6 +1,7 @@
 # Modules
 
-Status: Phase A (below) is built; Phase B and C come after the next release to main.
+Status: Phase A and Phase B (below) are built, and go to main together; the host steps follow the release
+([Switching a stack over](#switching-a-stack-over)). Phase C comes in a later release.
 
 **Rule: the slim image stays feature-equal to the default image.** Everything the server does is built in
 both (`app/` and `slim/`), and `tests/test_config_parity.py` checks that both write the same config from the
@@ -230,17 +231,33 @@ slim shares `roles.json` like the default image (it did not), and `config` write
    `common.env`, `server-<n>.env` and `secrets/`). The rollover's `shared_volume` keeps its default (none): on a
    live host it is set to the volume the servers already share, so no server ends up with a second database.
 
-**Phase B, after the release, no server restart:**
-1. Tools image (B) and the stack on it (G); `reskate-status` and the separate compose files go.
-2. `leaderboard` module, fed from the bridge, answering through bridge actions.
-3. `webhooks` module with `webhooks.json`.
-4. Bot only through the bridge (no Docker socket).
-5. Live settings (H), `roles reload` / `words reload` / `maps reload` (I), the announcer module (J).
-6. Per server, flip `/shared/modules.json` to `external`, check, then remove the `WEBHOOK_*` env vars at the next
-   regular restart.
+**Phase B, the modules (no server restart needed to use them)**, done:
+1. Tools image `dudedankdave/reskate-tools` (`stack/Dockerfile`, `modules/tools.py`) and the stack on it
+   (`stack/docker-compose.yml`); `reskate-status` and the separate bot/rollover compose files and Dockerfiles are gone.
+2. `leaderboard` module (`modules/mod_leaderboard.py`): `app/leaderboard.py` per server and slot, fed from the
+   bridge, answering through it, posting the boards to the server's leaderboard (else public) webhooks.
+3. `webhooks` module (`modules/mod_webhooks.py`): the server's own `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_<n>` from
+   its settings files (no separate `webhooks.json`: the same variables, in `secrets/`), the notifier's feeds.
+4. Bot through the bridge (`bot/backend.py`, `BRIDGE_TOKEN` set): no Docker socket; its feeds also get the
+   image's own messages.
+5. `settings` module (H, `modules/mod_settings.py`): changes typed into running servers, `roles reload` when
+   `/shared/roles.json` changes (I); the `announcer` module (J).
+6. Bridge: events with slot, `/v1/servers/<n>/settings` (no secrets), `/v1/status`, module calls audit-only.
+
+Not (yet) done from H/I: `maps reload` after installing a new map (a new `MODS` entry still restarts the
+server when it is empty, as before); `WORDS_FILTERED` / `WORDS_BLOCKED`, `COMMANDS`, `VOTES_CUSTOM`,
+`PARK_MODS` and the network settings have no console command, so they wait for a restart when empty.
+
+Limits of the modules:
+* The leaderboard module serves servers with `LEADERBOARD_SCOPE=shared` (the database in `/shared`); one with
+  its own board in `/data` keeps it inside. Hand a server over while it is empty: players already on count from
+  their next join.
+* The webhooks module needs the URLs in the settings files (`split-settings` puts them in `secrets/`). The
+  titled answer block of an info command typed into the console stays an in-server feature.
 
 **Phase C, a later release, announced beforehand:**
-1. `RESKATE_MODE` other than `server` and `config` removed from the server image (B).
+1. `RESKATE_MODE` other than `server` and `config` removed from the server image (B): the tools image has them.
+2. The bot's Docker-socket backend removed (the bridge is the one way).
 
 ## What users have to change
 
@@ -251,13 +268,20 @@ instead of reaching the server: `PARTY_SIZE` outside 2-8, `MAP_LATEST_CHECK_MINU
 
 **Single server (slim image): nothing.** Same as the default image.
 
+## Switching a stack over
+
 **Server stack:**
 1. Create `reskate-shared`, mount it at `/shared` on every server, move `leaderboard*.db` and `roles.json` over
-   from the map volume.
+   from the map volume (or keep using the volume the servers already share at `/shared`: give `reskate-shared`
+   in `stack/docker-compose.yml` its `name:`).
 2. `split-settings --write` writes `common.env`, `server-<n>.env` and `secrets/` from today's containers; check
    them. Give every server `RESKATE_SERVER` (the rollover does for the containers it creates).
 3. Move the helpers to `stack/docker-compose.yml` (tools image), set `BRIDGE_TOKEN`.
 4. Bot without the Docker socket: bridge URL and token; `bot.json` with `defaults` and per-server entries.
-5. Flip `modules.json` to `external` per server, then drop the `WEBHOOK_*` env vars.
-6. Containers that start the helpers from the server image (`RESKATE_MODE=bot` etc.): switch to the tools image
+5. Start the stack (`stack/README.md`). The modules do nothing until `modules.json` hands a part over.
+6. Per server, while it is empty, hand parts over in `/shared/modules.json` (`settings`, `webhooks` scope by
+   scope, `leaderboard`, `announcer`) and check its channels and logs; back to `internal` (or remove the entry)
+   at any time. Once the webhooks run outside, the `WEBHOOK_*` keys can leave the container env (the rollover
+   leaves them out of new containers by itself).
+7. Containers that start the helpers from the server image (`RESKATE_MODE=bot` etc.): switch to the tools image
    before Phase C.
