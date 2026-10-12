@@ -759,6 +759,9 @@ func entrypointMain(serverArgs []string) {
 		if v, ok := env("LEADERBOARD_SCOPE"); ok {
 			choice("shared", "server")("LEADERBOARD_SCOPE", v)
 		}
+		if v, ok := env("LEADERBOARD_LEAGUE"); ok {
+			choice("ranked", "unranked")("LEADERBOARD_LEAGUE", v)
+		}
 		if v, ok := env("LEADERBOARD_INTERVAL"); ok {
 			intRange(1, 1440)("LEADERBOARD_INTERVAL", v)
 		}
@@ -769,6 +772,12 @@ func entrypointMain(serverArgs []string) {
 			for _, item := range asList(v) {
 				choice(lbKinds...)("LEADERBOARD_BOARDS", item)
 			}
+		}
+		if v, ok := env("LEADERBOARD_PROPS_PER_DAY"); ok {
+			intRange(0, 1000)("LEADERBOARD_PROPS_PER_DAY", v)
+		}
+		if v, ok := env("LEADERBOARD_PROPS_ANNOUNCE"); ok {
+			asBool("LEADERBOARD_PROPS_ANNOUNCE", v)
 		}
 		for _, name := range []string{"LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"} {
 			if v, ok := env(name); ok {

@@ -1,0 +1,21 @@
+# Run from this folder: DISCORD_TOKEN=... docker compose up -d --build
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: bot/Dockerfile
+    image: reskate-bot:local
+    container_name: reskate-bot
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}     # never commit it; set it in the host's shell or .env
+      BOT_GUILD: "1558637403869155488"       # commands show up at once in this server
+      BOT_STATUS_CHANNEL: ""                 # channel for the status cards; empty = no cards
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/reskate/shared:/shared         # the leaderboard database (only read)
+      - state:/state
+      # - ./bot.json:/config/bot.json:ro
+volumes:
+  state:
