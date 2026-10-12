@@ -192,6 +192,7 @@ class Rollover:
         self.seen = {}                 # (server, release) -> when it was first seen as due
         self.waiting = set()           # messages already logged, so a waiting state is said once
         self.mods_checked = {}         # container id -> (time, pending mod updates)
+        self.hub_seen = {}             # release -> when it was first seen without an image on Docker Hub
 
     def once(self, key, message):
         if key not in self.waiting:
@@ -260,6 +261,8 @@ class Rollover:
 
     def roll(self, number, server, newest, live, instances, version, what, key, mods=False):
         """Bring the server onto `version` (or onto new mods): in place when empty, else a copy."""
+        if not mods and not self.image_ready(version):
+            return
         count = players(newest.info)
         due = time.time() - self.seen.setdefault((number, key), time.time())
         if mods:      # map/mod updates have their own pair, MODUPDATE_MIN_PLAYERS / MODUPDATE_WAIT
@@ -286,6 +289,25 @@ class Rollover:
                                  f"{busy[0].name}; waiting until it is stopped.")
         self.start_copy(number, server, newest, slot, version, count, instances, what,
                         suffix=time.strftime("-m%m%d%H%M", time.gmtime()) if mods else "")
+
+    def image_ready(self, version):
+        """True once <image>:<version> is on Docker Hub. A release is announced before its image
+        is built, so wait up to image_wait_minutes (default 60) for it; after that go on without
+        it (the current image plus the release installed into the volume)."""
+        first = self.hub_seen.setdefault(version, time.time())
+        wait = float(setting(self.cfg, {}, "image_wait_minutes", 60)) * 60
+        try:
+            if hub_has(self.repo, version):
+                return True
+        except Exception as e:
+            say(f"Docker Hub check for {version} failed: {e}")
+        if time.time() - first >= wait:
+            self.once(("image-late", version), f"ReSkate {version}: no {self.repo}:{version} on Docker Hub after "
+                                               f"{wait / 60:.0f} min, going on with the current image.")
+            return True
+        self.once(("image-wait", version), f"ReSkate {version} is out, waiting up to {wait / 60:.0f} min for "
+                                           f"{self.repo}:{version} on Docker Hub before updating anything.")
+        return False
 
     def pending_mods(self, number, server, inst):
         """Newer Thunderstore versions of the server's unpinned MODS entries, asked inside the
@@ -383,7 +405,11 @@ class Rollover:
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")
         host = old.info["HostConfig"]
         cfg = old.info["Config"]
-        mods_volume = setting(self.cfg, server, "mods_volume", "")   # shared map/mod store, mounted at /mods
+        # shared map/mod store at /mods on every container we create (a server without it can crash-loop);
+        # "off" leaves it out
+        mods_volume = str(setting(self.cfg, server, "mods_volume", "reskate-mods"))
+        if mods_volume.lower() in ("off", "none", "false"):
+            mods_volume = ""
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
