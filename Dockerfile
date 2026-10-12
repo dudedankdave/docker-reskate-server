@@ -21,8 +21,11 @@ RUN set -e; cd /out; \
 # ---- runtime stage ---------------------------------------------------------
 FROM debian:trixie-slim
 ARG VERSION=dev
+# The build of this repository: r<n> (commits on main), so the same ReSkate version can get newer images.
+ARG REVISION=dev
 LABEL org.opencontainers.image.title="reskate-server" \
       org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
       org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl unzip python3-minimal libpython3-stdlib python3-discord tini \
@@ -46,7 +49,8 @@ RUN ln -s /data/Mods /app/Mods \
  && echo 3354750 > /app/steam_appid.txt \
  && chown -h reskate:reskate /app/Mods /app/world-layers.json /app/ReSkateServer.log /app/steam_appid.txt \
     /home/reskate/.steam/sdk64/steamclient.so
-ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION
+ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION \
+    RESKATE_IMAGE_REVISION=$REVISION
 USER reskate
 VOLUME /data
 # Healthy once the log shows the server is up (see healthcheck.py). Startup needs a

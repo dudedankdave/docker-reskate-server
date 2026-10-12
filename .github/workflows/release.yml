@@ -3,7 +3,10 @@
 # <ver>-slim tag for that version yet, it downloads the Linux server (checked against its SHA-256),
 # builds the missing image(s) from main and pushes <ver>, <major>.<minor>, latest and/or
 # <ver>-slim, slim. Each image is checked on its own, so a slim push that failed is retried too.
-# Pull requests build the default image without pushing.
+# Every build is also tagged <ver>-r<n> (and <ver>-r<n>-slim), n = the commits on main, a tag that
+# never moves; RESKATE_IMAGE_REVISION in the image says which it is. A merge to main that changes the
+# image builds and pushes a new revision for the current release (the rollover's image_updates rolls
+# it out to empty servers). Pull requests build the default image without pushing.
 # Needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access token).
 # Optional secret DISCORD_WEBHOOK_UPDATES_ADMIN: a Discord webhook told when a run fails (once, not
 # every 30 min) and when it runs through again. New releases and images are announced by the
@@ -24,6 +27,18 @@ on:
         type: boolean
         default: true
   pull_request:
+  # A merge to main that changes the image builds it again for the current ReSkate release, as a new
+  # revision: <version>-r<n> (n = commits on main) besides the moving tags.
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - slim/**
+      - app/**
+      - rollover/*.py
+      - bot/*.py
+      - stack/dbbackup.py
+      - .github/workflows/release.yml
 
 permissions:
   contents: read
@@ -42,6 +57,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the revision counts the commits
+
+      - name: Image revision
+        id: rev
+        run: echo "revision=r$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Find the latest ReSkate release
         id: release
@@ -86,7 +107,7 @@ jobs:
               *) echo "::error::Docker Hub answered $code for $IMAGE:$1" >&2; return 1 ;;
             esac
           }
-          if [ "${{ github.event_name }}" = pull_request ] || [ "${{ inputs.force }}" = true ]; then
+          if [ "${{ github.event_name }}" = pull_request ] || [ "${{ github.event_name }}" = push ] || [ "${{ inputs.force }}" = true ]; then
             default=true slim=true
           else
             default=$(missing "$v")
@@ -132,10 +153,13 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: VERSION=${{ steps.release.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.release.outputs.version }}
+            REVISION=${{ steps.rev.outputs.revision }}
           push: ${{ steps.hub.outputs.push == 'true' }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
+            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-${{ steps.rev.outputs.revision }}
             ${{ env.IMAGE }}:${{ steps.release.outputs.minor }}
             ${{ env.IMAGE }}:latest
 
@@ -145,10 +169,13 @@ jobs:
         with:
           context: .
           file: slim/Dockerfile
-          build-args: VERSION=${{ steps.release.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.release.outputs.version }}
+            REVISION=${{ steps.rev.outputs.revision }}
           push: ${{ steps.hub.outputs.push == 'true' }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-slim
+            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-${{ steps.rev.outputs.revision }}-slim
             ${{ env.IMAGE }}:slim
 
       - name: Docker Hub README

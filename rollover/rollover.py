@@ -17,6 +17,10 @@ server starts. When the files now say something else for a server than what it s
 "[settings] digest" line in its log), it is restarted once nobody is on it; nobody is kicked.
 Every container this tool creates gets RESKATE_SERVER (its number), so it finds its server-<n>.env.
 
+With image_updates on, a newer build of the image for the same ReSkate version (the tag
+<version>-r<n> on Docker Hub, RESKATE_IMAGE_REVISION in the image) replaces a server in its own
+slot once nobody is on it: image changes are never worth disconnecting anyone.
+
 The copy is a clone of the running container (env, mounts, restart policy) with the slot's
 ports, token, volume and a new SERVER_NAME. If Docker Hub has an image tag for the release it
 runs that; otherwise it runs the current image with the release installed into its volume
@@ -162,6 +166,26 @@ def latest_release():
     return info["version"]
 
 
+def hub_revision(repo, version):
+    """The newest image revision on Docker Hub for a ReSkate version (<version>-r<n>), 0 if none."""
+    url = (f"https://hub.docker.com/v2/repositories/{repo}/tags?page_size=100"
+           f"&name={urllib.parse.quote(version + '-r')}")
+    best = 0
+    while url:
+        page = json.loads(fetch(url, 20))
+        for t in page.get("results") or []:
+            if m := re.fullmatch(re.escape(version) + r"-r(\d+)", t.get("name", "")):
+                best = max(best, int(m.group(1)))
+        url = page.get("next")
+    return best
+
+
+def revision_of(env):
+    """The image revision a container runs (RESKATE_IMAGE_REVISION "r12" -> 12), 0 when unknown."""
+    m = re.fullmatch(r"r?(\d+)", env.get("RESKATE_IMAGE_REVISION", "").strip())
+    return int(m.group(1)) if m else 0
+
+
 def hub_has(repo, tag):
     try:
         fetch(f"https://hub.docker.com/v2/repositories/{repo}/tags/{urllib.parse.quote(tag)}", 20)
@@ -204,6 +228,7 @@ class Rollover:
         self.waiting = set()           # messages already logged, so a waiting state is said once
         self.mods_checked = {}         # container id -> (time, pending mod updates)
         self.hub_seen = {}             # release -> when it was first seen without an image on Docker Hub
+        self.revisions = {}            # (repo, version) -> (when looked up, newest image revision)
 
     def once(self, key, message):
         if key not in self.waiting:
@@ -267,6 +292,8 @@ class Rollover:
         if self.lacks_mods(server, newest):
             return self.repair(number, server, newest, instances)
         if self.settings_changed(number, server, newest):
+            return
+        if self.image_update(number, server, newest, instances):
             return
         updates = self.pending_mods(number, server, newest)
         if updates:
@@ -395,6 +422,32 @@ class Rollover:
         self.restart(inst, f"Server {number}: its settings changed, nobody is on {inst.name}, restarting it")
         return True
 
+    def image_update(self, number, server, inst, instances):
+        """Replace a server in its slot with a newer image revision of its ReSkate version, once
+        nobody is on it. True while that is pending."""
+        if not setting(self.cfg, server, "image_updates", False):
+            return False
+        if not inst.info["Config"]["Image"].split(":")[0] == self.repo or inst.info["Config"]["Image"].endswith("-slim"):
+            return False                               # only our default image; slim keeps its own tags
+        key = (self.repo, inst.version)
+        at, newest = self.revisions.get(key, (0, 0))
+        if time.time() - at > 1800:
+            try:
+                newest = hub_revision(self.repo, inst.version)
+            except Exception as e:
+                say(f"docker hub: {e}")
+            self.revisions[key] = (time.time(), newest)
+        have = revision_of(inst.env)
+        if newest <= have:
+            return False
+        what = f"image {inst.version}-r{newest} is out (runs r{have or '?'})"
+        if self.empty_for(inst) <= 0:
+            self.once(("image-wait", inst.name, newest), f"Server {number}: {what}, updating {inst.name} once nobody is on it.")
+            return True
+        self.start_copy(number, server, inst, inst.slot, inst.version, 0, instances, what,
+                        suffix=f"-r{newest}", tag=f"{inst.version}-r{newest}")
+        return True
+
     def restart(self, s, why):
         self.notify(why + (" (dry run, not restarted)" if self.dry else ""))
         if not self.dry:
@@ -428,7 +481,7 @@ class Rollover:
                     return s.env["STEAM_TOKEN"]
         return token
 
-    def start_copy(self, number, server, old, slot, version, count, instances, what, suffix=""):
+    def start_copy(self, number, server, old, slot, version, count, instances, what, suffix="", tag=None):
         s = server["slots"][slot]
         token = self.token(number, slot, instances)
         if not token:
@@ -438,7 +491,8 @@ class Rollover:
         if any(x.name == name for x in instances):
             return self.once(("exists", name), f"Server {number}: {name} exists but is not running; start it by hand.")
         # a mod copy keeps the old image; a release copy takes the Hub tag when there is one
-        tag = None if suffix else (version if hub_has(self.repo, version) else None)
+        if tag is None:
+            tag = None if suffix else (version if hub_has(self.repo, version) else None)
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
         install = not tag and not suffix and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
         in_place = slot == old.slot
@@ -461,7 +515,7 @@ class Rollover:
         env = dict(old.env)
         env.update(PORT=str(s["port"]), QUERY_PORT=str(s["query_port"]), STEAM_TOKEN=token,
                    SERVER_NAME=server_name(self.cfg, number, server, version), RESKATE_SERVER=str(number))
-        for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "PATH",
+        for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "RESKATE_IMAGE_REVISION", "PATH",
                   "LD_LIBRARY_PATH", "HOME", "SteamAppId"):
             if suffix and k in ("UPDATE_MODE", "UPDATE_POLICY") and k in env:
                 continue                   # same release again: keep how the old one was told to update
