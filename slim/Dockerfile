@@ -37,8 +37,11 @@ RUN set -e; mkdir -p /rootfs/usr/bin /rootfs/bin /rootfs/usr/local/bin /rootfs/d
 # ---- runtime ---------------------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian13
 ARG VERSION=dev
+# The build of this repository: r<n> (commits on main), so the same ReSkate version can get newer images.
+ARG REVISION=dev
 LABEL org.opencontainers.image.title="reskate-server" \
       org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
       org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 COPY --from=rootfs /rootfs/usr /usr
 COPY --from=rootfs /rootfs/bin /bin
@@ -47,6 +50,7 @@ COPY --from=rootfs --chown=1000:1000 /rootfs/data /data
 COPY --from=rootfs --chown=1000:1000 /rootfs/mods /mods
 COPY --from=rootfs --chown=1000:1000 /rootfs/home /home
 ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION \
+    RESKATE_IMAGE_REVISION=$REVISION \
     PATH=/usr/local/bin:/usr/bin:/bin
 WORKDIR /app
 USER 1000:1000

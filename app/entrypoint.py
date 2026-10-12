@@ -23,20 +23,37 @@ import sys
 import leaderboard
 
 # The same image also runs the helper services, one per container: RESKATE_MODE (or the first
-# argument) = rollover | status | bot | backup; the default "server" is the game server.
+# argument) = rollover | status | bot | backup | bridge | split-settings; the default "server" is the game server.
+# "config" only writes ReSkateServer.json and the data files from the env vars, then exits
+# (a check of the settings; RESKATE_DATA points it at another folder than /data).
 TOOLS = {
     "rollover": "/app/tools/rollover.py",
     "status": "/app/tools/status.py",
     "bot": "/app/tools/bot.py",
     "backup": "/app/tools/dbbackup.py",
+    "bridge": "/app/tools/bridge.py",
+    "split-settings": "/app/tools/split_settings.py",
 }
-_mode = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESKATE_MODE", "server")).strip().lower()
-if _mode != "server":
+# The mode is the first argument if it names one (the rest goes to the tool or the server), else RESKATE_MODE.
+if len(sys.argv) > 1 and sys.argv[1].strip().lower() in ("server", "config", *TOOLS):
+    _mode, ARGS = sys.argv[1].strip().lower(), sys.argv[2:]
+else:
+    _mode, ARGS = os.environ.get("RESKATE_MODE", "server").strip().lower(), sys.argv[1:]
+if _mode not in ("server", "config"):
     if _mode not in TOOLS:
-        sys.exit(f"RESKATE_MODE: expected server, {', '.join(TOOLS)}; got {_mode!r}")
-    os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode]])
+        sys.exit(f"RESKATE_MODE: expected server, config, {', '.join(TOOLS)}; got {_mode!r}")
+    os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode], *ARGS])
+CONFIG_ONLY = _mode == "config"
 
-CONFIG = "/data/ReSkateServer.json"
+# Settings from /shared/settings (common.env, server-<n>.env, secrets/) go into the environment
+# first, so everything below and the server's helpers see them (see settings.py).
+import settings  # noqa: E402
+
+settings.apply()
+
+DATA = os.environ.get("RESKATE_DATA") or "/data"
+MODS_DIR = os.path.join(DATA, "Mods")
+CONFIG = os.path.join(DATA, "ReSkateServer.json")
 
 
 def env(name):
@@ -114,12 +131,12 @@ def warn_unknown_maps(cfg):
     """The server refuses to start on an unknown map. Say which names are available before it does."""
     provided = {}
     try:
-        folders = sorted(os.listdir("/data/Mods"))
+        folders = sorted(os.listdir(MODS_DIR))
     except OSError:
         folders = []
     for folder in folders:
         try:
-            with open(f"/data/Mods/{folder}/reskate-levels.json", encoding="utf-8-sig") as f:
+            with open(f"{MODS_DIR}/{folder}/reskate-levels.json", encoding="utf-8-sig") as f:
                 for level in json.load(f).get("levels", []):
                     if level.get("displayName"):
                         provided[level["displayName"]] = folder
@@ -173,7 +190,7 @@ def clearable(_name, value):
     return "" if value.lower() in ("off", "none") else value
 
 
-os.makedirs("/data/Mods", exist_ok=True)
+os.makedirs(MODS_DIR, exist_ok=True)
 cfg = {}
 if os.path.exists(CONFIG):
     with open(CONFIG, encoding="utf-8") as f:
@@ -275,12 +292,18 @@ SIMPLE = {
     "GLOBAL_BANS": ("access", "use_global_bans", as_bool),
     "MAP": ("maps", "map", text),
     "MAP_ROTATION_MINUTES": ("maps", "rotation_minutes", non_negative),
+    "MAP_ROTATION_VOTE": ("maps", "rotation_vote", as_bool),
+    "MAP_ROTATION_VOTE_SECONDS": ("maps", "rotation_vote_seconds", int_range(10, 120)),
+    "MAP_ROTATION_EXTEND_MINUTES": ("maps", "rotation_extend_minutes", int_range(0, 240)),
+    "MAP_ROTATION_ANNOUNCE": ("maps", "rotation_announce", as_bool),
+    "MAP_LATEST_VERSIONS": ("maps", "latest_versions", as_bool),
+    "MAP_LATEST_CHECK_MINUTES": ("maps", "latest_check_minutes", int_range(5, 1440)),
     "WORLD_LAYER_SYNC": ("maps", "world_layer_sync", as_bool),
     "BOOSTS": ("players", "allow_boosts", as_bool),
     "NO_BAIL": ("players", "allow_no_bail", as_bool),
     "NOCLIP": ("players", "allow_noclip", as_bool),
     "PARTIES": ("players", "allow_parties", as_bool),
-    "PARTY_SIZE": ("players", "party_size", as_int),
+    "PARTY_SIZE": ("players", "party_size", int_range(2, 8)),
     "VOICE_CHAT": ("players", "allow_voice_chat", as_bool),
     "VOICE_RANGE": ("players", "voice_range", int_range(50, 1000)),
     "OBJECT_PLACEMENT": ("players", "object_placement", choice("everyone", "admins", "nobody")),
@@ -290,8 +313,10 @@ SIMPLE = {
     "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
     "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
     "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
+    "GLOBAL_WORD_FILTER": ("players", "use_global_word_filter", as_bool),
     "SPEED_CHECK": ("anti_cheat", "speed_hack", choice("off", "warn", "kick")),
     "SCORE_CHECK": ("anti_cheat", "modified_scoring", choice("off", "warn", "kick")),
+    "BOARD_CHECK": ("anti_cheat", "pinned_board", choice("off", "warn", "kick")),
     "ENFORCE_TUNING": ("anti_cheat", "enforce_tuning", as_bool),
     "BONE_SCALE_LIMIT": ("anti_cheat", "bone_scale_limit", int_range(0, 8)),
     "BONE_REACH_LIMIT": ("anti_cheat", "bone_reach_limit", reach),
@@ -331,8 +356,32 @@ for var, key in {"PARK_CONSTRUCTION": "construction", "PARK_HISTORIC": "historic
     if value is not None:
         cfg.setdefault("maps", {}).setdefault("parks", {})[key] = value
 
+for var, key, convert in (("PARK_LIMIT_PARKS", "parks", int_range(1, 16)),
+                          ("PARK_LIMIT_OBJECTS", "objects", int_range(1, 1024))):
+    if (value := env(var)) is not None:
+        cfg.setdefault("maps", {}).setdefault("park_limits", {})[key] = convert(var, value)
+
+
+def json_list(var, value, example):
+    """A JSON list of objects from var ("off" = empty), or exit saying what was expected."""
+    if value.lower() in ("off", "none"):
+        return []
+    try:
+        items = json.loads(value)
+    except ValueError as exc:
+        sys.exit(f"{var}: expected a JSON list, {exc}")
+    if not isinstance(items, list) or not all(isinstance(v, dict) for v in items):
+        sys.exit(f"{var}: expected a JSON list like {example}")
+    return items
+
+
+# PARK_MODS=[{"name": "street", "folder": "...", "map": "San Vansterdam", "key": "bam"}]  (pins the list; off = none)
+if (value := env("PARK_MODS")) is not None:
+    setting("maps", "park_mods", json_list("PARK_MODS", value, '[{"name": ..., "folder": ..., "map": ...}]'))
+
 votes = cfg.setdefault("votes", {})
-for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_DAY", "time_of_day")):
+for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_DAY", "time_of_day"),
+                    ("VOTE_EXTEND_MAP", "extend_map")):
     for suffix, field, convert in (("_ENABLED", "enabled", as_bool), ("_PERCENT", "percent", as_int),
                                    ("_SECONDS", "seconds", non_negative),
                                    ("_COOLDOWN_SECONDS", "cooldown_seconds", non_negative),
@@ -456,6 +505,21 @@ with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n")
 os.replace(tmp, CONFIG)
 
+# WORDS_FILTERED / WORDS_BLOCKED=word,other: this server's own chat words (data/words_filtered.txt,
+# data/words_blocked.txt, see ReSkate's README "Chat words"). Pins the file; "off" empties it.
+for var, name in (("WORDS_FILTERED", "words_filtered.txt"), ("WORDS_BLOCKED", "words_blocked.txt")):
+    if (value := env(var)) is not None:
+        words = [] if value.lower() in ("off", "none") else as_list(value)
+        path = os.path.join(os.path.dirname(CONFIG), "data", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            f.write(f"# Written from {var} on every start: change it there.\n" + "".join(w + "\n" for w in words))
+        os.replace(path + ".tmp", path)
+
+if CONFIG_ONLY:
+    print(f"[config] wrote {CONFIG}", flush=True)
+    sys.exit(0)
+
 # Roles (data/roles.json: who is admin, moderator, vip) shared by all servers that mount the same
 # folder at /shared: the server's file becomes a link to /shared/roles.json (created from this server's
 # file the first time). ROLES_SCOPE=server keeps each server's own list.
@@ -570,7 +634,7 @@ if mode == "auto":
     except OSError as exc:  # the server must start even if this breaks
         print(f"[update] cannot use {updater.DIR} ({exc}), running the image's server without updates", flush=True)
         mode = "pinned"
-sup = supervisor.Supervisor(folder, sys.argv[1:])
+sup = supervisor.Supervisor(folder, ARGS)
 notifier.Notifier(sup, mode, image_version).start()
 if announce_kicks:
     import announcer

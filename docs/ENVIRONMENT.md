@@ -3,12 +3,14 @@
 All settings of the [ReSkate server image](../README.md), in two parts. [`example.env`](../example.env) has the same variables as a starting point.
 
 - **[ReSkate server settings](#reskate-server-settings)**: the server's own options. The image writes them into ReSkate's config file, and ReSkate does the rest.
-- **[Image settings](#image-settings)**: features this image adds around the server (mods, updates, Discord, leaderboard). ReSkate itself knows nothing about them.
+- **[Image settings](#image-settings)**: features this image adds around the server (moderation, mods, updates, Discord, leaderboard, settings files, modules). ReSkate itself knows nothing about them.
 
 For both:
 
 - Values containing `#` or `'` must be double-quoted in env files. JSON values (`VOTES_CUSTOM`, `COMMANDS`) are single-quoted.
 - With several `env_file` entries, a later one wins over an earlier one. Settings that differ per server go into `serverN.env`, see [Multi-server support](../README.md#multi-server-support).
+- In a stack, the same variables can come from shared and per-server files instead, see [Settings files](#settings-files).
+- Check them without starting the server: `docker run --rm --env-file common.env --env-file server1.env dudedankdave/reskate-server config` writes the config and exits (the slim image: `/app/reskate config`).
 
 <br/>
 
@@ -28,6 +30,12 @@ For both:
 | `MAP` | text | Map everyone skates: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`, or the `displayName` of a custom map mod (`reskate-levels.json`). |
 | `MAP_POOL` | map list, `off` | Maps players may vote for and the rotation goes through, in order, e.g. `San Vansterdam,Isle of Grom,Skate2Map`. Empty = every map; admins can still pick any. `off` empties it. Pins the list (in-game changes are replaced on restart). Unknown names stop the server (`Config problem`). |
 | `MAP_ROTATION_MINUTES` | minutes, `0` = off | Minutes on each map before the server moves to the next one in `MAP_POOL`. Players get a minute's warning; the clock waits while nobody is on and starts over whenever the map changes (by a vote or an admin too). |
+| `MAP_ROTATION_VOTE` | `true` / `false` | ReSkate 2.0.7 and later. When the time of `MAP_ROTATION_MINUTES` is up, players vote for the next map (a map from the pool, a random one, or staying) instead of the server moving straight on to the next map in `MAP_POOL`. Needs `MAP_ROTATION_MINUTES`. Off by default. |
+| `MAP_ROTATION_VOTE_SECONDS` | seconds, `10`-`120` | How long that vote runs. Default `30`. |
+| `MAP_ROTATION_EXTEND_MINUTES` | minutes, `0`-`240` | Minutes a map gets when players choose to stay on it (the `rotation stay` console setting). `0` = staying is not offered. Default `15`. |
+| `MAP_ROTATION_ANNOUNCE` | `true` / `false` | Tell players in chat how many minutes the map has left. On by default. |
+| `MAP_LATEST_VERSIONS` | `true` / `false` | ReSkate 2.0.7 and later. The server asks Thunderstore for the newest version of each of its custom maps, at start and every `MAP_LATEST_CHECK_MINUTES`, and holds players to that version. Nothing is downloaded by this check; it only changes the version players are asked for, so install the new version too (see [Updates](../README.md#updates)). The map being played is left alone until nobody is on it. If a new version adds, removes or renames levels, copy its new `reskate-levels.json` to the server. Off by default. |
+| `MAP_LATEST_CHECK_MINUTES` | minutes, `5`-`1440` | How often that check runs. Default `60`. |
 | `PORT` | number | Game port. Only used with `USE_STEAM_RELAY=false`. |
 | `QUERY_PORT` | number | Server browser / A2S queries. |
 | `STEAM_TOKEN` | token, `off` | Steam game server token: keeps the Steam ID across restarts (not always the join code). One per server from steamcommunity.com/dev/managegameservers (App ID 3354750) and keep it private. Empty = anonymous sign-in, a new Steam ID on every start. `off` clears it. |
@@ -70,6 +78,9 @@ For both:
 | `WORD_WARNINGS` | 0-10 | Chat messages with a word from the ReSkate team's list are never passed on and their player is warned; after this many warnings the next one gets them kicked (they can rejoin). Warnings last until the server restarts. Default `3`, `0` = never warn or kick. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
+| `GLOBAL_WORD_FILTER` | `true` / `false` | Use the ReSkate team's chat word lists. `false` leaves them out: only `WORDS_BLOCKED` is refused in chat. Default `true`. |
+| `WORDS_FILTERED` | word list | This server's own filtered words, comma-separated, on top of the team's: still passed on, shown as stars to players with their chat filter on. Written to `data/words_filtered.txt` on every start (pins the file; `off` empties it; unset leaves the file alone). |
+| `WORDS_BLOCKED` | word list | This server's own blocked words, comma-separated: a message with one is not passed on and its player is warned (`WORD_WARNINGS`). Written to `data/words_blocked.txt` like `WORDS_FILTERED`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
 
 <br/>
@@ -80,6 +91,7 @@ For both:
 |---|---|---|
 | `SPEED_CHECK` | `off` `warn` `kick` | Catch players whose game runs faster than normal (speedhack). `warn` (default) takes them out of throwdowns and coop challenges and tells admins. |
 | `SCORE_CHECK` | `off` `warn` `kick` | Catch players whose mods change trick scoring or handling. `warn` (default) takes them out of throwdowns and coop challenges. |
+| `BOARD_CHECK` | `off` `warn` `kick` | Catch players whose skateboard stays on another player as that player moves (a hacked game). `warn` (default) stops showing their board to the others and tells the admins. |
 | `SCORE_ALLOW` | hex list | Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list. |
 
 <br/>
@@ -121,11 +133,13 @@ For both:
 | `VOTE_KICK_PERCENT` | number | Share of connected players whose yes passes a kick vote. |
 | `VOTE_TIME_OF_DAY_ENABLED` | `true` / `false` | Players can vote on the time of day (`/vote tod <time>`). Needs `WORLD_LAYER_SYNC`. |
 | `VOTE_TIME_OF_DAY_PERCENT` | number | Share of connected players whose yes passes a time-of-day vote. |
+| `VOTE_EXTEND_MAP_ENABLED` | `true` / `false` | ReSkate 2.0.7 and later. Players can vote to add time to the current map (`/vote extend`). Needs `MAP_ROTATION_MINUTES`: on a server whose maps are not on a timer there is nothing to extend. **On by default**, unlike the other votes. |
+| `VOTE_EXTEND_MAP_PERCENT` | number | Share of connected players whose yes passes an extend vote. Default `50`. |
 | `VOTE_SECONDS` | seconds | How long a vote runs. Default `30`. |
 | `VOTE_COOLDOWN_SECONDS` | seconds | How long a player waits before starting another vote. Default `60`. |
-| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_SECONDS` | seconds, `0` | That vote's own run time. `0` (default) = `VOTE_SECONDS`. |
-| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_COOLDOWN_SECONDS` | seconds, `0` | That vote's own cooldown. `0` (default) = `VOTE_COOLDOWN_SECONDS`. |
-| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_MIN_PLAYERS` | 1-249 | Players who must be on before anyone can start that vote. Default `1`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY\|EXTEND_MAP>_SECONDS` | seconds, `0` | That vote's own run time. `0` (default) = `VOTE_SECONDS`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY\|EXTEND_MAP>_COOLDOWN_SECONDS` | seconds, `0` | That vote's own cooldown. `0` (default) = `VOTE_COOLDOWN_SECONDS`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY\|EXTEND_MAP>_MIN_PLAYERS` | 1-249 | Players who must be on before anyone can start that vote. Default `1`. |
 | `VOTE_STARTER_YES` | `true` / `false` | Whoever starts a vote has voted yes. Default `true`. |
 | `VOTES_CUSTOM` | JSON list, `off` | Votes of your own, each running a server command when it passes, e.g. `[{"name": "restart", "description": "Reload the map", "command": "map {map}", "percent": 60}]`. `{map}` = current map, `{arg}` = the choice picked from `"choices"`. Players use `/vote restart`, `/vote list`. Up to 16, names 1-16 of `a-z 0-9 - _`. Each takes `enabled`, `percent`, `seconds`, `cooldown_seconds`, `min_players`. Pins the list; `off` clears it. Single-quote the value in env files. |
 | `POLLS` | `off` `admins` `everyone` | Who may ask everyone a question (`/poll Next map? \| Grom \| Stadium`, answers with `/1`, `/2`...). Default `admins`. |
@@ -152,6 +166,9 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 | `PARK_CONSTRUCTION` | park id | Layout of the construction park lot, e.g. `skatepark_01`, or `empty`. |
 | `PARK_HISTORIC` | park id | Layout of the historic park lot, e.g. `megapark_05`, or `empty`. |
 | `PARK_FINANCIAL` | park id | Layout of the financial park lot, e.g. `flumppark_08`, or `empty`. |
+| `PARK_MODS` | JSON list, `off` | Parks built in the game's Park Editor and shared as mods, which the server can spawn (`park-mod add <name>`), e.g. `[{"name": "street", "folder": "popular skate 2 street park", "map": "San Vansterdam", "key": "bam"}]`. The mod's folder goes into `/data/Mods`. Pins the list; `off` clears it. Single-quote the value in env files. |
+| `PARK_LIMIT_PARKS` | 1-16 | How many park mods may be spawned at once. Default `3`. |
+| `PARK_LIMIT_OBJECTS` | 1-1024 | How many objects all spawned parks may have together. Default `512`. |
 | `WORLD_LAYER_SYNC` | `true` / `false` | Force the `LAYERS` below on every player. |
 | `LAYERS` | `key=on\|off\|default` list | World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting. |
 
@@ -159,7 +176,7 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 
 ## Image settings
 
-[Moderation](#moderation) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard)
+[Moderation](#moderation) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard) · [Settings files](#settings-files) · [Modules and events](#modules-and-events)
 
 These are read by the image's own scripts on every start and are not stored in `/data/ReSkateServer.json`: an unset variable means its default, not the last value.
 
@@ -239,3 +256,50 @@ How ranking and points work: [Ranked and leaderboard](../README.md#ranked-and-le
 | `LEADERBOARD_FILE` | Use another database file than `/shared/leaderboard.db` / `/data/leaderboard.db`. An old `leaderboard.json` next to it is imported into All Time once. SQLite locks the file while it is changed, and only one server posts it to Discord per interval. |
 | `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
 | `UNRANKED_TUNING_MESSAGE` / `UNRANKED_SPEED_MESSAGE` | The DMs when nobody is ranked because players may use their own physics tuning, and when a player's game ran sped up. At most 200 bytes. |
+
+<br/>
+
+### Settings files
+
+In a stack, the servers can share their settings, or keep their own, through files in `/shared/settings`
+(a volume every server mounts at `/shared`). Each layer overrides the one before:
+
+| Layer | File | For |
+|---|---|---|
+| 1 | the container's env vars | On a single server, everything, as before. In a stack only what is per container: `PORT`, `QUERY_PORT`, `STEAM_TOKEN` (each slot has its own) and `RESKATE_SERVER`. |
+| 2 | `common.env` | What every server has: welcome message, announcements, admins, voice, tuning ... |
+| 3 | `secrets/common.env` | The same for secrets: `SERVER_PASSWORD`, webhook URLs, bot tokens. |
+| 4 | `server-<n>.env` | What only server `<n>` has: name, map, map pool, mods, max players, ranked checks ... |
+| 5 | `secrets/server-<n>.env` | Its secrets. |
+
+- A key in `server-<n>.env` is that server's own value; a key that is not there is the shared one.
+- `KEY+=value` adds to the value of the layers before instead of replacing it: a comma list (`MODS`, `MAP_POOL`, `ADMINS` ...), a `|` list (`ANNOUNCEMENTS`) or a JSON list (`COMMANDS`, `VOTES_CUSTOM`, `PARK_MODS`), e.g. `MAP_POOL+=Bralburbs` in `server-5.env`.
+- Env-file format: `KEY=value`, `#` comments (also after an unquoted value), `"double"` or `'single'` quotes, `export` allowed. `PORT`, `QUERY_PORT`, `STEAM_TOKEN` and `RESKATE_SERVER` in a file are ignored (the log says so).
+- The log shows which keys came from which file (never the values) and a `[settings] digest`; the [rollover](../rollover/README.md) restarts a server whose files changed once nobody is on it.
+- `split-settings` writes today's containers out as these files: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v reskate-shared:/shared dudedankdave/reskate-tools split-settings` lists the keys, `--write` writes them.
+- With the settings module (`"settings": "external"` in [modules.json](#modules-and-events)) a change reaches the running server through its console at once; only what the console cannot set (`MAX_PLAYERS`, `MODS`, `COMMANDS`, network ...) waits for the restart when it is empty.
+
+| Variable | Meaning |
+|---|---|
+| `RESKATE_SERVER` | This server's number, so it reads `server-<n>.env`. The rollover sets it on the containers it creates. |
+| `SETTINGS_DIR` | Another folder than `/shared/settings`. |
+
+<br/>
+
+### Modules and events
+
+The leaderboard, the kick announcer and the webhooks run inside the server. In a stack they can be handed to modules
+outside it (bridge, bot, ...) while the server runs, with `/shared/modules.json`, re-read every minute:
+
+```json
+{"leaderboard": "external", "webhooks": {"public": "external", "chat": "external"},
+ "servers": {"6": {"leaderboard": "internal"}}}
+```
+
+- Parts: `leaderboard`, `announcer`, `webhooks` (one value, or one per scope: `admin`, `log`, `public`, `chat`, `leaderboard`, `updates`, `updates-admin`), and `settings` (changes in the settings files are typed into the running server by the settings module; only the rest waits for a restart). `external` switches the server's own part off and the module of the [tools stack](../stack/README.md) on, `internal` (or no file) keeps it in the server. `servers` overrides per `RESKATE_SERVER`. The log says what is set (`[modules] ...`).
+- Every message the server's webhooks post in the `admin`, `public`, `updates` and `updates-admin` scopes is also printed as one line, whether a webhook is set or not: `[event] admin {"ping":true,"text":"**UPDATE AVAILABLE**: ..."}`. The [bridge](../rollover/README.md#bridge-servers---bot) passes them on as events of that scope.
+
+| Variable | Meaning |
+|---|---|
+| `MODULES_FILE` | Another file than `/shared/modules.json`. |
+| `RESKATE_DATA` | Another folder than `/data` (for `config`). |

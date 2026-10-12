@@ -20,12 +20,15 @@ from contextlib import closing
 import discord
 from discord import app_commands
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")]
 import leaderboard as lb  # noqa: E402  (app/leaderboard.py, copied into the image)
 import rollover  # noqa: E402
 import status  # noqa: E402
-import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
+import backend  # noqa: E402  (bot/backend.py: the servers, through the bridge or the Docker socket)
+import console  # noqa: E402  (bot/console.py: which console lines are refused)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
+import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
+import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -47,14 +50,20 @@ def load_config():
     return cfg
 
 
-def read_db(fn):
-    """fn(cursor) on the leaderboard file, opened read-only. None if it can't be read."""
+def db_path(league="ranked"):
+    """The Ranked database (leaderboard.db) or the Unranked one beside it (leaderboard-unranked.db)."""
+    return DB if league != "unranked" else os.path.join(os.path.dirname(DB), "leaderboard-unranked.db")
+
+
+def read_db(fn, league="ranked"):
+    """fn(cursor) on the leaderboard file of a league, opened read-only. None if it can't be read."""
+    path = db_path(league)
     try:
-        with closing(sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=10)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)) as db:
             db.row_factory = sqlite3.Row
             return fn(db.cursor())
     except sqlite3.Error as e:
-        say(f"cannot read {DB}: {e}")
+        say(f"cannot read {path}: {e}")
         return None
 
 
@@ -72,9 +81,9 @@ class Bot(discord.Client):
         super().__init__(intents=intents)
         self.cfg = cfg
         self.feeds = feeds.Feeds(self)
+        self.feed_failed = {}
         self.tree = app_commands.CommandTree(self)
-        with open(rollover.CONFIG, encoding="utf-8") as f:
-            self.board = status.Board(json.load(f))
+        self.backend = backend.create()
         self.state = {}
         try:
             with open(STATE, encoding="utf-8") as f:
@@ -83,6 +92,7 @@ class Bot(discord.Client):
             pass
         add_commands(self)
         add_admin_commands(self)
+        coach.add(self)
 
     async def setup_hook(self):
         try:
@@ -98,6 +108,7 @@ class Bot(discord.Client):
             self.loop.create_task(self.cards())
         if self.cfg.get("servers"):
             self.loop.create_task(self.run_feeds())
+        posts.start(self, read_db)
 
     async def on_ready(self):
         say(f"logged in as {self.user}")
@@ -112,7 +123,7 @@ class Bot(discord.Client):
             say(f"could not save {STATE} ({e}); a restart would post a new status message")
 
     async def payload(self):
-        message = await asyncio.to_thread(self.board.message)
+        message = await asyncio.to_thread(self.backend.message)
         summary = dict(message["embeds"][-1], description=f"Updated <t:{int(time.time())}:R>")
         return [discord.Embed.from_dict(e) for e in message["embeds"][:-1] + [summary]]
 
@@ -120,20 +131,31 @@ class Bot(discord.Client):
         await self.wait_until_ready()
         while True:
             try:
-                for (number, scope), lines in (await asyncio.to_thread(self.feeds.collect)).items():
-                    await self.feeds.post(number, scope, lines)
+                batches = await asyncio.to_thread(self.feeds.collect)
             except Exception as e:
-                say(f"feeds failed: {e!r}")
+                say(f"feeds: could not read the logs: {e!r}")
+                batches = {}
+            for (number, scope), lines in batches.items():   # one channel failing must not stop the others
+                try:
+                    await self.feeds.post(number, scope, lines)
+                except Exception as e:
+                    self.feed_error(number, scope, e)
             await asyncio.sleep(5)
+
+    def feed_error(self, number, scope, error):
+        """Log a failing channel at most every 10 minutes."""
+        key, now = (number, scope), time.time()
+        if now - self.feed_failed.get(key, 0) >= 600:
+            self.feed_failed[key] = now
+            say(f"feeds: server {number} {scope} channel failed ({error!r}); retrying silently for 10 min")
 
     def is_admin(self, member):
         roles = {str(r) for r in self.cfg.get("admin_roles") or []}
         return bool(roles & {str(r.id) for r in getattr(member, "roles", [])})
 
-    async def running(self, number):
-        """The running container of a server, or None."""
-        found = await asyncio.to_thread(self.board.gather)
-        return next((i for i in found.get(number, []) if i["State"].get("Running")), None)
+    def servers(self):
+        """{number: {"role": ...}} of servers.json."""
+        return self.backend.servers()
 
     async def audit(self, number, who, line):
         """Tell the server's admin channel who typed what into the console."""
@@ -156,14 +178,15 @@ class Bot(discord.Client):
                 why = console.refused(message.content)
                 if why:
                     return await message.reply(f"Not sent: {why}.", mention_author=False)
-                info = await self.running(number)
-                if not info:
+                targets = await asyncio.to_thread(self.backend.targets, number)
+                if not targets:
                     return await message.reply("That server is not running.", mention_author=False)
                 try:
-                    await asyncio.to_thread(console.send, info, message.content)
+                    for target in targets:
+                        await asyncio.to_thread(target.send, message.content, message.author.display_name)
                     await message.add_reaction("✅")
                     await self.audit(number, message.author.display_name, message.content)
-                except (OSError, RuntimeError) as e:
+                except Exception as e:
                     await message.reply(f"Could not type into the console: {e}", mention_author=False)
 
     async def cards(self):
@@ -195,7 +218,7 @@ def add_commands(bot):
 
     def server_choices(current):
         return [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
-                for n, s in bot.board.cfg["servers"].items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
+                for n, s in bot.servers().items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
 
     async def servers_ac(_i, current: str):
         return server_choices(current)
@@ -210,45 +233,49 @@ def add_commands(bot):
     @app_commands.autocomplete(server=servers_ac)
     async def players(i: discord.Interaction, server: str = ""):
         await i.response.defer()
-        found = await asyncio.to_thread(bot.board.gather)
         lines = []
-        for n, infos in found.items():
+        for n, cfg in bot.servers().items():
             if server and n != server:
                 continue
-            role = bot.board.cfg["servers"][n].get("role", f"Server {n}")
-            running = [x for x in infos if x["State"].get("Running")]
-            if not running:
+            role = cfg.get("role") or f"Server {n}"
+            targets = await asyncio.to_thread(bot.backend.targets, n)
+            if not targets:
                 lines.append(f"**{role}**: offline")
                 continue
-            s = await asyncio.to_thread(bot.board.follow, running[0])
-            lines.append(f"**{role}**: {s.players}/{s.max or '?'} on {s.map or '?'}")
+            t = targets[0]
+            lines.append(f"**{role}**: {t.players}/{t.max or '?'} on {t.map or '?'}")
         await i.followup.send("\n".join(lines) or "Unknown server.")
+
+    leagues = app_commands.choices(league=[app_commands.Choice(name="Ranked", value="ranked"),
+                                           app_commands.Choice(name="Unranked", value="unranked")])
 
     def board_for(cur, spec):
         return lb.Store.find(cur, spec or "", time.time())
 
     @tree.command(name="top", description="Leaderboard (all time by default)")
-    @app_commands.describe(board="general, week, month, year, event, a week number, or add a mode: week skate")
-    async def top(i: discord.Interaction, board: str = ""):
+    @app_commands.describe(board="general, week, month, year, event, a week number, or add a mode: week skate", league="Ranked (default) or Unranked")
+    @leagues
+    async def top(i: discord.Interaction, board: str = "", league: str = "ranked"):
         def get(cur):
             b = board_for(cur, board)
             return (b, lb.Store.top(cur, b["id"], 10)) if b else None
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("No such board, or the leaderboard is not available.", ephemeral=True)
         b, rows = result
-        await i.response.send_message(f"**{b['name']}**\n{table(rows)}")
+        await i.response.send_message(f"**{b['name']}** ({league.title()})\n{table(rows)}")
 
     @tree.command(name="rank", description="Your or another player's rank")
-    @app_commands.describe(player="Name (part of it) or SteamID; leave empty for the top of the board", board="Board, as for /top")
-    async def rank(i: discord.Interaction, player: str, board: str = ""):
+    @app_commands.describe(player="Name (part of it) or SteamID", board="Board, as for /top", league="Ranked (default) or Unranked")
+    @leagues
+    async def rank(i: discord.Interaction, player: str, board: str = "", league: str = "ranked"):
         def get(cur):
             b = board_for(cur, board)
             p = find_player(cur, player)
             if not b or not p:
                 return None
             return b, p, lb.Store.rank(cur, b["id"], p["steam_id"])
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("No such player or board.", ephemeral=True)
         b, p, r = result
@@ -264,19 +291,22 @@ def add_commands(bot):
                 or cur.execute("SELECT * FROM players WHERE lower(name) LIKE '%' || lower(?) || '%' ORDER BY name LIMIT 1", (text,)).fetchone())
 
     @tree.command(name="boards", description="All boards")
-    async def boards(i: discord.Interaction):
+    @app_commands.describe(league="Ranked (default) or Unranked")
+    @leagues
+    async def boards(i: discord.Interaction, league: str = "ranked"):
         def get(cur):
             return cur.execute("SELECT b.name, b.closed_at, COUNT(s.steam_id) n FROM boards b LEFT JOIN scores s "
                                "ON s.board = b.id AND s.points > 0 WHERE b.kind != 'mode' GROUP BY b.id "
                                "ORDER BY b.closed_at IS NOT NULL, b.created_at DESC LIMIT 25").fetchall()
-        rows = await asyncio.to_thread(read_db, get)
+        rows = await asyncio.to_thread(read_db, get, league)
         if rows is None:
             return await i.response.send_message("The leaderboard is not available.", ephemeral=True)
         await i.response.send_message("\n".join(f"{'🔒' if r['closed_at'] else '🟢'} **{r['name']}**: {r['n']} players" for r in rows) or "No boards yet.")
 
     @tree.command(name="player", description="A player's profile")
-    @app_commands.describe(player="Name (part of it) or SteamID")
-    async def player(i: discord.Interaction, player: str):
+    @app_commands.describe(player="Name (part of it) or SteamID", league="Ranked (default) or Unranked")
+    @leagues
+    async def player(i: discord.Interaction, player: str, league: str = "ranked"):
         def get(cur):
             p = find_player(cur, player)
             if not p:
@@ -290,7 +320,7 @@ def add_commands(bot):
             recent = cur.execute("SELECT at, points, reason FROM ledger WHERE steam_id = ? AND board = 'general' "
                                  "ORDER BY id DESC LIMIT 5", (p["steam_id"],)).fetchall()
             return p, ranks, recent
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("No such player.", ephemeral=True)
         p, ranks, recent = result
@@ -300,14 +330,16 @@ def add_commands(bot):
         await i.response.send_message(embed=e)
 
     @tree.command(name="stats", description="Leaderboard totals")
-    async def stats(i: discord.Interaction):
+    @app_commands.describe(league="Ranked (default) or Unranked")
+    @leagues
+    async def stats(i: discord.Interaction, league: str = "ranked"):
         def get(cur):
             now = time.time()
             return (cur.execute("SELECT COUNT(*) FROM players").fetchone()[0],
                     cur.execute("SELECT COALESCE(SUM(points),0) FROM ledger WHERE board='general'").fetchone()[0],
                     cur.execute("SELECT COUNT(*) FROM ledger WHERE board='general' AND at > ?", (now - 86400,)).fetchone()[0],
                     cur.execute("SELECT COUNT(DISTINCT steam_id) FROM ledger WHERE board='general' AND at > ?", (now - 7 * 86400,)).fetchone()[0])
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("The leaderboard is not available.", ephemeral=True)
         players_n, points, today, week = result
@@ -319,27 +351,16 @@ def add_admin_commands(bot):
 
     async def servers_ac(_i, current: str):
         return [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
-                for n, s in bot.board.cfg["servers"].items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
+                for n, s in bot.servers().items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
 
     async def run(i, server, line):
         """Send one console line for an admin; answers the interaction."""
         if not bot.is_admin(i.user):
             return await i.response.send_message("Admins only.", ephemeral=True)
-        if server not in bot.board.cfg["servers"]:
+        if server not in bot.servers():
             return await i.response.send_message("Unknown server.", ephemeral=True)
-        why = console.refused(line)
-        if why:
-            return await i.response.send_message(f"Not sent: {why}.", ephemeral=True)
         await i.response.defer(ephemeral=True)
-        info = await bot.running(server)
-        if not info:
-            return await i.followup.send("That server is not running.", ephemeral=True)
-        try:
-            await asyncio.to_thread(console.send, info, line)
-        except (OSError, RuntimeError) as e:
-            return await i.followup.send(f"Could not type into the console: {e}", ephemeral=True)
-        await bot.audit(server, i.user.display_name, line)
-        await i.followup.send(f"Sent to server {server}: `{line[:300]}`", ephemeral=True)
+        await i.followup.send(await coach.send_line(bot, i, server, line, i.user.display_name), ephemeral=True)
 
     guard = app_commands.default_permissions(manage_guild=True)
 
@@ -378,8 +399,7 @@ def main():
     cfg = load_config()
     token = os.environ.get("DISCORD_TOKEN", "").strip()
     if not token:
-        with open(rollover.CONFIG, encoding="utf-8") as f:
-            print(json.dumps(status.Board(json.load(f)).message(), indent=2, ensure_ascii=False))
+        print(json.dumps(backend.create().message(), indent=2, ensure_ascii=False))
         say("no DISCORD_TOKEN: printed the cards, not starting the bot")
         return
     Bot(cfg).run(token, log_handler=None)

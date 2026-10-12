@@ -13,6 +13,8 @@ import re
 import threading
 import time
 
+import handover
+
 LOG = "/data/ReSkateServer.log"
 DATE = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] ")
 # The server's replies to `kick` / `ban` (Server/server_commands.cpp). Vote kicks are not
@@ -63,7 +65,7 @@ def follow(send):
         state["pos"] += end + 1
         for line in data[:end].decode("utf-8", "replace").splitlines():
             text = announcement(line)
-            if text:
+            if text and not handover.external("announcer"):
                 send(f"say {text}")                     # False while the server restarts: skip
 
 

@@ -71,6 +71,7 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | `2.0.5`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
 | `2.0.5-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `2.0.5-r123`, `2.0.5-r123-slim` | One build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`); the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
 
 The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) of the server inside and has to match the players' game. Older tags stay available. ReSkate 2.0.3 changed the multiplayer protocol: 2.0.2 and 2.0.3+ can't join each other. 2.0.4 and 2.0.5 ship the same server as 2.0.3.
 
@@ -80,7 +81,7 @@ The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenaniga
 
 ## Configuration
 
-Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists every variable**, split into the ReSkate server's own settings (per server, access, gameplay, anti-cheat, voice, network, voting, announcements, parks and layers) and the ones this image adds (moderation, mods, updates, Discord, leaderboard), and [`example.env`](example.env) is a ready-made starting point.
+Put settings in env files; **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) lists every variable**, split into the ReSkate server's own settings (per server, access, gameplay, anti-cheat, voice, network, voting, announcements, parks and layers) and the ones this image adds (moderation, mods, updates, Discord, leaderboard, settings files, modules), and [`example.env`](example.env) is a ready-made starting point.
 
 - Variables are written to `/data/ReSkateServer.json` on every start. Unset or empty ones leave the existing value alone; `off` clears a value where supported.
 - Values containing `#` or `'` must be double-quoted. A later `env_file` wins over an earlier one.
@@ -151,7 +152,8 @@ With `docker run`: `-v reskate-mods:/mods`. Both images support it.
 
 - **On start only.** Nothing is installed while the server runs. A newer version of an unpinned entry is installed on the next start; `MODS_UPDATE=false` keeps the installed versions (missing packages and pinned entries are still installed).
 - **Discord:** the admin feed announces each new version of an unpinned entry (checked hourly) and what the installer did at start, see [Discord webhook](#discord-webhook). The [rollover](rollover/README.md) can restart servers onto a new map version for you.
-- **Install now without a restart:** `docker exec reskate-server-1 python3 /app/mods.py` (default image) or `docker exec reskate-server-1 /app/reskate mods` (slim image). Restart afterwards so a changed map loads.
+- **Install now without a restart:** `docker exec reskate-server-1 python3 /app/mods.py` (default image) or `docker exec reskate-server-1 /app/reskate mods` (slim image). Restart afterwards so a changed map loads. On ReSkate 2.0.7+, `maps reload` (in the console via `docker attach`, or `/maps reload` as an admin) picks up a newly added map mod without a restart.
+- **Newest version for players (ReSkate 2.0.7+):** `MAP_LATEST_VERSIONS=true` makes the server ask Thunderstore for the newest version of each of its custom maps at start and every `MAP_LATEST_CHECK_MINUTES` (default `60`) and hold players to it. The check downloads nothing and only changes the version players are asked for, so keep `MODS_UPDATE` on or update the entry yourself. The map being played is left alone until nobody is on it. If a new version adds, removes or renames levels, copy its new `reskate-levels.json` to the server. Off by default.
 - **Never backwards:** an unpinned entry is never replaced by an older version, even if Thunderstore's "latest" lags behind.
 - **Renamed maps:** an update can rename a map (`Skate2Map` 1.0.5 became `New San Vanelona`), and the server then refuses to start on the old `MAP`. Pin the version (`Owner-Name-1.2.3`) if a map must never change.
 
@@ -268,6 +270,8 @@ Run one container per server from the same image. Each needs its **own** data vo
 
 - All servers use `network_mode: host`, so ports must be unique on the host. Use one block per server, e.g. 12400/12401, 12410/12411, 12420/12421.
 - Sharing one `/data` volume makes the servers overwrite each other's config, mods and logs.
+- With a `reskate-shared` volume at `/shared` on every server, they share the leaderboard, the roles and, if you like, their settings: `common.env` and `server-<n>.env` in `/shared/settings` instead of env files, changed without touching the containers ([Settings files](docs/ENVIRONMENT.md#settings-files)).
+- Rollover, bridge and Discord bot for a group of servers: [`stack/`](stack/) and [`rollover/`](rollover/README.md); how the parts fit: [docs/MODULES.md](docs/MODULES.md).
 
 <br/>
 
@@ -374,6 +378,10 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `app/announcer.py` | Kick and ban announcements in chat |
 | `app/leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `app/healthcheck.py` | Reports healthy once the log shows the server is up |
+| `app/settings.py` | Settings files in `/shared/settings` (shared and per server) |
+| `app/handover.py` | `/shared/modules.json`: which parts run outside the server |
+| `stack/split_settings.py` | Writes running containers' env out as settings files |
+| `tests/`, `.github/workflows/test.yml` | Tests (incl. default vs. slim config parity) and lint on every pull request |
 | `tools/check-update.sh` | Host-side release check |
 | `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
 | `rollover/` | Host-side services: starts a copy on a new ReSkate release while players are on, stops the old server once empty; live server status cards in Discord |

@@ -109,16 +109,19 @@ OLD_REPLIES = {"Leaderboard (/top week, /top event, /boards):", "Leaderboard (/t
                "Your rank (/rank week, /rank event):", "Leaderboards:", "Leaderboard admin (/lb help):"}
 
 
-def env(name, default=""):
-    return (os.environ.get(name) or "").strip() or default
+def env(name, default="", environ=None):
+    return ((os.environ if environ is None else environ).get(name) or "").strip() or default
 
 
 def truthy(value):
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
-def free_tuning():
-    """True when the config lets players skate with their own physics tuning (enforce_tuning off)."""
+def free_tuning(environ=None):
+    """True when the config lets players skate with their own physics tuning (enforce_tuning off).
+    Outside the server (environ given: the leaderboard module) from its ENFORCE_TUNING setting."""
+    if environ is not None:
+        return env("ENFORCE_TUNING", "true", environ).lower() in ("0", "false", "no", "off")
     try:
         with open(CONFIG, encoding="utf-8") as f:
             return (json.load(f).get("anti_cheat") or {}).get("enforce_tuning", True) is False
@@ -136,10 +139,10 @@ def kind_of(board_id):
     return board_id.split(":")[0].split("-")[0]
 
 
-def intervals(name, default):
+def intervals(name, default, environ=None):
     """{kind: seconds} from "general=60,week=30,event=0" (minutes, 0 = never); kinds not named use default."""
     out = {k: default for k in KINDS}
-    for item in env(name).split(","):
+    for item in env(name, "", environ).split(","):
         kind, _, minutes = item.strip().partition("=")
         if kind.strip().lower() in KINDS and minutes.strip().isdigit():
             out[kind.strip().lower()] = 60 * int(minutes)
@@ -364,9 +367,14 @@ class Store:
 
 
 class Leaderboard:
-    def __init__(self, send, post):
-        """send(console line) types into the server; post(text) goes to Discord (or None)."""
-        self.send, self.post = send, post
+    def __init__(self, send, post, environ=None):
+        """send(console line) types into the server; post(text) goes to Discord (or None). environ: the
+        server's settings (default this process's env; the leaderboard module passes each server's)."""
+        self.send, self.post, self.environ = send, post, environ
+
+        def env(name, default=""):
+            return globals()["env"](name, default, environ)
+        self.active = lambda: True
         self.pool = env("LEADERBOARD_SCOPE", "shared").lower() != "server"
         self.unranked_league = env("LEADERBOARD_LEAGUE", "ranked").lower() == "unranked"
         self.league = "Unranked" if self.unranked_league else "Ranked"
@@ -403,9 +411,9 @@ class Leaderboard:
         self.speeding = set()  # caught this session: unranked until they rejoin
         self.told = {}         # name -> what they were told last (True = ranked)
         self.asked = {}        # SteamID64 -> time of their last command answer
-        self.free_tuning = free_tuning()  # own physics tuning allowed: nobody is ranked
-        self.chat_every = intervals("LEADERBOARD_INTERVALS", self.interval)
-        self.discord_every = intervals("LEADERBOARD_DISCORD_INTERVALS", self.interval)
+        self.free_tuning = free_tuning(environ)  # own physics tuning allowed: nobody is ranked
+        self.chat_every = intervals("LEADERBOARD_INTERVALS", self.interval, environ)
+        self.discord_every = intervals("LEADERBOARD_DISCORD_INTERVALS", self.interval, environ)
         self.chat_at = {}      # kind -> time of the last chat post
         self.discord_at = time.time()
         self.started = time.time()
@@ -418,7 +426,7 @@ class Leaderboard:
             if UP.match(text):
                 self.online.clear(), self.waiting.clear(), self.modded.clear()
                 self.speeding.clear(), self.told.clear(), self.admins.clear()
-                self.free_tuning = free_tuning()
+                self.free_tuning = free_tuning(self.environ)
             elif j := JOINED.match(text):
                 name = j.group(1)
                 self.online[name] = j.group(2)
@@ -842,7 +850,8 @@ class Leaderboard:
     def loop(self):
         while True:
             try:
-                self.tick()
+                if self.active():           # off while the leaderboard module outside runs it
+                    self.tick()
             except Exception as e:  # never let the sidecar die
                 print(f"[leaderboard] {e!r}", flush=True)
             time.sleep(1)

@@ -1,64 +1,111 @@
-# The helper services as one compose stack "tools": every service is the base image
-# dudedankdave/reskate-server (the full one, not -slim) in another RESKATE_MODE.
-# Run from this folder: DISCORD_TOKEN=... docker compose -p tools up -d
-# Replaces the containers of rollover/docker-compose.yml and bot/docker-compose.yml (see README.md).
+# Everything next to the game servers as one compose stack "tools", each service a container of the
+# tools image dudedankdave/reskate-tools in its RESKATE_MODE (see modules/tools.py and docs/MODULES.md).
+# Run from this folder: DISCORD_TOKEN=... BRIDGE_TOKEN=... docker compose -p tools up -d
+# The modules (leaderboard, webhooks, settings, announcer) only act for servers that hand that part over
+# in /shared/modules.json; running them changes nothing until then.
 name: tools
 x-tool: &tool
-  image: dudedankdave/reskate-server:${RESKATE_TAG:-latest}
+  image: dudedankdave/reskate-tools:${TOOLS_TAG:-latest}
   restart: unless-stopped
   network_mode: host
-  user: root                 # the Docker socket is root's
-  healthcheck:
-    disable: true            # the image's check is for the game server
+x-module: &module
+  <<: *tool
+  user: "1000:1000"          # like the servers, so what they write to /shared stays theirs too
+x-bridge: &bridge-env
+  BRIDGE_URL: http://127.0.0.1:8780
+  BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN}
 
 services:
+  # Servers <-> everything else: follows the server logs as events and types console commands for callers
+  # with the token. Listens on 127.0.0.1:8780 of the host; see rollover/README.md.
+  bridge:
+    <<: *tool
+    container_name: reskate-bridge
+    user: root               # the Docker socket is root's
+    environment:
+      RESKATE_MODE: bridge
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - reskate-shared:/shared:ro   # the settings files, for /v1/servers/<n>/settings
+      # - ./servers.json:/config/servers.json:ro
+
   rollover:
     <<: *tool
     container_name: reskate-rollover
+    user: root
     environment:
       RESKATE_MODE: rollover
       DRY_RUN: "true"          # false lets it act
       # MODUPDATE_MIN_PLAYERS, MODUPDATE_WAIT, DISCORD_WEBHOOK, STEAM_TOKEN_1B ...: see rollover/README.md
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-
-  status:
-    <<: *tool
-    container_name: reskate-status
-    environment:
-      RESKATE_MODE: status
-      STATUS_WEBHOOK: ""       # empty = only log the cards
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - status:/state
+      - reskate-shared:/shared:ro   # settings files and modules.json: restarts empty servers whose settings changed
+      # - ./servers.json:/config/servers.json:ro
 
   bot:
-    <<: *tool
+    <<: *module
     container_name: reskate-bot
     environment:
       RESKATE_MODE: bot
+      <<: *bridge-env
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
       BOT_GUILD: "1558637403869155488"
       BOT_STATUS_CHANNEL: ""
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /root/reskate/shared:/shared
+      - reskate-shared:/shared      # the leaderboard databases, only read (SQLite's WAL needs the folder writable)
       - bot-state:/state
+      # - ./bot.json:/config/bot.json:ro
 
-  # The leaderboard database itself is written by the game servers (SQLite in /shared);
-  # this container keeps hourly backups of it.
+  leaderboard:
+    <<: *module
+    container_name: reskate-leaderboard
+    environment:
+      RESKATE_MODE: leaderboard
+      <<: *bridge-env
+    volumes:
+      - reskate-shared:/shared
+
+  webhooks:
+    <<: *module
+    container_name: reskate-webhooks
+    environment:
+      RESKATE_MODE: webhooks
+      <<: *bridge-env
+    volumes:
+      - reskate-shared:/shared:ro
+
+  settings:
+    <<: *module
+    container_name: reskate-settings
+    environment:
+      RESKATE_MODE: settings
+      <<: *bridge-env
+    volumes:
+      - reskate-shared:/shared      # keeps what it applied in /shared/settings/.applied
+
+  announcer:
+    <<: *module
+    container_name: reskate-announcer
+    environment:
+      RESKATE_MODE: announcer
+      <<: *bridge-env
+    volumes:
+      - reskate-shared:/shared:ro
+
+  # Hourly online backups of the leaderboard databases into /root/reskate/backup.
   leaderboard-backup:
     <<: *tool
     container_name: reskate-leaderboard-backup
+    user: root               # writes the host folder below
     network_mode: bridge
     environment:
       RESKATE_MODE: backup
     volumes:
-      - /root/reskate/shared:/shared:ro
+      - reskate-shared:/shared:ro
       - /root/reskate/backup:/backup
 
 volumes:
-  status:
-    external: true
-    name: reskate-status     # the existing volume, so the Discord card message is kept
   bot-state:
+  reskate-shared:
+    external: true           # the servers' /shared (docs/ENVIRONMENT.md#settings-files)

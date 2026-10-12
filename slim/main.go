@@ -5,6 +5,7 @@
 //	                     supervisor with the Discord feeds and updater beside it
 //	reskate mods         install the MODS from Thunderstore now (docker exec ... /app/reskate mods)
 //	reskate mods gc [d]  remove shared store versions no server started with for d days (default 30)
+//	reskate config       only write /data/ReSkateServer.json (or under RESKATE_DATA) and exit
 //	reskate healthcheck  container health from /data/ReSkateServer.log
 //	curl ...             (symlink) the small subset of curl the server uses
 package main
@@ -24,6 +25,9 @@ func die(format string, a ...any) {
 func main() {
 	if filepath.Base(os.Args[0]) == "curl" {
 		os.Exit(curlMain(os.Args[1:]))
+	}
+	if len(os.Args) < 2 || os.Args[1] != "healthcheck" {
+		applySettings()
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -47,6 +51,10 @@ func main() {
 			if v, ok := env("MODS"); ok {
 				installMods(v, update)
 			}
+			return
+		case "config":
+			configOnly = true
+			entrypointMain(nil)
 			return
 		case "healthcheck":
 			os.Exit(healthMain())

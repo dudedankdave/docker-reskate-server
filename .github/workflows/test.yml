@@ -1,0 +1,33 @@
+# Tests and lint on every pull request and push to dev and main (the image build is release.yml).
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"     # the default image's Python (Debian trixie)
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: slim/go.mod
+          cache-dependency-path: slim/go.sum
+      - name: Lint (ruff)
+        run: pipx run ruff check .
+      - name: Go vet and tests (slim)
+        working-directory: slim
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt the files above"; exit 1; }
+          go vet ./...
+          go test ./...
+      - name: Python tests (incl. default vs. slim config parity)
+        run: python -m unittest discover -s tests -v

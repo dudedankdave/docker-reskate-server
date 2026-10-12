@@ -21,8 +21,11 @@ RUN set -e; cd /out; \
 # ---- runtime stage ---------------------------------------------------------
 FROM debian:trixie-slim
 ARG VERSION=dev
+# The build of this repository: r<n> (commits on main), so the same ReSkate version can get newer images.
+ARG REVISION=dev
 LABEL org.opencontainers.image.title="reskate-server" \
       org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
       org.opencontainers.image.source="https://github.com/dudedankdave/docker-reskate-server"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libssl3t64 ca-certificates curl unzip python3-minimal libpython3-stdlib python3-discord tini \
@@ -36,8 +39,8 @@ COPY --from=server --chown=reskate:reskate /out/ /app/
 # Our scripts (app/ in the repository), next to the server files
 COPY --chown=reskate:reskate app/*.py /app/
 # The helper services, started with RESKATE_MODE=rollover|status|bot|backup (see entrypoint.py)
-COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py bot/bot.py stack/dbbackup.py /app/tools/
-COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py app/leaderboard.py /app/tools/lib/
+COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py rollover/bridge.py bot/bot.py stack/dbbackup.py stack/split_settings.py /app/tools/
+COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py app/leaderboard.py app/settings.py app/handover.py bot/console.py bot/feeds.py bot/coach.py bot/posts.py bot/backend.py modules/bridgeclient.py /app/tools/lib/
 COPY --chown=reskate:reskate rollover/servers.example.json /config/servers.json
 RUN ln -s /data/Mods /app/Mods \
  && ln -s /data/world-layers.json /app/world-layers.json \
@@ -46,7 +49,8 @@ RUN ln -s /data/Mods /app/Mods \
  && echo 3354750 > /app/steam_appid.txt \
  && chown -h reskate:reskate /app/Mods /app/world-layers.json /app/ReSkateServer.log /app/steam_appid.txt \
     /home/reskate/.steam/sdk64/steamclient.so
-ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION
+ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION \
+    RESKATE_IMAGE_REVISION=$REVISION
 USER reskate
 VOLUME /data
 # Healthy once the log shows the server is up (see healthcheck.py). Startup needs a

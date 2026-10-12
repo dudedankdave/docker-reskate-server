@@ -1,7 +1,8 @@
 """Discord feeds from the server logs, replacing the webhooks one scope at a time.
 
 bot.json: "servers": {"1": {"public": id, "chat": id, "admin": id, "log": id, "console": id}, ...}
-  public   joins, leaves, finished throwdowns, map changes
+  public   joins, leaves, finished throwdowns, map changes, server up (cleaned up like the public webhook:
+           no Steam IDs, no leave reasons)
   chat     in-game chat
   admin    kicks, bans, anti-cheat, commands typed in game, warnings and errors (+ who used the bot's console)
   log      every console line but chat
@@ -14,83 +15,76 @@ import re
 import discord
 
 import rollover
-from status import STAMP, UP, MAP
+from status import UP, MAP
 
 LINE = rollover.LINE
 CHAT = re.compile(r"^\[chat\] (.*)$")
-JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), \d+/\d+ players")
+JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players")
 LEAVE = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 THROW = re.compile(r"^\[throwdown\] .+ has finished: ")
 ADMIN = re.compile(r"^\[(?:kick|ban|anticheat|command|words|spam)\]|\b(?:kicked|banned|warning|error)\b", re.I)
+EVENT = re.compile(r"^\[event\] [a-z-]+ \{")   # the image's own messages, see rollover/bridge.py
 LIMIT = 1900
+RAW = "\x00"                                    # marks a line that is posted as it is (already Markdown)
 
 
 def classify(text):
     """The scopes a console line (without its time stamp) belongs to."""
     m = LINE.match(text)
     body = m.group(1) if m else text
+    if EVENT.match(body):
+        return set()               # not a console line; the bot takes them from the bridge later
     if CHAT.match(body):
         return {"chat"}
     scopes = {"log"}
-    if JOIN.match(body) or LEAVE.match(body) or THROW.match(body) or MAP.match(body):
+    if JOIN.match(body) or LEAVE.match(body) or THROW.match(body) or MAP.match(body) or UP.match(body):
         scopes.add("public")
     if ADMIN.search(body) or JOIN.match(body) or LEAVE.match(body):
         scopes.add("admin")
     return scopes
 
 
-def show(text):
+def show(text, scope=""):
+    """A line as the scope posts it. public is for players, like the public webhook: a join reads
+    "Name joined, 3/100 players", a leave "Name left" (no Steam IDs, admin flag or leave reason)."""
     m = LINE.match(text)
     body = m.group(1) if m else text
     chat = CHAT.match(body)
-    return (chat.group(1) if chat else body)
+    if chat:
+        return chat.group(1)
+    if scope == "public":
+        if j := JOIN.match(body):
+            return f"{j.group(1)} joined, {j.group(2)} players"
+        if left := LEAVE.match(body):
+            return f"{left.group(1)} left"
+        if up := UP.match(body):
+            return f"Up on {up.group(1)} for {up.group(2)} players."
+    return body
 
 
 class Feeds:
     def __init__(self, bot):
         self.bot = bot
         self.servers = bot.cfg.get("servers") or {}
-        self.last = {}          # container id -> (started, (sec, nsec)) of the last line seen
-
-    def read(self, info):
-        """New (scope, text) pairs from one container since the last call."""
-        key, started = info["Id"], info["State"].get("StartedAt", "")
-        seen = self.last.get(key)
-        first = seen is None or seen[0] != started
-        since = None if first else f"{seen[1][0]}.{seen[1][1]:09d}"
-        pos = (0, 0) if first else seen[1]
-        out = []
-        import time
-        from datetime import datetime, timezone
-        for line in rollover.logs(info, since=since, timestamps=True):
-            m = STAMP.match(line)
-            if not m:
-                continue
-            at = (int(datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp()),
-                  int((m.group(2) or "0").ljust(9, "0")[:9]))
-            if at <= pos:
-                continue
-            pos = max(pos, at)
-            if not first:               # a freshly seen container: remember where it is, replay nothing
-                out.append(m.group(3))
-        self.last[key] = (started, pos if pos != (0, 0) else (int(time.time()), 0))
-        return out
 
     def collect(self):
-        """{(server, scope): [text, ...]} for every running container with new lines."""
-        found = self.bot.board.gather()
+        """{(server, scope): [text, ...]} of what came in since the last call (console lines, and through the
+        bridge also the image's own messages: admin and updates-admin to admin, public to public)."""
         posts = {}
-        for number, infos in found.items():
+        for number, _slot, kind, scopes, text, ping in self.bot.backend.lines():
             cfg = self.servers.get(number) or {}
             if not any(cfg.get(s) for s in ("public", "chat", "admin", "log")):
                 continue
-            for info in infos:
-                if not info["State"].get("Running"):
-                    continue
-                for text in self.read(info):
-                    for scope in classify(text):
-                        if cfg.get(scope):
-                            posts.setdefault((number, scope), []).append(show(text))
+            if kind == "message":
+                scope = {"admin": "admin", "updates-admin": "admin", "public": "public"}.get((scopes or [""])[0])
+                if scope and cfg.get(scope):
+                    posts.setdefault((number, scope), []).append(RAW + text)   # the image's own Markdown
+                continue
+            if kind != "console":
+                continue
+            for scope in classify(text):
+                if cfg.get(scope):
+                    posts.setdefault((number, scope), []).append(show(text, scope))
         return posts
 
     async def post(self, number, scope, lines):
@@ -99,7 +93,7 @@ class Feeds:
         role = self.bot.board.cfg["servers"].get(number, {}).get("role", f"Server {number}")
         text, chunks = "", []
         for line in lines:
-            line = discord.utils.escape_markdown(line)[:400]
+            line = line[1:][:1500] if line.startswith(RAW) else discord.utils.escape_markdown(line)[:400]
             if len(text) + len(line) + 1 > LIMIT:
                 chunks.append(text)
                 text = ""

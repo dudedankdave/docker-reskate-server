@@ -1,11 +1,9 @@
 """Typing into a server's console and following its log, through the Docker socket.
 
-The game containers run with a TTY and the image's supervisor reads the pty, so what the Docker
-attach API writes lands in the console exactly like `docker attach`. The bot runs on the host, so
+The game containers keep stdin open (OpenStdin, with or without a TTY) and the image's supervisor reads
+it, so what the Docker attach API writes lands in the console exactly like `docker attach`. The bot runs on the host, so
 the plain unix socket is enough (a WebSocket upgrade is not needed). Only the write side is used;
 the output is read with the log API (rollover.logs)."""
-import json
-import os
 import socket
 
 import rollover
@@ -29,8 +27,8 @@ def send(info, line, timeout=10):
     """Type `line` into the container's console. Raises OSError/RuntimeError when it can't."""
     if rollover.DOCKER_API:
         raise RuntimeError("console input needs the Docker socket, not DOCKER_API")
-    if not info["Config"].get("Tty") or not info["Config"].get("OpenStdin"):
-        raise RuntimeError("the container has no TTY/stdin open, so there is no console to type into")
+    if not info["Config"].get("OpenStdin"):    # with or without a TTY: attach writes to the server's stdin either way
+        raise RuntimeError("the container keeps no stdin open, so there is no console to type into")
     path = f"/v1.41/containers/{info['Id']}/attach?stream=1&stdin=1&stdout=0&stderr=0"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
