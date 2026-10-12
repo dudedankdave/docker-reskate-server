@@ -33,5 +33,5 @@ Without `DISCORD_TOKEN` the bot prints the cards it would post and exits (a dry 
 
 Settings: `BOT_GUILD` (commands appear at once in that server), `BOT_STATUS_CHANNEL`, `STATUS_INTERVAL`
 (seconds, default 60), `LEADERBOARD_FILE` (default `/shared/leaderboard.db`), `BOT_CONFIG`, `BOT_STATE`.
-The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount is read-write
+The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount (the `reskate-mods` volume) is read-write
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
