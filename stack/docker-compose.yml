@@ -1,0 +1,26 @@
+# Rollover + status cards + Discord bot in ONE container "reskate-tools".
+# Run from this folder: DISCORD_TOKEN=... docker compose up -d --build
+# Replaces reskate-rollover, reskate-status and reskate-bot (stop those first; see README.md).
+services:
+  tools:
+    build:
+      context: ..
+      dockerfile: stack/Dockerfile
+    image: reskate-tools:local
+    container_name: reskate-tools
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TOOLS: "rollover,status,bot"
+      DRY_RUN: "true"                        # rollover; false lets it act
+      STATUS_WEBHOOK: ""                     # status cards; empty = only log them
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}      # never commit it; set it in the host's shell or .env
+      BOT_GUILD: "1558637403869155488"
+      BOT_STATUS_CHANNEL: ""
+      # MODUPDATE_MIN_PLAYERS, MODUPDATE_WAIT, DISCORD_WEBHOOK, STEAM_TOKEN_1B ...: as in rollover/docker-compose.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/reskate/shared:/shared         # the leaderboard database (the bot only reads it)
+      - state:/state                         # rollover/status/bot remember their message ids here
+volumes:
+  state:
