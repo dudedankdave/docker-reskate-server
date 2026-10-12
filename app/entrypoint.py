@@ -23,7 +23,7 @@ import sys
 import leaderboard
 
 # The same image also runs the helper services, one per container: RESKATE_MODE (or the first
-# argument) = rollover | status | bot | backup | bridge; the default "server" is the game server.
+# argument) = rollover | status | bot | backup | bridge | split-settings; the default "server" is the game server.
 # "config" only writes ReSkateServer.json and the data files from the env vars, then exits
 # (a check of the settings; RESKATE_DATA points it at another folder than /data).
 TOOLS = {
@@ -32,6 +32,7 @@ TOOLS = {
     "bot": "/app/tools/bot.py",
     "backup": "/app/tools/dbbackup.py",
     "bridge": "/app/tools/bridge.py",
+    "split-settings": "/app/tools/split_settings.py",
 }
 _mode = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESKATE_MODE", "server")).strip().lower()
 if _mode not in ("server", "config"):

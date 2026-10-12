@@ -411,7 +411,7 @@ class Rollover:
         started = [m.group(1) for m in map(DIGEST.match, logs(inst.info)) if m]
         if not started:
             return False                           # an image from before the settings files
-        values, _, _ = settings.load(inst.env, folder)
+        values, _, _ = settings.load(inst.env, folder, report=False)
         want = settings.digest(values)
         if started[-1] == want:
             return False
@@ -522,6 +522,14 @@ class Rollover:
             env.pop(k, None)               # image defaults come back from the image
         if install:                        # run the installed release; later ones are ours to roll out
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")
+        folder = str(setting(self.cfg, server, "settings_dir", "/shared/settings"))
+        if settings is not None and os.path.isdir(folder):   # what the settings files set stays out of the env
+            have = settings.load(env, folder, report=False)[0]
+            keys = [k for k in have if k in env and k not in settings.IDENTITY and k != "SERVER_NAME"]
+            without = settings.load({k: v for k, v in env.items() if k not in keys}, folder, report=False)[0]
+            for k in keys:
+                if without.get(k) == have[k]:       # not one a KEY+= builds on
+                    env.pop(k)
         host = old.info["HostConfig"]
         cfg = old.info["Config"]
         # shared map/mod store at /mods on every container we create (a server without it can crash-loop);

@@ -86,7 +86,7 @@ def layers(server):
     return names
 
 
-def load(environ, folder=None):
+def load(environ, folder=None, report=True):
     """(values from the files, {file: [keys]}, {secret keys}) for the server in environ."""
     folder = folder or DIR
     server = (environ.get("RESKATE_SERVER") or "").strip()
@@ -100,7 +100,8 @@ def load(environ, folder=None):
         keys = []
         for key, value, append in items:
             if key in IDENTITY:
-                print(f"[settings] {key} in {name} is ignored: it belongs to the container (per slot)", flush=True)
+                if report:
+                    print(f"[settings] {key} in {name} is ignored: it belongs to the container (per slot)", flush=True)
                 continue
             if append:
                 value = joined(key, values.get(key, environ.get(key, "")), value)
