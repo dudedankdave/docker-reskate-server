@@ -3,6 +3,7 @@
 FROM python:3.13-alpine
 RUN pip install --no-cache-dir "discord.py>=2.4,<3"
 COPY bot/bot.py /app/bot.py
+COPY bot/console.py bot/feeds.py /app/lib/
 COPY rollover/rollover.py rollover/status.py app/leaderboard.py /app/lib/
 COPY rollover/servers.example.json /config/servers.json
 ENV PYTHONUNBUFFERED=1

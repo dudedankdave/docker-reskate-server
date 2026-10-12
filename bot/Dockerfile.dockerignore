@@ -1,0 +1,5 @@
+# Used instead of the repository's .dockerignore when building bot/Dockerfile: the bot image
+# needs rollover/ and app/leaderboard.py from the repository root.
+.git
+**/__pycache__
+**/*.pyc
