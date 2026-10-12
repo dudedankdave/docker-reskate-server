@@ -12,7 +12,8 @@ wants to talk to them (the Discord bot, scripts), so no server needs to know abo
   attach API on the host's socket, like bot/console.py). Only the actions below exist; `quit`, `stop`,
   `restart`, `update` and `reload` are never sent, restarts are the rollover's job.
 * GET /v1/actions lists the actions and their inputs (so a dialog can be built from it),
-  GET /v1/servers the servers with players and map, GET /v1/health is for checks.
+  GET /v1/servers the servers with players and map, GET /v1/status the status cards (status.py's message,
+  for the bot), GET /v1/health is for checks.
 * GET /v1/servers/<n>/settings: per running slot, the settings the server started with (its env plus the
   settings files, see app/settings.py), without secrets: what the modules outside need (leaderboard ...).
 * A caller whose "by" starts with "module:" (the leaderboard, the announcer ...) acts as often as it needs:
@@ -321,6 +322,8 @@ class Handler(BaseHTTPRequestHandler):
                                         for k, v in ACTIONS.items()})
             if url.path == "/v1/servers":
                 return self.reply(200, server_list())
+            if url.path == "/v1/status":
+                return self.reply(200, board.message())
             if m := re.fullmatch(r"/v1/servers/([^/]+)/settings", url.path):
                 return self.reply(200, server_settings(m.group(1)))
             if url.path == "/v1/events":

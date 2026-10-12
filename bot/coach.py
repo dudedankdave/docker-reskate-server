@@ -3,11 +3,11 @@
   /coach  ->  [server]  ->  [action: announce, say, msg, kick, poll, players, console, info]  ->  input form
 
 Actions that type into the console wait a moment and show what the server printed back. Everything
-goes through console.send (the same checks as /say etc.: admin role, blocked stop/restart words), and
-each use is posted to the server's admin channel. Nothing here restarts or updates a server.
+goes through the bot's backend (the bridge, or the Docker socket) with the same checks as /say etc.
+(admin role, blocked stop/restart words), and each use is posted to the server's admin channel.
+Nothing here restarts or updates a server.
 """
 import asyncio
-import time
 from datetime import datetime, timezone
 
 import discord
@@ -59,16 +59,16 @@ class Target(discord.ui.View):
     def __init__(self, user, choices):
         super().__init__(timeout=60)
         self.user, self.chosen = user, asyncio.get_running_loop().create_future()
-        for name, infos in choices:
-            button = discord.ui.Button(label=name[:80], style=discord.ButtonStyle.primary if len(infos) == 1 else discord.ButtonStyle.secondary)
-            button.callback = self.pick(infos)
+        for name, targets in choices:
+            button = discord.ui.Button(label=name[:80], style=discord.ButtonStyle.primary if len(targets) == 1 else discord.ButtonStyle.secondary)
+            button.callback = self.pick(targets)
             self.add_item(button)
 
-    def pick(self, infos):
+    def pick(self, targets):
         async def callback(i: discord.Interaction):
             await i.response.edit_message(content="Sending…", view=None)
             if not self.chosen.done():
-                self.chosen.set_result(infos)
+                self.chosen.set_result(targets)
         return callback
 
     async def interaction_check(self, i: discord.Interaction):
@@ -81,14 +81,10 @@ class Target(discord.ui.View):
 
 async def pick_targets(bot, i, number):
     """The running containers of a server to send to: asks A or B when two run; None if cancelled."""
-    found = await asyncio.to_thread(bot.board.gather)
-    running = [x for x in found.get(number, []) if x["State"].get("Running")]
+    running = await asyncio.to_thread(bot.backend.targets, number)
     if len(running) < 2:
         return running
-    choices = []
-    for info in running:
-        s = await asyncio.to_thread(bot.board.follow, info)
-        choices.append((f"{status_version(info) or info['Name'].lstrip('/')} · {s.players} players", [info]))
+    choices = [(f"{t.label} · {t.players} players", [t]) for t in running]
     choices.append(("Both", running))
     view = Target(i.user, choices)
     await i.followup.send(f"Server {number} runs {len(running)} versions right now. Which one?", view=view, ephemeral=True)
@@ -105,39 +101,31 @@ async def send_line(bot, i, number, line, who):
         return "No choice made, nothing sent."
     if not targets:
         return "That server is not running."
-    started, parts = time.time(), []
-    for info in targets:
-        name = status_version(info) or info["Name"].lstrip("/")
+    started, parts = await asyncio.to_thread(bot.backend.marker), []
+    for target in targets:
         try:
-            await asyncio.to_thread(console.send, info, line)
-        except (OSError, RuntimeError) as e:
-            parts.append(f"{name}: could not type into the console: {e}")
+            await asyncio.to_thread(target.send, line, who)
+        except Exception as e:
+            parts.append(f"{target.label}: could not type into the console: {e}")
             continue
-        parts.append(name)
+        parts.append(target.label)
     await bot.audit(number, who, line + (f" (on {', '.join(parts)})" if len(targets) > 1 else ""))
     await asyncio.sleep(WAIT)
     out = [f"Sent: `{line[:200]}`" + (f" to {', '.join(parts)}" if len(targets) > 1 else "")]
-    for info in targets:
-        answer = "\n".join(await asyncio.to_thread(answer_since, info, started))[-SHOW:]
+    for target in targets:
+        answer = "\n".join(await asyncio.to_thread(target.answer, started))[-SHOW:]
         if answer:
-            out.append((f"**{status_version(info) or info['Name'].lstrip('/')}**\n" if len(targets) > 1 else "") + f"```\n{answer}\n```")
+            out.append((f"**{target.label}**\n" if len(targets) > 1 else "") + f"```\n{answer}\n```")
     return "\n".join(out)
 
 
 async def server_info(bot, number):
-    found = await asyncio.to_thread(bot.board.gather)
-    role = bot.board.cfg["servers"][number].get("role", f"Server {number}")
-    running = [i for i in found.get(number, []) if i["State"].get("Running")]
+    role = bot.servers().get(number, {}).get("role") or f"Server {number}"
+    running = await asyncio.to_thread(bot.backend.targets, number)
     if not running:
         return f"**{role}** is offline."
-    s = await asyncio.to_thread(bot.board.follow, running[0])
-    version = status_version(running[0])
-    return f"**{role}** · {s.players}/{s.max or '?'} players · map {s.map or '?'} · version {version or '?'}"
-
-
-def status_version(info):
-    import status
-    return status.version_of(info)
+    t = running[0]
+    return f"**{role}** · {t.players}/{t.max or '?'} players · map {t.map or '?'} · version {t.version or '?'}"
 
 
 class InputForm(discord.ui.Modal):
@@ -164,8 +152,8 @@ class Coach(discord.ui.View):
         super().__init__(timeout=300)
         self.bot, self.user, self.number = bot, user, None
         self.origin = None      # the /coach interaction: its message is edited to keep the choices visible
-        servers = [discord.SelectOption(label=f"{n} - {s.get('role', 'Server ' + n)}"[:100], value=n)
-                   for n, s in bot.board.cfg["servers"].items()][:25]
+        servers = [discord.SelectOption(label=f"{n} - {s.get('role') or 'Server ' + n}"[:100], value=n)
+                   for n, s in bot.servers().items()][:25]
         self.server_menu = discord.ui.Select(placeholder="Which server?", options=servers)
         self.server_menu.callback = self.picked_server
         self.add_item(self.server_menu)

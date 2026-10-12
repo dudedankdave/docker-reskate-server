@@ -1,6 +1,5 @@
 """modules/mod_settings.py and mod_announcer.py."""
 import io
-import json
 import os
 import sys
 import tempfile
