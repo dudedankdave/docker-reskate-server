@@ -35,3 +35,9 @@ Settings: `BOT_GUILD` (commands appear at once in that server), `BOT_STATUS_CHAN
 (seconds, default 60), `LEADERBOARD_FILE` (default `/shared/leaderboard.db`), `BOT_CONFIG`, `BOT_STATE`.
 The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount (the `reskate-mods` volume) is read-write
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
+
+## /coach
+Admins only. `/coach` asks for the server, then the action (announce, say, message a player, kick, poll,
+who is online, any other console command, server info) and then the input in a form. Console actions
+show what the server printed back and are posted to the server's `admin` channel. It uses the same
+checks as `/say` etc.; nothing in it restarts or updates a server.

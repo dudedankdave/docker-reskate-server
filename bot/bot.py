@@ -26,6 +26,7 @@ import rollover  # noqa: E402
 import status  # noqa: E402
 import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
+import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -83,6 +84,7 @@ class Bot(discord.Client):
             pass
         add_commands(self)
         add_admin_commands(self)
+        coach.add(self)
 
     async def setup_hook(self):
         try:
