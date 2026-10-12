@@ -21,6 +21,20 @@ import sys
 
 import leaderboard
 
+# The same image also runs the helper services, one per container: RESKATE_MODE (or the first
+# argument) = rollover | status | bot | backup; the default "server" is the game server.
+TOOLS = {
+    "rollover": "/app/tools/rollover.py",
+    "status": "/app/tools/status.py",
+    "bot": "/app/tools/bot.py",
+    "backup": "/app/tools/dbbackup.py",
+}
+_mode = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESKATE_MODE", "server")).strip().lower()
+if _mode != "server":
+    if _mode not in TOOLS:
+        sys.exit(f"RESKATE_MODE: expected server, {', '.join(TOOLS)}; got {_mode!r}")
+    os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode]])
+
 CONFIG = "/data/ReSkateServer.json"
 
 
