@@ -14,6 +14,9 @@ built only on what the vanilla server logs:
 * Boards (LEADERBOARD_BOARDS, default all): every award is counted on All Time (kind "general"), on the current Year ("2026"), Month ("October 2026") and Week (ISO week, UTC; "Week 41") and on every Event that is open. Events
   are started and ended by admins in the game (/lb event start <name>, /lb event end).
 * Every board also has one per game mode (Jam, Spot Battle, S.K.A.T.E.): /top skate, /top week jam.
+* Props: /props <player> gives a prop to a player who is online (one per player per 24 hours, at most
+  LEADERBOARD_PROPS_PER_DAY a day, 0 = off). Props count on a Props board of each period (/top props,
+  /top week props), not on the points boards, and are announced in chat (LEADERBOARD_PROPS_ANNOUNCE).
 * The points live in a SQLite database (leaderboard.db), with every award kept in a ledger.
   A leaderboard.json from the earlier versions is imported into All Time once.
 * Chat commands (LEADERBOARD_COMMANDS, default on; added to the server's "commands"): /top [board],
@@ -31,6 +34,11 @@ LEADERBOARD_SCOPE picks whose points are counted: "shared" (default) keeps one d
 server that mounts the same folder at /shared (/shared/leaderboard.db); without that mount it
 falls back to "server", this server's own database in /data/leaderboard.db. LEADERBOARD_FILE
 overrides the file in either scope.
+
+LEADERBOARD_LEAGUE keeps two kinds of servers apart. "ranked" (default) is for a server that forces the
+ranked requirements: only ranked players score (see above), in leaderboard.db. "unranked" is for every
+other server: everybody scores, in a database of its own (leaderboard-unranked.db next to it), so
+results from the two never end up on the same boards. Every answer and post names its league.
 """
 import json
 import os
@@ -61,18 +69,19 @@ TUNING = re.compile(r"^Players skate with (the game's|their) own physics tuning\
 # typed slash command is "[command] Name: /text" and is ignored: the server may have refused it).
 COMMAND = re.compile(r"^\[command\] (.+)$")
 
-RULE = "-" * 30       # above and below every answer to a chat command
+RULE = "-" * 30       # the server's own reply to a chat command: the line that opens every answer
 
 CHECK_AFTER = 15      # seconds after joining before the mod report is taken as complete
 CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
 ASK_EVERY = 3         # seconds between two answers to the same player
 KINDS = ("general", "year", "month", "week", "event")
-VERBS = ("top", "rank", "boards", "lb")
+VERBS = ("top", "rank", "boards", "props", "lb")
 # The game modes with a board of their own next to every board: "All Time:jam", "Week 41:skate".
-MODES = {"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E."}
+MODES = {"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E.", "props": "Props"}
 MODE_OF = {"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
 MODE_WORDS = {"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate", "s.k.a.t.e.": "skate", "game of skate": "skate",
-              "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot"}
+              "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot",
+              "props": "props", "prop": "props"}
 
 RANKED = "You are RANKED: your throwdown results count for the leaderboard."
 UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods}). "
@@ -80,6 +89,7 @@ UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods
 UNRANKED_SPEED = "You are NOT ranked until you rejoin: your game ran faster than normal."
 UNRANKED_TUNING = ("Nobody is ranked right now: this server lets players skate with their own physics tuning. "
                    "Points count again once it is back on the game's own.")
+UNRANKED_SERVER = "This is an UNRANKED server: your results count on its own Unranked boards, apart from the Ranked ones."
 UNAVAILABLE = "The leaderboard is not available right now."
 CONFIG = "/data/ReSkateServer.json"
 
@@ -89,6 +99,7 @@ COMMANDS = [
     {"name": "top", "reply": RULE},
     {"name": "rank", "reply": RULE},
     {"name": "boards", "reply": RULE},
+    {"name": "props", "reply": RULE},
     {"name": "lb", "admin": True, "reply": RULE},
 ]
 
@@ -171,6 +182,9 @@ CREATE INDEX IF NOT EXISTS scores_by_points ON scores (board, points DESC);
 CREATE TABLE IF NOT EXISTS ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, board TEXT NOT NULL, steam_id TEXT NOT NULL,
   points INTEGER NOT NULL, reason TEXT NOT NULL, server TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS props_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, giver TEXT NOT NULL, receiver TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS props_by_giver ON props_log (giver, at);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
@@ -353,20 +367,25 @@ class Leaderboard:
         """send(console line) types into the server; post(text) goes to Discord (or None)."""
         self.send, self.post = send, post
         self.pool = env("LEADERBOARD_SCOPE", "shared").lower() != "server"
-        path = env("LEADERBOARD_FILE", "/shared/leaderboard.db" if self.pool else "/data/leaderboard.db")
+        self.unranked_league = env("LEADERBOARD_LEAGUE", "ranked").lower() == "unranked"
+        self.league = "Unranked" if self.unranked_league else "Ranked"
+        name = "leaderboard-unranked.db" if self.unranked_league else "leaderboard.db"
+        path = env("LEADERBOARD_FILE", ("/shared/" if self.pool else "/data/") + name)
         if self.pool and not os.path.isdir(os.path.dirname(path) or "."):
             print(f"[leaderboard] {os.path.dirname(path)} is not mounted, so the leaderboard is this server's own "
                   "(LEADERBOARD_SCOPE=server); mount one folder there on every server to share it", flush=True)
-            self.pool, path = False, "/data/leaderboard.db"
+            self.pool, path = False, "/data/" + name
         legacy = os.path.join(os.path.dirname(path) or ".", "leaderboard.json")
         if path.endswith(".json"):                  # an old LEADERBOARD_FILE: the points move to a .db beside it
             legacy, path = path, path[:-5] + ".db"
         self.store = Store(path, env("SERVER_NAME", "server"))
-        self.ok = self.store.setup(legacy if os.path.exists(legacy) else None)
+        self.ok = self.store.setup(legacy if os.path.exists(legacy) and not self.unranked_league else None)
         self.kinds = {k for k in (x.strip().lower() for x in env("LEADERBOARD_BOARDS", ",".join(KINDS)).split(",")) if k in KINDS} or {"general"}
         self.label = "all servers" if self.pool else "this server"
         self.interval = 60 * max(1, int(env("LEADERBOARD_INTERVAL", "60")))
         self.size = max(1, min(10, int(env("LEADERBOARD_SIZE", "5"))))
+        self.props_per_day = max(0, int(env("LEADERBOARD_PROPS_PER_DAY", "5")))     # 0: /props is off
+        self.props_announce = truthy(env("LEADERBOARD_PROPS_ANNOUNCE", "true"))
         chosen = {x.strip().lower() for x in env("LEADERBOARD_DISCORD", ",".join(KINDS + tuple(MODES))).split(",")}
         self.discord_scopes = {k for k in KINDS if k in chosen} or set(KINDS)   # which boards Discord lists
         self.discord_games = {m for m in MODES if m in chosen}                  # and which game boards of them
@@ -429,6 +448,8 @@ class Leaderboard:
                 self.command(command.group(1))
 
     def ranked(self, name):
+        if self.unranked_league:        # nothing is required here, so everybody scores (on the Unranked boards)
+            return True
         return name not in self.modded and name not in self.speeding and not self.free_tuning
 
     def tell(self, name):
@@ -440,7 +461,9 @@ class Leaderboard:
         if self.told.get(name) == ranked:
             return
         self.told[name] = ranked
-        if ranked:
+        if self.unranked_league:
+            text = UNRANKED_SERVER
+        elif ranked:
             text = self.ranked_text
         elif name in self.modded:
             text = self.unranked_text.replace("{mods}", self.modded[name] or "your mods")
@@ -518,7 +541,8 @@ class Leaderboard:
         except Exception as e:                          # a bad command must not stop the log reader
             print(f"[leaderboard] /{verb} {arg!r}: {e!r}", flush=True)
             title, lines = "Leaderboard", ["Something went wrong with that command."]
-        for text in [title] + lines + [RULE]:           # the server's own reply was the first rule: title, rows, rule
+        title = f"{title} ({self.league})"
+        for text in [title] + lines:                    # after the server's own rule: the board, then one row per line
             self.send(fit(f"msg {steam_id} {text}", CHAT_MAX + 30))
 
     @staticmethod
@@ -547,7 +571,7 @@ class Leaderboard:
             return "Leaderboard", [f"No board called '{arg}'. Try /boards."]
         if not rows:
             return f"Top - {board['name']}", ["Nobody has points yet."]
-        return f"Top {len(rows)} - {board['name']}", self.pack("", [f"{i}. {r['name']} {r['points']}" for i, r in enumerate(rows, 1)])
+        return f"Top {len(rows)} - {board['name']}", [f"{i}. {r['name']}  {r['points']}" for i, r in enumerate(rows, 1)]
 
     def cmd_rank(self, steam_id, arg, now):
         def get(cur):
@@ -574,8 +598,64 @@ class Leaderboard:
         rows = self.store.run(get)
         if rows is None:
             return "Leaderboard", [UNAVAILABLE]
-        entries = [f"{r['name']}{' (ended)' if r['closed_at'] else ''}: {r['n']}" for r in rows]
-        return "Boards (players with points)", self.pack("", entries)
+        return "Boards", [f"{r['name']}{' (ended)' if r['closed_at'] else ''}  -  {r['n']} players" for r in rows]
+
+    def find_online(self, text):
+        """(name, SteamID64) of the online player called text: the exact name, else the only name starting with it."""
+        text = text.strip().lower()
+        exact = [(n, i) for n, i in self.online.items() if n.lower() == text]
+        starts = [(n, i) for n, i in self.online.items() if n.lower().startswith(text)]
+        found = exact or starts
+        return found[0] if len(found) == 1 and text else None
+
+    def cmd_props(self, steam_id, arg, now):
+        """Give props to another player online: one per player per 24 hours, at most LEADERBOARD_PROPS_PER_DAY
+        a day. They count on the Props boards (/top props), not on the points boards."""
+        if not self.props_per_day:
+            return "Props", ["Props are off on this server."]
+        giver = next((n for n, i in self.online.items() if i == steam_id), steam_id)
+        if not arg:
+            def mine(cur):
+                board = Store.find(cur, "props", now)
+                return Store.rank(cur, board["id"], steam_id) if board else None
+            found = self.store.run(mine, write=False)
+            have = f"You have {found[2]['points']} props (#{found[0]} of {found[1]})." if found else "You have no props yet."
+            return "Props", [have, "Give them with /props <player>. See /top props."]
+        target = self.find_online(arg)
+        if not target:
+            return "Props", [f"Nobody online is called '{arg}' (or several names start like that)."]
+        name, target_id = target
+        if target_id == steam_id:
+            return "Props", ["You can't give props to yourself."]
+
+        def give(cur):
+            since = now - 86400
+            given = cur.execute("SELECT COUNT(*) FROM props_log WHERE giver=? AND at>?", (steam_id, since)).fetchone()[0]
+            if given >= self.props_per_day:
+                return "limit", given
+            if cur.execute("SELECT 1 FROM props_log WHERE giver=? AND receiver=? AND at>?", (steam_id, target_id, since)).fetchone():
+                return "again", given
+            boards = []
+            for base in self.store.active(cur, self.kinds, now):
+                row = cur.execute("SELECT name FROM boards WHERE id=?", (base,)).fetchone()
+                self.store.board(cur, f"{base}:props", f"{row['name']} - Props", "mode")
+                boards.append(f"{base}:props")
+            self.store.add(cur, boards, [(target_id, name, 1, 0, 0)], f"props:{giver}", now, self.store.server)
+            cur.execute("INSERT INTO props_log (at, giver, receiver) VALUES (?, ?, ?)", (now, steam_id, target_id))
+            total = cur.execute("SELECT points FROM scores WHERE board=? AND steam_id=?", (boards[0], target_id)).fetchone()
+            return "ok", given + 1, total["points"] if total else 1
+        res = self.store.run(give)
+        if res is None:
+            return "Props", [UNAVAILABLE]
+        state, used, *total = res
+        if state == "limit":
+            return "Props", [f"You have given {used} props in the last 24 hours, the most for now."]
+        if state == "again":
+            return "Props", [f"You gave {name} props in the last 24 hours already."]
+        self.send(fit(f"msg {target_id} {giver} gave you props! You have {total[0]} now (/top props).", CHAT_MAX + 30))
+        if self.props_announce:
+            self.send("say " + fit(f"{giver} gave props to {name}!"))
+        return "Props", [f"You gave props to {name}. {self.props_per_day - used} left in the next 24 hours."]
 
     def admin(self, by, arg, now):
         word, _, rest = arg.partition(" ")
@@ -717,14 +797,15 @@ class Leaderboard:
             if first:
                 self.send("announce " + fit(f"{board['name']}: " + " | ".join(entries[:3])))
                 first = False
-            head = f"Leaderboard ({self.label}, ranked throwdowns):" if board["kind"] == "general" else f"{board['name']}:"
+            head = f"Leaderboard ({self.label}, {self.league.lower()} throwdowns):" if board["kind"] == "general" else f"{board['name']}:"
             for line in self.pack(head, entries):
                 self.send("say " + fit(line))
 
     @staticmethod
-    def table(rows):
+    def table(rows, props=False):
         width = max(len(p["name"]) for p in rows)
-        return "\n".join(f"{i:>2}. {p['name']:<{width}}  {p['points']:>5} pts  {p['wins']} won / {p['played']} played"
+        return "\n".join((f"{i:>2}. {p['name']:<{width}}  {p['points']:>5} props" if props else
+                          f"{i:>2}. {p['name']:<{width}}  {p['points']:>5} pts  {p['wins']} won / {p['played']} played")
                          for i, p in enumerate(rows, 1)).replace("```", "'''")
 
     def post_discord(self, now):
@@ -743,7 +824,8 @@ class Leaderboard:
                 if kind_of(b["id"]) in late:
                     cur.execute("UPDATE boards SET posted_version = version WHERE id = ?", (b["id"],))
             return [(b, rows) for b, rows in shown if kind_of(b["id"]) in late]
-        parts = [f"**{board['name']}** ({self.label}, ranked throwdowns)\n```\n{self.table(rows[:10 if board['kind'] == 'general' else 5])}\n```"
+        parts = [f"**{board['name']}** ({self.label}, {'props from players' if board['id'].endswith(':props') else self.league.lower() + ' throwdowns'})\n```\n"
+                 f"{self.table(rows[:10 if board['kind'] == 'general' else 5], board['id'].endswith(':props'))}\n```"
                  for board, rows in self.store.run(due) or [] if rows]
         message = ""
         for part in parts:                  # Discord takes 2000 characters per message
