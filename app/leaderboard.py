@@ -271,6 +271,7 @@ class Store:
         """The boards that count new points: All Time, this week, the open events."""
         ids = []
         if "general" in kinds:
+            self.board(cur, "general", "All Time", "general")      # (missing after the points were wiped)
             ids.append("general")
         for kind in ("year", "month", "week"):
             if kind in kinds:
@@ -783,7 +784,9 @@ class Leaderboard:
                 ids += [r["id"] for r in cur.execute("SELECT id FROM boards WHERE kind='mode' AND id LIKE ? ORDER BY id", (board_id + ":%",))
                         if r["id"].rsplit(":", 1)[1] in self.discord_games]
             for shown_id in ids:
-                out.append((cur.execute("SELECT * FROM boards WHERE id=?", (shown_id,)).fetchone(), Store.top(cur, shown_id, 10)))
+                row = cur.execute("SELECT * FROM boards WHERE id=?", (shown_id,)).fetchone()
+                if row:
+                    out.append((row, Store.top(cur, shown_id, 10)))
         return out
 
     def post_chat(self, kind):
