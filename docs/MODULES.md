@@ -1,4 +1,11 @@
-# Modules (proposal)
+# Modules
+
+Status: Phase A (below) is built; Phase B and C come after the next release to main.
+
+**Rule: the slim image stays feature-equal to the default image.** Everything the server does is built in
+both (`app/` and `slim/`), and `tests/test_config_parity.py` checks that both write the same config from the
+same settings. Only the helper modes (`RESKATE_MODE=rollover`, `bot` ...) need the default image's Python;
+they move to the tools image (B) anyway.
 
 Goal: the game servers are restarted only when ReSkate or the server image itself changes. The
 leaderboards, the Discord bot and the webhooks can be changed, added or removed while the servers run.
@@ -98,10 +105,9 @@ The `leaderboard` and `webhooks` modules are Python, in the tools image: `app/le
 needs "a console line in" and "a console command out", the feeds already are line filters
 (`public_line`, `chat_line`, ...). Both server images only print `[event]` lines.
 
-The default image keeps its built-in webhooks and leaderboard for single servers. The slim image keeps them
-until the modules have run in the stack for a while; then `slim/leaderboard.go` and the feed part of
-`slim/notifier.go` go (about 2000 lines), in a release of its own and announced beforehand (see
-[What users have to change](#what-users-have-to-change)).
+Both server images keep their built-in webhooks and leaderboard (slim stays feature-equal), for single
+servers and for every stack that does not hand them over. The modules are the one place for a stack's Discord
+and leaderboard logic; the built-in parts stay as they are and are switched off per server at run time.
 
 ### B. A tools image
 `dudedankdave/reskate-tools` (Python, discord.py, no game files) runs bridge, leaderboard, webhooks, bot,
@@ -120,9 +126,10 @@ release (on empty servers, or a copy while players are on). `VERSION` goes.
 map store at `/mods`. The rollover's `shared_volume` defaults to it, the backup reads only it.
 
 ### E. Secrets apart from settings
-`/shared/settings/secrets.env` (or Docker secrets) for `STEAM_TOKEN`s, `SERVER_PASSWORD`, webhook URLs and bot
-tokens, read like the settings layers but never logged. The `[settings]` log line names the file, not the
-value. Nothing secret in the container env any more.
+`/shared/settings/secrets/common.env` and `secrets/server-<n>.env` for `SERVER_PASSWORD`, webhook URLs and
+bot tokens, read like the settings layers but never logged (the `[settings]` line names keys, not values),
+readable by the servers' uid only. The rollover leaves keys the files set out of the containers it creates, so
+secrets leave the container env over time. `STEAM_TOKEN` stays per container: each slot needs its own.
 
 ### F. Tests and lint in CI
 Unit tests for the log parsers (bot feeds, bridge scopes, leaderboard), for env to `ReSkateServer.json` in
@@ -165,20 +172,22 @@ In a stack the settings come in layers, each one overriding the one before:
 | Layer | Where | For |
 |---|---|---|
 | 1. Image defaults | the image | |
-| 2. Container env | `environment:` / `env_file:` | identity only in a stack: `PORT`, `QUERY_PORT`, `RESKATE_SERVER` (the number). A single server keeps everything here, as today. |
+| 2. Container env | `environment:` / `env_file:` | identity only in a stack: `PORT`, `QUERY_PORT`, `STEAM_TOKEN`, `RESKATE_SERVER` (the number); the files cannot set them. A single server keeps everything here, as today. |
 | 3. Shared | `/shared/settings/common.env` | what every server in the stack has: welcome, announcements, admins, bans, voice, tuning ... |
+| 3b. | `/shared/settings/secrets/common.env` | shared secrets: passwords, webhook URLs (E) |
 | 4. Own | `/shared/settings/server-<n>.env` | what only this server has: name, map, map pool, mods, max players, ranked checks ... |
-| Secrets | `/shared/settings/secrets.env` | `STEAM_TOKEN_<n>`, passwords, webhook URLs (E) |
+| 4b. | `/shared/settings/secrets/server-<n>.env` | its own secrets (E) |
 
 * A key in `server-<n>.env` is that server's own value; a key that is not there is the shared one. So each
   setting is shared or own per server, without a list of which is which.
-* `KEY+=value` in the own file appends to a shared list (`MODS`, `MAP_POOL`, `ADMINS`, `ANNOUNCEMENTS`,
-  ...) instead of replacing it.
+* `KEY+=value` appends to the list of the layers before (`MODS`, `MAP_POOL`, `ADMINS` with commas,
+  `ANNOUNCEMENTS` with `|`, JSON lists like `COMMANDS`) instead of replacing it.
 * Same `KEY=value` format as `example.env`, so existing env files can be moved over as they are.
-* The entrypoint applies them at start (as it does with the env vars today) and logs where each value
-  came from (`[settings] MAP from server-4.env`).
-* While the server runs, a change is typed into its console (H); only restart-only keys make the rollover
-  recreate it once it is empty, the way it already does for mod updates. Nobody is kicked.
+* The entrypoint applies them at start (as it does with the env vars today), logs which keys came from which
+  file (`[settings] server-4.env: MAP, MAX_PLAYERS`) and a digest of them.
+* Phase A: when a server's files change (its digest), the rollover restarts it once it is empty. Phase B (H):
+  the change is typed into its console instead, and only restart-only keys wait for an empty server.
+* `RESKATE_MODE=split-settings` writes today's containers' env out as these files.
 * `roles.json` (`ROLES_SCOPE`) and the leaderboard (`LEADERBOARD_SCOPE`) already follow the same idea:
   `shared` by default, `server` for an own copy.
 
@@ -186,12 +195,13 @@ The modules use the same pattern: `webhooks.json` and `bot.json` have `defaults`
 
 ## The server's contract (the part that needs the one restart)
 
-1. **Events on stdout.** Every message the notifier makes is also printed as one line
-   `[event] {"scope": "admin|public|updates|updates-admin|leaderboard", "kind": "...", "text": "...", "ping": false}`,
-   whether a webhook is set or not. The console lines are already in the log. So the bridge sees everything
-   a webhook would get.
+1. **Events on stdout.** Every message the notifier makes in the `admin`, `public`, `updates` and
+   `updates-admin` scopes is also printed as one line, `[event] <scope> {"ping":false,"text":"..."}`, whether a
+   webhook is set or not (the same bytes from both images). The console lines are already in the log, and the
+   leaderboard's own posts come from its database. So the bridge sees everything a webhook would get.
 2. **Hand-over at run time.** The server reads `/shared/modules.json` every minute, e.g.
-   `{"leaderboard": "external", "webhooks": "external"}`. `external` switches its own part off; a missing
+   `{"leaderboard": "external", "webhooks": {"public": "external"}, "servers": {"6": {...}}}`. Parts:
+   `leaderboard`, `announcer`, `webhooks` (whole or per scope). `external` switches its own part off; a missing
    file or `internal` keeps today's behaviour. Switching back and forth needs no restart and nothing counts twice.
 3. **`/shared` on every server** (D; today missing on server 1).
 4. **Settings layers and secrets** read by the entrypoint (above, E).
@@ -199,15 +209,16 @@ The modules use the same pattern: `webhooks.json` and `bot.json` have `defaults`
 
 The Python image and `slim/` both get all five.
 
-Open decisions:
-* What the `[event]` lines look like in `docker logs` / `docker attach`: JSON as above, or readable in the
-  server's own tagged style (`[event] admin: UPDATE AVAILABLE ...`, the fields as JSON after it); or only
-  with `EVENTS=on` (then a stack needs it set once, with that restart). Suggested: the readable form, always on.
-* Whether the slim image loses its built-in webhooks in a later release (A) or keeps a small webhook part.
+Decided: the `[event]` lines are always on, in the server's tagged style with the scope readable first; slim
+keeps everything the default image has.
+
+Also in Phase A: every ReSkate server setting from upstream `Server/README.txt` has an env var
+(`BOARD_CHECK`, `GLOBAL_WORD_FILTER`, `WORDS_FILTERED`, `WORDS_BLOCKED`, `PARK_MODS`, `PARK_LIMIT_*` were missing),
+slim shares `roles.json` like the default image (it did not), and `config` writes the config and exits.
 
 ## Order
 
-**Phase A, before the next release to main** (the servers restart once with it):
+**Phase A, before the next release to main** (the servers restart once with it), done:
 1. `[event]` lines (`Hook.send` in `app/notifier.py`, the same spot in `slim/notifier.go`).
 2. `/shared/modules.json` hand-over for the leaderboard and the webhooks.
 3. Settings layers and `secrets.env` in the entrypoint (Python and Go); the rollover recreates empty servers
@@ -215,9 +226,9 @@ Open decisions:
 4. Revision tags: `release.yml` builds on merges to `main`, `RESKATE_IMAGE_REVISION`, rollover rolls revisions out.
 5. Bridge: parses `[event]` lines into events with their scope; `/v1/servers` with slot, map, players.
 6. Tests and lint in CI (F), first for everything touched above.
-7. Docs, `stack/docker-compose.yml` with `reskate-shared`, rollover default `shared_volume`, a tool that
-   writes today's container env out as `common.env` (keys equal on every server), `server-<n>.env` (the rest)
-   and `secrets.env`.
+7. Docs, `stack/docker-compose.yml` with `reskate-shared`, `split-settings` (today's container env out as
+   `common.env`, `server-<n>.env` and `secrets/`). The rollover's `shared_volume` keeps its default (none): on a
+   live host it is set to the volume the servers already share, so no server ends up with a second database.
 
 **Phase B, after the release, no server restart:**
 1. Tools image (B) and the stack on it (G); `reskate-status` and the separate compose files go.
@@ -229,22 +240,22 @@ Open decisions:
    regular restart.
 
 **Phase C, a later release, announced beforehand:**
-1. Slim without its built-in leaderboard and webhook feeds (A, if so decided).
-2. `RESKATE_MODE` other than `server` removed from the server image (B).
+1. `RESKATE_MODE` other than `server` and `config` removed from the server image (B).
 
 ## What users have to change
 
-**Single server (default image): nothing.** Env vars, webhooks and the built-in leaderboard keep working. New
-are the `[event]` lines in the log and the revision tags. The older `DISCORD_WEBHOOK_*` / `LEADERBOARD_WEBHOOK`
-names stay and log that they are deprecated.
+**Single server (default image): nothing.** Env vars, webhooks and the built-in leaderboard keep working, the
+older `DISCORD_WEBHOOK_*` / `LEADERBOARD_WEBHOOK` names too. New are the `[event]` lines in the log, the
+revision tags and the new settings. Only values ReSkate does not take now stop the start with a clear message
+instead of reaching the server: `PARTY_SIZE` outside 2-8, `MAP_LATEST_CHECK_MINUTES` below 5.
 
-**Single server (slim image):** nothing until Phase C. Then, if A is done for slim: Discord only through the
-modules, or switch to the default image.
+**Single server (slim image): nothing.** Same as the default image.
 
 **Server stack:**
 1. Create `reskate-shared`, mount it at `/shared` on every server, move `leaderboard*.db` and `roles.json` over
    from the map volume.
-2. Run the tool that writes `common.env`, `server-<n>.env` and `secrets.env` from today's containers; check them.
+2. `split-settings --write` writes `common.env`, `server-<n>.env` and `secrets/` from today's containers; check
+   them. Give every server `RESKATE_SERVER` (the rollover does for the containers it creates).
 3. Move the helpers to `stack/docker-compose.yml` (tools image), set `BRIDGE_TOKEN`.
 4. Bot without the Docker socket: bridge URL and token; `bot.json` with `defaults` and per-server entries.
 5. Flip `modules.json` to `external` per server, then drop the `WEBHOOK_*` env vars.

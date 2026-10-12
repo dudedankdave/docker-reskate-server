@@ -71,6 +71,7 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | `2.0.5`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
 | `2.0.5-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `2.0.5-r123`, `2.0.5-r123-slim` | One build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`); the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
 
 The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) of the server inside and has to match the players' game. Older tags stay available. ReSkate 2.0.3 changed the multiplayer protocol: 2.0.2 and 2.0.3+ can't join each other. 2.0.4 and 2.0.5 ship the same server as 2.0.3.
 
@@ -269,6 +270,8 @@ Run one container per server from the same image. Each needs its **own** data vo
 
 - All servers use `network_mode: host`, so ports must be unique on the host. Use one block per server, e.g. 12400/12401, 12410/12411, 12420/12421.
 - Sharing one `/data` volume makes the servers overwrite each other's config, mods and logs.
+- With a `reskate-shared` volume at `/shared` on every server, they share the leaderboard, the roles and, if you like, their settings: `common.env` and `server-<n>.env` in `/shared/settings` instead of env files, changed without touching the containers ([Settings files](docs/ENVIRONMENT.md#settings-files)).
+- Rollover, bridge and Discord bot for a group of servers: [`stack/`](stack/) and [`rollover/`](rollover/README.md); how the parts fit: [docs/MODULES.md](docs/MODULES.md).
 
 <br/>
 
@@ -375,6 +378,10 @@ Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `l
 | `app/announcer.py` | Kick and ban announcements in chat |
 | `app/leaderboard.py` | Ranked DMs, throwdown points and the leaderboard posts |
 | `app/healthcheck.py` | Reports healthy once the log shows the server is up |
+| `app/settings.py` | Settings files in `/shared/settings` (shared and per server) |
+| `app/handover.py` | `/shared/modules.json`: which parts run outside the server |
+| `stack/split_settings.py` | Writes running containers' env out as settings files |
+| `tests/`, `.github/workflows/test.yml` | Tests (incl. default vs. slim config parity) and lint on every pull request |
 | `tools/check-update.sh` | Host-side release check |
 | `.github/workflows/release.yml` | Builds and pushes the images for each new ReSkate release |
 | `rollover/` | Host-side services: starts a copy on a new ReSkate release while players are on, stops the old server once empty; live server status cards in Discord |

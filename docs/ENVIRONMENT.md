@@ -7,8 +7,10 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 - Values containing `#` or `'` must be double-quoted in env files. JSON values (`VOTES_CUSTOM`, `COMMANDS`) are single-quoted.
 - With several `env_file` entries, a later one wins over an earlier one. Settings that differ per server go into `serverN.env`, see [Multi-server support](../README.md#multi-server-support).
 - Settings marked "Pins the list" replace in-game changes on every restart.
+- In a stack, the same variables can come from shared and per-server files instead, see [Settings files](#settings-files).
+- Check them without starting the server: `docker run --rm --env-file common.env --env-file server1.env dudedankdave/reskate-server config` writes the config and exits (the slim image: `/app/reskate config`).
 
-[Per server](#per-server) · [Access](#access) · [Gameplay](#gameplay) · [Anti-cheat](#anti-cheat) · [Voice](#voice) · [Network](#network) · [Voting](#voting) · [Announcements](#announcements) · [Parks and layers](#parks-and-layers) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard)
+[Per server](#per-server) · [Access](#access) · [Gameplay](#gameplay) · [Anti-cheat](#anti-cheat) · [Voice](#voice) · [Network](#network) · [Voting](#voting) · [Announcements](#announcements) · [Parks and layers](#parks-and-layers) · [Mods](#mods) · [Updates](#updates) · [Discord](#discord) · [Leaderboard](#leaderboard) · [Settings files](#settings-files) · [Modules](#modules-and-events)
 
 <br/>
 
@@ -231,3 +233,49 @@ How ranking and points work: [Ranked and leaderboard](../README.md#ranked-and-le
 | `LEADERBOARD_FILE` | Use another database file than `/shared/leaderboard.db` / `/data/leaderboard.db`. An old `leaderboard.json` next to it is imported into All Time once. SQLite locks the file while it is changed, and only one server posts it to Discord per interval. |
 | `RANKED_MESSAGE` / `UNRANKED_MESSAGE` | The DMs, to replace the English defaults. `{mods}` in `UNRANKED_MESSAGE` is the mods the server named. At most 200 bytes. |
 | `UNRANKED_TUNING_MESSAGE` / `UNRANKED_SPEED_MESSAGE` | The DMs when nobody is ranked because players may use their own physics tuning, and when a player's game ran sped up. At most 200 bytes. |
+
+<br/>
+
+## Settings files
+
+In a stack, the servers can share their settings, or keep their own, through files in `/shared/settings`
+(a volume every server mounts at `/shared`). Each layer overrides the one before:
+
+| Layer | File | For |
+|---|---|---|
+| 1 | the container's env vars | On a single server, everything, as before. In a stack only what is per container: `PORT`, `QUERY_PORT`, `STEAM_TOKEN` (each slot has its own) and `RESKATE_SERVER`. |
+| 2 | `common.env` | What every server has: welcome message, announcements, admins, voice, tuning ... |
+| 3 | `secrets/common.env` | The same for secrets: `SERVER_PASSWORD`, webhook URLs, bot tokens. |
+| 4 | `server-<n>.env` | What only server `<n>` has: name, map, map pool, mods, max players, ranked checks ... |
+| 5 | `secrets/server-<n>.env` | Its secrets. |
+
+- A key in `server-<n>.env` is that server's own value; a key that is not there is the shared one.
+- `KEY+=value` adds to the value of the layers before instead of replacing it: a comma list (`MODS`, `MAP_POOL`, `ADMINS` ...), a `|` list (`ANNOUNCEMENTS`) or a JSON list (`COMMANDS`, `VOTES_CUSTOM`, `PARK_MODS`), e.g. `MAP_POOL+=Bralburbs` in `server-5.env`.
+- Env-file format: `KEY=value`, `#` comments (also after an unquoted value), `"double"` or `'single'` quotes, `export` allowed. `PORT`, `QUERY_PORT`, `STEAM_TOKEN` and `RESKATE_SERVER` in a file are ignored (the log says so).
+- The log shows which keys came from which file (never the values) and a `[settings] digest`; the [rollover](../rollover/README.md) restarts a server whose files changed once nobody is on it.
+- `RESKATE_MODE=split-settings` writes today's containers out as these files: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v reskate-shared:/shared dudedankdave/reskate-server split-settings` lists the keys, `--write` writes them.
+
+| Variable | Meaning |
+|---|---|
+| `RESKATE_SERVER` | This server's number, so it reads `server-<n>.env`. The rollover sets it on the containers it creates. |
+| `SETTINGS_DIR` | Another folder than `/shared/settings`. |
+
+<br/>
+
+## Modules and events
+
+The leaderboard, the kick announcer and the webhooks run inside the server. In a stack they can be handed to modules
+outside it (bridge, bot, ...) while the server runs, with `/shared/modules.json`, re-read every minute:
+
+```json
+{"leaderboard": "external", "webhooks": {"public": "external", "chat": "external"},
+ "servers": {"6": {"leaderboard": "internal"}}}
+```
+
+- Parts: `leaderboard`, `announcer`, `webhooks` (one value, or one per scope: `admin`, `log`, `public`, `chat`, `leaderboard`, `updates`, `updates-admin`). `external` switches the server's own part off, `internal` (or no file) keeps it. `servers` overrides per `RESKATE_SERVER`. The log says what is set (`[modules] ...`).
+- Every message the server's webhooks post in the `admin`, `public`, `updates` and `updates-admin` scopes is also printed as one line, whether a webhook is set or not: `[event] admin {"ping":true,"text":"**UPDATE AVAILABLE**: ..."}`. The [bridge](../rollover/README.md#bridge-servers---bot) passes them on as events of that scope.
+
+| Variable | Meaning |
+|---|---|
+| `MODULES_FILE` | Another file than `/shared/modules.json`. |
+| `RESKATE_DATA` | Another folder than `/data` (for `config`). |

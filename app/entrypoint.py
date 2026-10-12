@@ -34,11 +34,15 @@ TOOLS = {
     "bridge": "/app/tools/bridge.py",
     "split-settings": "/app/tools/split_settings.py",
 }
-_mode = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESKATE_MODE", "server")).strip().lower()
+# The mode is the first argument if it names one (the rest goes to the tool or the server), else RESKATE_MODE.
+if len(sys.argv) > 1 and sys.argv[1].strip().lower() in ("server", "config", *TOOLS):
+    _mode, ARGS = sys.argv[1].strip().lower(), sys.argv[2:]
+else:
+    _mode, ARGS = os.environ.get("RESKATE_MODE", "server").strip().lower(), sys.argv[1:]
 if _mode not in ("server", "config"):
     if _mode not in TOOLS:
         sys.exit(f"RESKATE_MODE: expected server, config, {', '.join(TOOLS)}; got {_mode!r}")
-    os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode]])
+    os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode], *ARGS])
 CONFIG_ONLY = _mode == "config"
 
 # Settings from /shared/settings (common.env, server-<n>.env, secrets/) go into the environment
@@ -630,7 +634,7 @@ if mode == "auto":
     except OSError as exc:  # the server must start even if this breaks
         print(f"[update] cannot use {updater.DIR} ({exc}), running the image's server without updates", flush=True)
         mode = "pinned"
-sup = supervisor.Supervisor(folder, sys.argv[1:])
+sup = supervisor.Supervisor(folder, ARGS)
 notifier.Notifier(sup, mode, image_version).start()
 if announce_kicks:
     import announcer

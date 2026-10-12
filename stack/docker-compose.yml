@@ -21,6 +21,7 @@ services:
       # MODUPDATE_MIN_PLAYERS, MODUPDATE_WAIT, DISCORD_WEBHOOK, STEAM_TOKEN_1B ...: see rollover/README.md
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - reskate-shared:/shared:ro   # settings files: restarts empty servers whose settings changed
 
   status:
     <<: *tool
@@ -42,7 +43,7 @@ services:
       BOT_STATUS_CHANNEL: ""
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /root/reskate/shared:/shared
+      - reskate-shared:/shared
       - bot-state:/state
 
   # Servers <-> bot: follows the server logs as events and types console commands (announce, say, kick ...)
@@ -65,7 +66,7 @@ services:
     environment:
       RESKATE_MODE: backup
     volumes:
-      - /root/reskate/shared:/shared:ro
+      - reskate-shared:/shared:ro
       - /root/reskate/backup:/backup
 
 volumes:
@@ -73,3 +74,5 @@ volumes:
     external: true
     name: reskate-status     # the existing volume, so the Discord card message is kept
   bot-state:
+  reskate-shared:
+    external: true           # the servers' /shared (docs/ENVIRONMENT.md#settings-files)

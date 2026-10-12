@@ -22,6 +22,10 @@ services:
       - reskate-data:/data
       # Maps/mods shared by all servers (MODS_STORE=shared, the default): each version is downloaded once
       - reskate-mods:/mods
+      # Leaderboard, roles and settings files shared by all servers (docs/ENVIRONMENT.md#settings-files)
+      - reskate-shared:/shared
+    environment:
+      RESKATE_SERVER: "1"      # reads /shared/settings/server-1.env, if there is one
   reskate-2:
     <<: *reskate
     container_name: reskate-server-2
@@ -29,8 +33,12 @@ services:
     volumes:
       - reskate-data-2:/data
       - reskate-mods:/mods
+      - reskate-shared:/shared
+    environment:
+      RESKATE_SERVER: "2"
 
 volumes:
   reskate-data:
   reskate-data-2:
   reskate-mods:
+  reskate-shared:
