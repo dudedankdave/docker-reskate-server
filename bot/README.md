@@ -10,7 +10,8 @@ a server; restarts and updates come in a later phase and will only run on empty 
   `/boards`, `/player <player>`, `/stats`. They read the shared leaderboard database and the server logs.
 
 * **Feeds** (phase 2, replaces the webhooks scope by scope): per server in `bot.json` the channels `public`
-  (joins, leaves, finished throwdowns, map changes), `chat`, `admin` (kicks, bans, anti-cheat, warnings,
+  (joins, leaves, finished throwdowns, map changes, server up; cleaned up like the public webhook, so no Steam IDs
+  or leave reasons), `chat`, `admin` (kicks, bans, anti-cheat, warnings,
   console use) and `log` (every line but chat). A scope without a channel is skipped. Nothing from before the
   bot started is replayed. The webhooks keep running until you remove them from the servers.
 * **Console** (admins only): `/say`, `/announce`, `/msg`, `/kick`, `/console` per server, and optionally a
