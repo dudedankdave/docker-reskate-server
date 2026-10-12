@@ -44,3 +44,21 @@ class FeedsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PostRoleTest(unittest.TestCase):
+    def test_role_comes_from_the_backend(self):
+        """post() asks the backend (bridge or Docker) for the server's role, not a Docker-only board."""
+        bot = types.SimpleNamespace(cfg={"servers": {"1": {"log": "5"}}}, get_channel=lambda _id: None)
+        bot.backend = types.SimpleNamespace(servers=lambda: {"1": {"role": "Main"}})
+        sent = []
+
+        class Channel:
+            async def send(self, text, **_):
+                sent.append(text)
+        bot.get_channel = lambda _id: Channel()
+        feeds.discord.AllowedMentions = types.SimpleNamespace(none=lambda: None)
+        feeds.discord.utils = types.SimpleNamespace(escape_markdown=lambda t: t)
+        import asyncio
+        asyncio.run(feeds.Feeds(bot).post("1", "log", ["hello"]))
+        self.assertEqual(sent, ["**Main**\nhello\n"])

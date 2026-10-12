@@ -36,6 +36,23 @@ class FakeBoard:
         return {"embeds": [{"title": "Main"}, {"title": "Total"}]}
 
 
+class TypeIntoTest(unittest.TestCase):
+    """The live servers keep stdin open without a TTY: that is a console, only a closed stdin is not."""
+
+    def test_stdin_without_tty_is_enough(self):
+        info = {"Id": "c1", "Config": {"Tty": False, "OpenStdin": True}}
+        with mock.patch.object(bridge.rollover, "SOCKET", "/nonexistent.sock"), \
+                mock.patch.object(bridge.rollover, "DOCKER_API", ""):
+            with self.assertRaises(OSError):         # got as far as the socket
+                bridge.type_into(info, "players")
+
+    def test_closed_stdin_is_refused(self):
+        info = {"Id": "c1", "Config": {"Tty": True, "OpenStdin": False}}
+        with mock.patch.object(bridge.rollover, "DOCKER_API", ""):
+            with self.assertRaises(RuntimeError):
+                bridge.type_into(info, "players")
+
+
 class BridgeHTTPTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
