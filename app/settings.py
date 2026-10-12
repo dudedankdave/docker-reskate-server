@@ -122,6 +122,110 @@ def digest(values):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+# ---- settings the server takes while it runs ------------------------------------------------------
+# key -> the console commands that set it now (ReSkate's README "Console and role commands"); the server
+# saves them to its own file. Every other key needs a restart. slim/settings.go has the same keys.
+def _onoff(cmd):
+    return lambda v, e: [f"{cmd} {'on' if v.strip().lower() in ('1', 'true', 'yes', 'on') else 'off'}"]
+
+
+def _plain(cmd, off_if_zero=False):
+    return lambda v, e: [f"{cmd} {'off' if off_if_zero and v.strip() in ('0', '') else v.strip()}"]
+
+
+def _clearable(cmd):
+    return lambda v, e: [f"{cmd} {'off' if v.strip().lower() in ('off', 'none', '') else v.strip()}"]
+
+
+def _list(clear, add, sep=","):
+    return lambda v, e: [clear] + ([] if v.strip().lower() in ("off", "none", "") else
+                                   [f"{add} {x.strip()}" for x in v.split(sep) if x.strip()])
+
+
+def _distances(v, e):
+    keys = ("DISTANCE_FULL_RATE_RETURN", "DISTANCE_HALF_RATE_START", "DISTANCE_HALF_RATE_RETURN", "DISTANCE_LOW_RATE_START")
+    values = [e.get(k, "").strip() for k in keys]
+    return [f"distances {' '.join(values)}"] if all(values) else []
+
+
+def _colors(v, e):
+    badge, text = e.get("CHAT_COLOR", "").strip(), e.get("CHAT_TEXT_COLOR", "").strip()
+    return [f"chat-color {badge} {text}".strip()] if badge else []
+
+
+def _vote(name, field):
+    if field == "_ENABLED":
+        return lambda v, e: [f"votes {name} {'on' if v.strip().lower() in ('1', 'true', 'yes', 'on') else 'off'}"]
+    if field == "_PERCENT":
+        return lambda v, e: [f"votes {name} {v.strip()}"]
+    word = {"_SECONDS": "seconds", "_COOLDOWN_SECONDS": "cooldown", "_MIN_PLAYERS": "min-players"}[field]
+    return lambda v, e: [f"votes {name} {word} {v.strip()}"]
+
+
+LIVE = {
+    "SERVER_NAME": _plain("name"), "SERVER_PASSWORD": _clearable("password"), "WELCOME_MESSAGE": _clearable("welcome"),
+    "LISTED": _onoff("listed"), "VOICE_CHAT": _onoff("voice"), "VOICE_RANGE": _plain("voice-range"),
+    "OBJECT_PLACEMENT": _plain("placement"), "OBJECT_LIMIT": _plain("objects", True),
+    "OBJECT_SCALING": _onoff("object-scaling"), "SYNC_EFFECTS": _onoff("effects"), "NOCLIP": _onoff("noclip"),
+    "NO_BAIL": _onoff("nobail"), "BOOSTS": _onoff("boosts"), "ENFORCE_TUNING": _onoff("tuning"),
+    "MAP_POOL": _list("map-pool clear", "map-pool add"), "MAP_ROTATION_MINUTES": _plain("rotation", True),
+    "MAP_ROTATION_VOTE": _onoff("rotation vote"), "MAP_ROTATION_EXTEND_MINUTES": _plain("rotation stay", True),
+    "MAP_ROTATION_ANNOUNCE": _onoff("rotation announce"), "MAP_LATEST_VERSIONS": _onoff("maps latest"),
+    "MAP_LATEST_CHECK_MINUTES": _plain("maps latest every"), "WORLD_LAYER_SYNC": _onoff("layer-sync"),
+    "VOTE_SECONDS": _plain("votes seconds"), "VOTE_COOLDOWN_SECONDS": _plain("votes cooldown"),
+    "POLLS": _plain("votes polls"), "POLL_SECONDS": _plain("votes poll-seconds"),
+    "VOTE_STARTER_YES": _onoff("votes starter-yes"),
+    "ANNOUNCEMENTS": _list("announcements clear", "announcements add", "|"),
+    "ANNOUNCEMENT_INTERVAL_MINUTES": _plain("announcements interval", True),
+    "ANNOUNCE_THROWDOWNS": _onoff("announce-throwdowns"), "ACTIVITY_LOG": _onoff("activity-log"),
+    "PARTIES": _onoff("parties"), "PARTY_SIZE": _plain("party-size"), "AFK_KICK_MINUTES": _plain("afk-kick", True),
+    "SPEED_CHECK": _plain("speed-check"), "BOARD_CHECK": _plain("board-check"), "SCORE_CHECK": _plain("score-check"),
+    "BONE_SCALE_LIMIT": _plain("bone-scale", True), "BONE_REACH_LIMIT": _plain("bone-reach", True),
+    "SEND_RATE": _plain("rate"), "CROWD_BUDGET": _plain("crowd", True), "GLOBAL_WORD_FILTER": _onoff("words global"),
+    "CHAT_COLOR": _colors, "CHAT_TEXT_COLOR": _colors,
+    "PARK_CONSTRUCTION": lambda v, e: [f"park construction {v.strip()}"],
+    "PARK_HISTORIC": lambda v, e: [f"park historic {v.strip()}"],
+    "PARK_FINANCIAL": lambda v, e: [f"park financial {v.strip()}"],
+    "LAYERS": lambda v, e: [f"layers {' '.join(x.strip() for x in v.split(',') if x.strip())}"] if v.strip() else [],
+    **{k: _distances for k in ("DISTANCE_FULL_RATE_RETURN", "DISTANCE_HALF_RATE_START", "DISTANCE_HALF_RATE_RETURN",
+                               "DISTANCE_LOW_RATE_START")},
+    **{prefix + field: _vote(name, field) for prefix, name in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"),
+                                                                ("VOTE_TIME_OF_DAY", "tod"))
+       for field in ("_ENABLED", "_PERCENT", "_SECONDS", "_COOLDOWN_SECONDS", "_MIN_PLAYERS")},
+}
+# Lists the env merges into what the server has (in-game additions stay), so a change only adds:
+LIVE.update({
+    "ADMINS": lambda v, e: [f"role {x.strip()} admin" for x in v.split(",") if x.strip()],
+    "RESERVED": lambda v, e: [f"reserved add {x.strip()}" for x in v.split(",") if x.strip()],
+    "SCORE_ALLOW": lambda v, e: [f"score-allow {x.strip().lower()}" for x in v.split(",") if x.strip()],
+    "BANS": lambda v, e: [f"ban {x.partition(':')[0].strip()} {x.partition(':')[2].strip()}".strip()
+                          for x in v.split(",") if x.strip()],
+})
+
+
+def live_commands(old, new):
+    """(console commands that bring a running server from settings `old` to `new`, keys that need a restart)."""
+    commands, restart = [], []
+    for key in sorted(set(old) | set(new)):
+        if old.get(key) == new.get(key):
+            continue
+        if key not in LIVE or key not in new:
+            restart.append(key)
+            continue
+        lines = LIVE[key](new[key], new)
+        if not lines:                     # nothing the console can say (e.g. one of the four distances alone)
+            restart.append(key)
+        for line in lines:
+            if line not in commands:
+                commands.append(line)
+    return commands, restart
+
+
+def restart_digest(values):
+    """digest() of only the keys a running server cannot take (LIVE has the others)."""
+    return digest({k: v for k, v in values.items() if k not in LIVE})
+
+
 def apply(environ=os.environ, folder=None):
     """Put the files' values into environ and say where they came from. Returns the digest, or
     None when there is no settings folder."""
@@ -134,4 +238,5 @@ def apply(environ=os.environ, folder=None):
     environ.update(values)
     d = digest(values)
     print(f"[settings] digest {d}", flush=True)
+    print(f"[settings] restart-digest {restart_digest(values)}", flush=True)
     return d

@@ -60,7 +60,7 @@ JOINED = re.compile(r"^.+ joined \(\d+(?:, admin)?\), (\d+)/\d+ players, loaded 
 LEFT = re.compile(r"^.+ left \(.*\)( \[.*\])?$")
 NETWORK = re.compile(r"^\[network\] (\d+) players, ")
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
-DIGEST = re.compile(r"^\[settings\] digest ([0-9a-f]+)$")
+DIGEST = re.compile(r"^\[settings\] (digest|restart-digest) ([0-9a-f]+)$")
 
 
 def say(message):
@@ -408,11 +408,13 @@ class Rollover:
         folder = str(setting(self.cfg, server, "settings_dir", "/shared/settings"))
         if settings is None or not os.path.isdir(folder):
             return False
-        started = [m.group(1) for m in map(DIGEST.match, logs(inst.info)) if m]
+        # With the settings module typing changes into the console, only what it cannot do counts.
+        kind = "restart-digest" if self.settings_live(number) else "digest"
+        started = [m.group(2) for m in map(DIGEST.match, logs(inst.info)) if m and m.group(1) == kind]
         if not started:
             return False                           # an image from before the settings files
         values, _, _ = settings.load(inst.env, folder, report=False)
-        want = settings.digest(values)
+        want = settings.restart_digest(values) if kind == "restart-digest" else settings.digest(values)
         if started[-1] == want:
             return False
         if self.empty_for(inst) <= 0:
@@ -421,6 +423,16 @@ class Rollover:
             return True
         self.restart(inst, f"Server {number}: its settings changed, nobody is on {inst.name}, restarting it")
         return True
+
+    def settings_live(self, number):
+        """True when /shared/modules.json hands this server's settings to the settings module."""
+        try:
+            import handover
+            with open(handover.FILE, encoding="utf-8") as f:
+                part = handover.parse(json.load(f), str(number)).get("settings")
+        except (ImportError, OSError, ValueError):
+            return False
+        return str(part or "").strip().lower() == "external"
 
     def image_update(self, number, server, inst, instances):
         """Replace a server in its slot with a newer image revision of its ReSkate version, once

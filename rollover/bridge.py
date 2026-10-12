@@ -209,9 +209,10 @@ def do(number, action, args, by, slot=None):
     if number not in board.cfg["servers"]:
         raise ValueError("unknown server")
     args = args or {}
-    slot = str(slot).upper() if slot else None
-    if slot and slot not in board.cfg["servers"][number]["slots"]:
-        raise ValueError(f"unknown slot {slot!r}")
+    if slot:                                     # "A" or "a": as servers.json spells it
+        given, slot = slot, next((k for k in board.cfg["servers"][number]["slots"] if k.lower() == str(slot).lower()), None)
+        if slot is None:
+            raise ValueError(f"unknown slot {given!r}")
     infos = running(number, slot)
     if not infos:
         raise ValueError(f"that server is not running in slot {slot}" if slot else "that server is not running")

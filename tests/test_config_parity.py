@@ -138,9 +138,9 @@ class ConfigParityTest(unittest.TestCase):
         if self.slim:
             go, go_out = self.run_config([self.slim, "config"], env, LAYERS["layers"])
             self.assertEqual(py, go)
-            digest = [line for line in out.splitlines() if line.startswith("[settings] digest")]
-            self.assertEqual(digest, [line for line in go_out.splitlines() if line.startswith("[settings] digest")])
-            self.assertEqual(len(digest), 1)
+            digest = [line for line in out.splitlines() if "digest" in line]
+            self.assertEqual(digest, [line for line in go_out.splitlines() if "digest" in line])
+            self.assertEqual(len(digest), 2)                              # digest and restart-digest
 
     def test_same_config(self):
         if not self.slim:
