@@ -45,6 +45,17 @@ services:
       - /root/reskate/shared:/shared
       - bot-state:/state
 
+  # Servers <-> bot: follows the server logs as events and types console commands (announce, say, kick ...)
+  # for callers with the token. Listens on 127.0.0.1:8780 of the host; see rollover/README.md.
+  bridge:
+    <<: *tool
+    container_name: reskate-bridge
+    environment:
+      RESKATE_MODE: bridge
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
   # The leaderboard database itself is written by the game servers (SQLite in /shared);
   # this container keeps hourly backups of it.
   leaderboard-backup:
