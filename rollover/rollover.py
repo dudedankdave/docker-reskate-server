@@ -253,6 +253,8 @@ class Rollover:
             return self.roll(number, server, newest, live, instances, latest, what, latest)
         if len(live) > 1 or not newest.healthy or newest.name in self.protect:
             return                                     # mid-rollover: one change at a time
+        if self.lacks_mods(server, newest):
+            return self.repair(number, server, newest, instances)
         updates = self.pending_mods(number, server, newest)
         if updates:
             what = "map/mod update " + ", ".join(f"{o}-{n} {have} -> {new}" for o, n, new, have in updates)
@@ -289,6 +291,29 @@ class Rollover:
                                  f"{busy[0].name}; waiting until it is stopped.")
         self.start_copy(number, server, newest, slot, version, count, instances, what,
                         suffix=time.strftime("-m%m%d%H%M", time.gmtime()) if mods else "")
+
+    def mods_volume(self, server):
+        """Name of the shared map/mod volume to mount at /mods, "" when it is switched off."""
+        volume = str(setting(self.cfg, server, "mods_volume", "reskate-mods"))
+        return "" if volume.lower() in ("off", "none", "false") else volume
+
+    def lacks_mods(self, server, inst):
+        """True when the shared map volume should be at /mods on this container but isn't."""
+        if not self.mods_volume(server) or not setting(self.cfg, server, "repair_mods", True):
+            return False
+        mounts = [m.get("Destination") for m in inst.info.get("Mounts") or []]
+        return "/mods" not in mounts
+
+    def repair(self, number, server, inst, instances):
+        """Recreate an up-to-date server that runs without /mods, but only while nobody is on it
+        (no cutoff here: the repair is not urgent, so it never disconnects anyone)."""
+        count = players(inst.info)
+        if count:
+            return self.once(("repair-wait", inst.name, count // 10),
+                             f"Server {number}: {inst.name} runs without the shared map volume, "
+                             f"{count} player(s) on it; recreating it once it is empty.")
+        self.start_copy(number, server, inst, inst.slot, inst.version, 0, instances,
+                        "the shared map volume is not mounted", suffix=time.strftime("-r%m%d%H%M", time.gmtime()))
 
     def image_ready(self, version):
         """True once <image>:<version> is on Docker Hub. A release is announced before its image
@@ -377,7 +402,7 @@ class Rollover:
         # a mod copy keeps the old image; a release copy takes the Hub tag when there is one
         tag = None if suffix else (version if hub_has(self.repo, version) else None)
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
-        install = not tag and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
+        install = not tag and not suffix and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
         in_place = slot == old.slot
         how = (f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
                f"{count} player(s) on {old.name} ({old.version}), starting a copy in slot {slot.upper()}")
@@ -400,6 +425,8 @@ class Rollover:
                    SERVER_NAME=server_name(self.cfg, number, server, version))
         for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "PATH",
                   "LD_LIBRARY_PATH", "HOME", "SteamAppId"):
+            if suffix and k in ("UPDATE_MODE", "UPDATE_POLICY") and k in env:
+                continue                   # same release again: keep how the old one was told to update
             env.pop(k, None)               # image defaults come back from the image
         if install:                        # run the installed release; later ones are ours to roll out
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")
@@ -407,9 +434,7 @@ class Rollover:
         cfg = old.info["Config"]
         # shared map/mod store at /mods on every container we create (a server without it can crash-loop);
         # "off" leaves it out
-        mods_volume = str(setting(self.cfg, server, "mods_volume", "reskate-mods"))
-        if mods_volume.lower() in ("off", "none", "false"):
-            mods_volume = ""
+        mods_volume = self.mods_volume(server)
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
