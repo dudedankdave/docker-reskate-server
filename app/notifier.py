@@ -126,8 +126,9 @@ def request(url, payload=None, method=None, headers=()):
     return None
 
 
-def username():
-    name = os.environ.get("DISCORD_USERNAME") or os.environ.get("SERVER_NAME") or ""
+def username(environ=None):
+    environ = os.environ if environ is None else environ
+    name = environ.get("DISCORD_USERNAME") or environ.get("SERVER_NAME") or ""
     # Discord rejects webhook names containing these words (server names often hold a discord.gg link)
     name = re.sub(r"(?i)\S*(discord|clyde)\S*", "", name)
     name = re.sub(r"\s+", " ", name)
@@ -244,12 +245,15 @@ SCOPES = {"admin": "essentials", "essentials": "essentials", "log": "log", "cons
 WEBHOOK_URL = re.compile(r"^WEBHOOK_URL_(.+)$")
 
 
-def webhooks():
-    """scope -> webhook URLs, from WEBHOOK_URL_<n>/WEBHOOK_SCOPE_<n> and the older names."""
+def webhooks(environ=None):
+    """scope -> webhook URLs, from WEBHOOK_URL_<n>/WEBHOOK_SCOPE_<n> and the older names (of environ,
+    default this process's env; the webhooks module passes each server's settings)."""
+    environ = os.environ if environ is None else environ
+
     def get(name):
-        return (os.environ.get(name) or "").strip()
+        return (environ.get(name) or "").strip()
     legacy = get("DISCORD_WEBHOOK_ADMIN") or get("DISCORD_WEBHOOK")
-    legacy_log = get("DISCORD_WEBHOOK_LOG") or (legacy if truthy(os.environ.get("DISCORD_CONSOLE"), True) else "")
+    legacy_log = get("DISCORD_WEBHOOK_LOG") or (legacy if truthy(environ.get("DISCORD_CONSOLE"), True) else "")
     hooks = {
         "essentials": [get("DISCORD_WEBHOOK_ESSENTIALS") or legacy],
         "log": [legacy_log],
@@ -259,7 +263,7 @@ def webhooks():
         "updates": [],
         "updates-admin": [],
     }
-    for key in sorted(os.environ):
+    for key in sorted(environ):
         m = WEBHOOK_URL.match(key)
         if m and get(key):
             for scope in get("WEBHOOK_SCOPE_" + m.group(1)).lower().split(","):

@@ -12,7 +12,12 @@ wants to talk to them (the Discord bot, scripts), so no server needs to know abo
   attach API on the host's socket, like bot/console.py). Only the actions below exist; `quit`, `stop`,
   `restart`, `update` and `reload` are never sent, restarts are the rollover's job.
 * GET /v1/actions lists the actions and their inputs (so a dialog can be built from it),
-  GET /v1/servers the servers with players and map, GET /v1/health is for checks.
+  GET /v1/servers the servers with players and map, GET /v1/status the status cards (status.py's message,
+  for the bot), GET /v1/health is for checks.
+* GET /v1/servers/<n>/settings: per running slot, the settings the server started with (its env plus the
+  settings files, see app/settings.py), without secrets: what the modules outside need (leaderboard ...).
+* A caller whose "by" starts with "module:" (the leaderboard, the announcer ...) acts as often as it needs:
+  its actions are audit events only, not posts to the admin scope.
 
 Every request needs `Authorization: Bearer $BRIDGE_TOKEN`. Settings: BRIDGE_TOKEN (required),
 BRIDGE_BIND (default 127.0.0.1), BRIDGE_PORT (default 8780), BRIDGE_BUFFER (events kept, default 5000).
@@ -32,6 +37,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import rollover  # noqa: E402
 import status  # noqa: E402
+
+try:
+    import settings  # noqa: E402  (app/settings.py: the settings files, with /shared mounted)
+except ImportError:
+    settings = None
 from rollover import logs, say  # noqa: E402
 
 TOKEN = os.environ.get("BRIDGE_TOKEN", "").strip()
@@ -58,7 +68,7 @@ ACTIONS = {
     "log": {"label": "Last log lines", "info": True, "args": [("count", "How many lines (default 15)", 3)]},
 }
 
-events = []              # {"id", "server", "time", "scopes", "text", "kind", "ping"}
+events = []              # {"id", "server", "slot", "time", "scopes", "text", "kind", "ping"}
 next_id = 1
 cond = threading.Condition()
 board = None
@@ -98,10 +108,10 @@ def message(text):
     return m.group(1), str(data.get("text") or ""), bool(data.get("ping"))
 
 
-def push(server, stamp, text, scopes=None, kind="console", ping=False):
+def push(server, stamp, text, scopes=None, kind="console", ping=False, slot=None):
     global next_id
     with cond:
-        events.append({"id": next_id, "server": server, "time": stamp, "scopes": scopes or scopes_of(text),
+        events.append({"id": next_id, "server": server, "slot": slot, "time": stamp, "scopes": scopes or scopes_of(text),
                        "text": text, "kind": kind, "ping": ping})
         next_id += 1
         del events[:-BUFFER]
@@ -132,6 +142,7 @@ def follow():
                     if not info["State"].get("Running"):
                         continue
                     first = info["Id"] not in seen
+                    slot = slot_of(number, info)
                     last = seen.get(info["Id"], "")
                     since = int(time.time()) - POLL * 4 if first else max(
                         calendar.timegm(time.strptime(last[:19], "%Y-%m-%dT%H:%M:%S")) - 1, 0)
@@ -148,9 +159,9 @@ def follow():
                             continue
                         text = m.group(3).rstrip()
                         if msg := message(text):
-                            push(number, m.group(1) + "Z", msg[1], [msg[0]], "message", msg[2])
+                            push(number, m.group(1) + "Z", msg[1], [msg[0]], "message", msg[2], slot)
                         else:
-                            push(number, m.group(1) + "Z", text)
+                            push(number, m.group(1) + "Z", text, slot=slot)
                     seen[info["Id"]] = last or time.strftime("%Y-%m-%dT%H:%M:%S.000000000", time.gmtime())
         except Exception as e:
             say(f"bridge: could not read the logs: {e!r}")
@@ -199,9 +210,10 @@ def do(number, action, args, by, slot=None):
     if number not in board.cfg["servers"]:
         raise ValueError("unknown server")
     args = args or {}
-    slot = str(slot).upper() if slot else None
-    if slot and slot not in board.cfg["servers"][number]["slots"]:
-        raise ValueError(f"unknown slot {slot!r}")
+    if slot:                                     # "A" or "a": as servers.json spells it
+        given, slot = slot, next((k for k in board.cfg["servers"][number]["slots"] if k.lower() == str(slot).lower()), None)
+        if slot is None:
+            raise ValueError(f"unknown slot {given!r}")
     infos = running(number, slot)
     if not infos:
         raise ValueError(f"that server is not running in slot {slot}" if slot else "that server is not running")
@@ -229,10 +241,31 @@ def do(number, action, args, by, slot=None):
     if not sent:
         raise RuntimeError("could not type into the console")
     note = f"{by or 'someone'} used the bridge{' (slot ' + slot + ')' if slot else ''}: {line[:300]}"
-    say(f"bridge: server {number}: {note}")
-    push(number, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), note, ["admin", "audit"])
+    module = by.startswith("module:")
+    if not module:
+        say(f"bridge: server {number}: {note}")
+    push(number, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), note, ["audit"] if module else ["admin", "audit"],
+         kind="audit", slot=slot)
     where = f" slot {slot}" if slot else ""
     return f"Sent to server {number}{where}: {line[:300]}" + (f" ({sent} containers)" if sent > 1 else "")
+
+
+SECRET = re.compile(r"PASSWORD|TOKEN|SECRET|WEBHOOK|_KEY$|^KEY$", re.I)
+IMAGE_KEYS = {"PATH", "LD_LIBRARY_PATH", "HOME", "SteamAppId", "HOSTNAME", "TERM"}
+
+
+def server_settings(number):
+    """{slot: {key: value}} of the running containers of a server: env + settings files, no secrets."""
+    if number not in board.cfg["servers"]:
+        raise ValueError("unknown server")
+    out = {}
+    for info in running(number):
+        env = rollover.env_of(info)
+        if settings is not None and os.path.isdir(settings.DIR):
+            env.update(settings.load(env, report=False)[0])
+        out[slot_of(number, info) or info["Name"].lstrip("/")] = {
+            k: v for k, v in sorted(env.items()) if not SECRET.search(k) and k not in IMAGE_KEYS}
+    return out
 
 
 def server_list():
@@ -289,6 +322,10 @@ class Handler(BaseHTTPRequestHandler):
                                         for k, v in ACTIONS.items()})
             if url.path == "/v1/servers":
                 return self.reply(200, server_list())
+            if url.path == "/v1/status":
+                return self.reply(200, board.message())
+            if m := re.fullmatch(r"/v1/servers/([^/]+)/settings", url.path):
+                return self.reply(200, server_settings(m.group(1)))
             if url.path == "/v1/events":
                 after, wait = int(q.get("after", 0)), min(int(q.get("wait", 0)), 60)
                 end = time.time() + wait

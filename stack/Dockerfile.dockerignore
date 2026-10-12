@@ -1,0 +1,8 @@
+# For stack/Dockerfile (the tools image): only the Python helpers are needed.
+.git
+**/__pycache__
+**/*.pyc
+Server/
+slim/
+tests/
+docs/

@@ -66,8 +66,10 @@ the slot's `PORT`, `QUERY_PORT`, `STEAM_TOKEN`, volume and a `SERVER_NAME` from 
 
 ## Running it
 
+It runs as `rollover` in the tools stack ([`stack/`](../stack/README.md)), from the tools image:
+
 ```sh
-cd rollover && docker compose up -d --build     # starts in DRY_RUN: only logs what it would do
+cd stack && BRIDGE_TOKEN=... docker compose -p tools up -d rollover   # starts in DRY_RUN: only logs what it would do
 docker logs -f reskate-rollover
 ```
 
@@ -84,10 +86,9 @@ never fills up. Players come from the server log like above; a server with no ru
 as offline, one that is still coming up as starting, and an older version still draining its players
 is listed on its server's card.
 
-```sh
-cd rollover && docker compose up -d --build status    # STATUS_WEBHOOK set in docker-compose.yml
-docker logs -f reskate-status
-```
+The Discord bot has the same cards as a message of its own (`BOT_STATUS_CHANNEL`), so the stack no
+longer runs this; for a setup without the bot it still runs as `RESKATE_MODE=status` of the tools image
+(`STATUS_WEBHOOK` set, a volume at `/state`).
 
 Make the webhook in the channel the cards should go to (channel settings, Integrations, Webhooks); its
 name and avatar are what the message shows. Ideally a channel where only the webhook can post, so the

@@ -20,11 +20,12 @@ from contextlib import closing
 import discord
 from discord import app_commands
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")]
 import leaderboard as lb  # noqa: E402  (app/leaderboard.py, copied into the image)
 import rollover  # noqa: E402
 import status  # noqa: E402
-import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
+import backend  # noqa: E402  (bot/backend.py: the servers, through the bridge or the Docker socket)
+import console  # noqa: E402  (bot/console.py: which console lines are refused)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
@@ -82,8 +83,7 @@ class Bot(discord.Client):
         self.feeds = feeds.Feeds(self)
         self.feed_failed = {}
         self.tree = app_commands.CommandTree(self)
-        with open(rollover.CONFIG, encoding="utf-8") as f:
-            self.board = status.Board(json.load(f))
+        self.backend = backend.create()
         self.state = {}
         try:
             with open(STATE, encoding="utf-8") as f:
@@ -123,7 +123,7 @@ class Bot(discord.Client):
             say(f"could not save {STATE} ({e}); a restart would post a new status message")
 
     async def payload(self):
-        message = await asyncio.to_thread(self.board.message)
+        message = await asyncio.to_thread(self.backend.message)
         summary = dict(message["embeds"][-1], description=f"Updated <t:{int(time.time())}:R>")
         return [discord.Embed.from_dict(e) for e in message["embeds"][:-1] + [summary]]
 
@@ -153,10 +153,9 @@ class Bot(discord.Client):
         roles = {str(r) for r in self.cfg.get("admin_roles") or []}
         return bool(roles & {str(r.id) for r in getattr(member, "roles", [])})
 
-    async def running(self, number):
-        """The running container of a server, or None."""
-        found = await asyncio.to_thread(self.board.gather)
-        return next((i for i in found.get(number, []) if i["State"].get("Running")), None)
+    def servers(self):
+        """{number: {"role": ...}} of servers.json."""
+        return self.backend.servers()
 
     async def audit(self, number, who, line):
         """Tell the server's admin channel who typed what into the console."""
@@ -179,14 +178,15 @@ class Bot(discord.Client):
                 why = console.refused(message.content)
                 if why:
                     return await message.reply(f"Not sent: {why}.", mention_author=False)
-                info = await self.running(number)
-                if not info:
+                targets = await asyncio.to_thread(self.backend.targets, number)
+                if not targets:
                     return await message.reply("That server is not running.", mention_author=False)
                 try:
-                    await asyncio.to_thread(console.send, info, message.content)
+                    for target in targets:
+                        await asyncio.to_thread(target.send, message.content, message.author.display_name)
                     await message.add_reaction("✅")
                     await self.audit(number, message.author.display_name, message.content)
-                except (OSError, RuntimeError) as e:
+                except Exception as e:
                     await message.reply(f"Could not type into the console: {e}", mention_author=False)
 
     async def cards(self):
@@ -218,7 +218,7 @@ def add_commands(bot):
 
     def server_choices(current):
         return [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
-                for n, s in bot.board.cfg["servers"].items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
+                for n, s in bot.servers().items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
 
     async def servers_ac(_i, current: str):
         return server_choices(current)
@@ -233,18 +233,17 @@ def add_commands(bot):
     @app_commands.autocomplete(server=servers_ac)
     async def players(i: discord.Interaction, server: str = ""):
         await i.response.defer()
-        found = await asyncio.to_thread(bot.board.gather)
         lines = []
-        for n, infos in found.items():
+        for n, cfg in bot.servers().items():
             if server and n != server:
                 continue
-            role = bot.board.cfg["servers"][n].get("role", f"Server {n}")
-            running = [x for x in infos if x["State"].get("Running")]
-            if not running:
+            role = cfg.get("role") or f"Server {n}"
+            targets = await asyncio.to_thread(bot.backend.targets, n)
+            if not targets:
                 lines.append(f"**{role}**: offline")
                 continue
-            s = await asyncio.to_thread(bot.board.follow, running[0])
-            lines.append(f"**{role}**: {s.players}/{s.max or '?'} on {s.map or '?'}")
+            t = targets[0]
+            lines.append(f"**{role}**: {t.players}/{t.max or '?'} on {t.map or '?'}")
         await i.followup.send("\n".join(lines) or "Unknown server.")
 
     leagues = app_commands.choices(league=[app_commands.Choice(name="Ranked", value="ranked"),
@@ -352,13 +351,13 @@ def add_admin_commands(bot):
 
     async def servers_ac(_i, current: str):
         return [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
-                for n, s in bot.board.cfg["servers"].items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
+                for n, s in bot.servers().items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
 
     async def run(i, server, line):
         """Send one console line for an admin; answers the interaction."""
         if not bot.is_admin(i.user):
             return await i.response.send_message("Admins only.", ephemeral=True)
-        if server not in bot.board.cfg["servers"]:
+        if server not in bot.servers():
             return await i.response.send_message("Unknown server.", ephemeral=True)
         await i.response.defer(ephemeral=True)
         await i.followup.send(await coach.send_line(bot, i, server, line, i.user.display_name), ephemeral=True)
@@ -400,8 +399,7 @@ def main():
     cfg = load_config()
     token = os.environ.get("DISCORD_TOKEN", "").strip()
     if not token:
-        with open(rollover.CONFIG, encoding="utf-8") as f:
-            print(json.dumps(status.Board(json.load(f)).message(), indent=2, ensure_ascii=False))
+        print(json.dumps(backend.create().message(), indent=2, ensure_ascii=False))
         say("no DISCORD_TOKEN: printed the cards, not starting the bot")
         return
     Bot(cfg).run(token, log_handler=None)

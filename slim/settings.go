@@ -236,4 +236,41 @@ func applySettings() {
 		os.Setenv(k, v)
 	}
 	fmt.Printf("[settings] digest %s\n", settingsDigest(values))
+	fmt.Printf("[settings] restart-digest %s\n", restartDigest(values))
+}
+
+// liveKeys: the settings a running server takes from its console (app/settings.py LIVE has the
+// commands); the restart digest leaves them out. tests/test_settings_live.py checks both lists match.
+var liveKeys = map[string]bool{
+	"ACTIVITY_LOG": true, "ADMINS": true, "AFK_KICK_MINUTES": true, "ANNOUNCEMENTS": true,
+	"ANNOUNCEMENT_INTERVAL_MINUTES": true, "ANNOUNCE_THROWDOWNS": true, "BANS": true, "BOARD_CHECK": true,
+	"BONE_REACH_LIMIT": true, "BONE_SCALE_LIMIT": true, "BOOSTS": true, "CHAT_COLOR": true,
+	"CHAT_TEXT_COLOR": true, "CROWD_BUDGET": true, "DISTANCE_FULL_RATE_RETURN": true,
+	"DISTANCE_HALF_RATE_RETURN": true, "DISTANCE_HALF_RATE_START": true, "DISTANCE_LOW_RATE_START": true,
+	"ENFORCE_TUNING": true, "GLOBAL_WORD_FILTER": true, "LAYERS": true, "LISTED": true,
+	"MAP_LATEST_CHECK_MINUTES": true, "MAP_LATEST_VERSIONS": true, "MAP_POOL": true,
+	"MAP_ROTATION_ANNOUNCE": true, "MAP_ROTATION_EXTEND_MINUTES": true, "MAP_ROTATION_MINUTES": true,
+	"MAP_ROTATION_VOTE": true, "NOCLIP": true, "NO_BAIL": true, "OBJECT_LIMIT": true, "OBJECT_PLACEMENT": true,
+	"OBJECT_SCALING": true, "PARK_CONSTRUCTION": true, "PARK_FINANCIAL": true, "PARK_HISTORIC": true,
+	"PARTIES": true, "PARTY_SIZE": true, "POLLS": true, "POLL_SECONDS": true, "RESERVED": true,
+	"SCORE_ALLOW": true, "SCORE_CHECK": true, "SEND_RATE": true, "SERVER_NAME": true, "SERVER_PASSWORD": true,
+	"SPEED_CHECK": true, "SYNC_EFFECTS": true, "VOICE_CHAT": true, "VOICE_RANGE": true,
+	"VOTE_COOLDOWN_SECONDS": true, "VOTE_KICK_COOLDOWN_SECONDS": true, "VOTE_KICK_ENABLED": true,
+	"VOTE_KICK_MIN_PLAYERS": true, "VOTE_KICK_PERCENT": true, "VOTE_KICK_SECONDS": true,
+	"VOTE_MAP_COOLDOWN_SECONDS": true, "VOTE_MAP_ENABLED": true, "VOTE_MAP_MIN_PLAYERS": true,
+	"VOTE_MAP_PERCENT": true, "VOTE_MAP_SECONDS": true, "VOTE_SECONDS": true, "VOTE_STARTER_YES": true,
+	"VOTE_TIME_OF_DAY_COOLDOWN_SECONDS": true, "VOTE_TIME_OF_DAY_ENABLED": true,
+	"VOTE_TIME_OF_DAY_MIN_PLAYERS": true, "VOTE_TIME_OF_DAY_PERCENT": true, "VOTE_TIME_OF_DAY_SECONDS": true,
+	"WELCOME_MESSAGE": true, "WORLD_LAYER_SYNC": true,
+}
+
+// restartDigest: settingsDigest of only the keys a running server cannot take.
+func restartDigest(values map[string]string) string {
+	kept := map[string]string{}
+	for k, v := range values {
+		if !liveKeys[k] {
+			kept[k] = v
+		}
+	}
+	return settingsDigest(kept)
 }

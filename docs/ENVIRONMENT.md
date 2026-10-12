@@ -253,7 +253,8 @@ In a stack, the servers can share their settings, or keep their own, through fil
 - `KEY+=value` adds to the value of the layers before instead of replacing it: a comma list (`MODS`, `MAP_POOL`, `ADMINS` ...), a `|` list (`ANNOUNCEMENTS`) or a JSON list (`COMMANDS`, `VOTES_CUSTOM`, `PARK_MODS`), e.g. `MAP_POOL+=Bralburbs` in `server-5.env`.
 - Env-file format: `KEY=value`, `#` comments (also after an unquoted value), `"double"` or `'single'` quotes, `export` allowed. `PORT`, `QUERY_PORT`, `STEAM_TOKEN` and `RESKATE_SERVER` in a file are ignored (the log says so).
 - The log shows which keys came from which file (never the values) and a `[settings] digest`; the [rollover](../rollover/README.md) restarts a server whose files changed once nobody is on it.
-- `RESKATE_MODE=split-settings` writes today's containers out as these files: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v reskate-shared:/shared dudedankdave/reskate-server split-settings` lists the keys, `--write` writes them.
+- `split-settings` writes today's containers out as these files: `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v reskate-shared:/shared dudedankdave/reskate-tools split-settings` lists the keys, `--write` writes them.
+- With the settings module (`"settings": "external"` in [modules.json](#modules-and-events)) a change reaches the running server through its console at once; only what the console cannot set (`MAX_PLAYERS`, `MODS`, `COMMANDS`, network ...) waits for the restart when it is empty.
 
 | Variable | Meaning |
 |---|---|
@@ -272,7 +273,7 @@ outside it (bridge, bot, ...) while the server runs, with `/shared/modules.json`
  "servers": {"6": {"leaderboard": "internal"}}}
 ```
 
-- Parts: `leaderboard`, `announcer`, `webhooks` (one value, or one per scope: `admin`, `log`, `public`, `chat`, `leaderboard`, `updates`, `updates-admin`). `external` switches the server's own part off, `internal` (or no file) keeps it. `servers` overrides per `RESKATE_SERVER`. The log says what is set (`[modules] ...`).
+- Parts: `leaderboard`, `announcer`, `webhooks` (one value, or one per scope: `admin`, `log`, `public`, `chat`, `leaderboard`, `updates`, `updates-admin`), and `settings` (changes in the settings files are typed into the running server by the settings module; only the rest waits for a restart). `external` switches the server's own part off and the module of the [tools stack](../stack/README.md) on, `internal` (or no file) keeps it in the server. `servers` overrides per `RESKATE_SERVER`. The log says what is set (`[modules] ...`).
 - Every message the server's webhooks post in the `admin`, `public`, `updates` and `updates-admin` scopes is also printed as one line, whether a webhook is set or not: `[event] admin {"ping":true,"text":"**UPDATE AVAILABLE**: ..."}`. The [bridge](../rollover/README.md#bridge-servers---bot) passes them on as events of that scope.
 
 | Variable | Meaning |

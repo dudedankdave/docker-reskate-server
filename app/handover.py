@@ -6,7 +6,9 @@ without a restart. Without the file everything runs inside the server, as before
      "webhooks": {"public": "external", "chat": "external"},
      "servers": {"6": {"leaderboard": "internal"}}}
 
-Parts: leaderboard, announcer, webhooks. "webhooks" is one value for every scope, or one per scope
+Parts: leaderboard, announcer, webhooks, settings (the server itself has nothing to switch off for
+"settings": it means the settings module types changed settings into its console, and the rollover
+restarts it only for the rest). "webhooks" is one value for every scope, or one per scope
 (admin, log, public, chat, leaderboard, updates, updates-admin; a scope not listed stays internal).
 "servers" overrides per server, by RESKATE_SERVER. The [event] lines are printed either way."""
 import json
@@ -15,7 +17,7 @@ import threading
 import time
 
 FILE = os.environ.get("MODULES_FILE") or "/shared/modules.json"
-PARTS = ("leaderboard", "announcer", "webhooks")
+PARTS = ("leaderboard", "announcer", "webhooks", "settings")
 CHECK_EVERY = 60
 
 _lock = threading.Lock()

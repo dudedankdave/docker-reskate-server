@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-var handoverParts = []string{"leaderboard", "announcer", "webhooks"}
+var handoverParts = []string{"leaderboard", "announcer", "webhooks", "settings"}
 
 var handover = struct {
 	sync.Mutex

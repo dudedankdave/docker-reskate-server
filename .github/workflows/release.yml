@@ -37,7 +37,8 @@ on:
       - app/**
       - rollover/*.py
       - bot/*.py
-      - stack/dbbackup.py
+      - modules/**
+      - stack/**
       - .github/workflows/release.yml
 
 permissions:
@@ -50,6 +51,7 @@ concurrency:
 
 env:
   IMAGE: dudedankdave/reskate-server
+  TOOLS_IMAGE: dudedankdave/reskate-tools
   UPSTREAM: Dingo-Shenanigans/ReSkate
 
 jobs:
@@ -177,6 +179,29 @@ jobs:
             ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-slim
             ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-${{ steps.rev.outputs.revision }}-slim
             ${{ env.IMAGE }}:slim
+
+      # The tools image (bridge, rollover, bot, modules) follows main, not the ReSkate releases.
+      - uses: docker/setup-buildx-action@v3
+        if: github.event_name != 'schedule' && steps.hub.outputs.build != 'true'
+
+      - name: Log in to Docker Hub (tools)
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push)) && !(steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build (and push) the tools image
+        if: github.event_name != 'schedule'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: stack/Dockerfile
+          build-args: REVISION=${{ steps.rev.outputs.revision }}
+          push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push) }}
+          tags: |
+            ${{ env.TOOLS_IMAGE }}:latest
+            ${{ env.TOOLS_IMAGE }}:${{ steps.rev.outputs.revision }}
 
       - name: Docker Hub README
         continue-on-error: true
