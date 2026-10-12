@@ -19,6 +19,7 @@ LINES = {
     "[20:08:00] Everyone has loaded Southbank": ({"log", "public"}, "Everyone has loaded Southbank"),
     "[20:09:00] [chat] Dave: hi": ({"chat"}, None),
     "[20:10:00] [kick] Bob kicked by Dave": ({"admin", "log"}, None),
+    '[event] admin {"ping":false,"text":"Up on Pattonville"}': (set(), None),   # the image's, not the console's
 }
 
 
