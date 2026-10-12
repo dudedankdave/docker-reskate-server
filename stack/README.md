@@ -1,18 +1,15 @@
-# tools: rollover, status cards and Discord bot in one container
+# tools: one stack, one container per service
 
-`reskate-tools` runs the three helper services as separate processes of one container
-(`launcher.py` restarts a crashed one after 5 s without touching the others). `TOOLS=rollover,status`
-leaves the bot out.
+`docker compose -p tools up -d --build` in this folder runs: `rollover`, `status` (Discord cards),
+`bot` (Discord bot) and `leaderboard-backup`. Each is its own container, so updating one leaves the others alone.
 
-What does **not** move in: the leaderboard database. The game servers write it themselves
-(`app/leaderboard.py`, SQLite in `/shared`); it is data, not a service. The tools container only
-mounts the same folder, which the bot reads.
+The leaderboard database is not a service: the game servers write it themselves (SQLite in
+`/shared`). `leaderboard-backup` is its container: an hourly online backup into `/root/reskate/backup`
+(168 files per database, oldest overwritten). `/shared` is mounted read-only there.
 
 ## Switching over on the host
-1. `docker build` / `docker compose up -d --build` here with `DRY_RUN=true` first and check the logs.
-2. To keep the existing status message, mount the old volume: `reskate-status:/state` (external) instead of `state`.
-3. Stop `reskate-rollover`, `reskate-status`, `reskate-bot` before the tools container acts
-   (two rollovers at once would fight), then set `DRY_RUN=false`.
+1. Start with `DRY_RUN=true`, check the logs.
+2. Stop the old `reskate-rollover`, `reskate-status` and `reskate-bot` first (same container names,
+   and two rollovers would fight), then set `DRY_RUN=false` and recreate `rollover`.
+The `status` volume is the existing `reskate-status`, so the same Discord message keeps being edited.
 No game server is restarted by any of this.
-
-Trade-off: updating one tool restarts all three (the rollover is stateless, a restart only pauses it for seconds).
