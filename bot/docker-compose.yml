@@ -14,8 +14,10 @@ services:
       BOT_STATUS_CHANNEL: ""                 # channel for the status cards; empty = no cards
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /root/reskate/shared:/shared         # the leaderboard database (only read)
+      - reskate-mods:/shared                 # the shared volume with leaderboard.db (only read)
       - state:/state
       # - ./bot.json:/config/bot.json:ro
 volumes:
   state:
+  reskate-mods:
+    external: true      # made by the servers; holds the maps (/mods) and leaderboard.db (/shared)

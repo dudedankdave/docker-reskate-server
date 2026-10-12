@@ -8,6 +8,8 @@
   "mod_check_minutes": 30,
   "modupdate_min_players": 2,
   "modupdate_wait": 60,
+  "image_wait_minutes": 60,
+  "mods_volume": "reskate-mods",
   "image": "dudedankdave/reskate-server",
   "container_prefix": "reskate-server-",
   "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",
@@ -87,6 +89,22 @@
           "volume": "reskate-203_data-5"
         }
       }
+    },
+    "6": {
+      "role": "Ranked",
+      "slots": {
+        "a": {
+          "port": 12450,
+          "query_port": 12451,
+          "volume": "reskate_reskate-data-6"
+        },
+        "b": {
+          "port": 12452,
+          "query_port": 12453,
+          "volume": "reskate-203_data-6"
+        }
+      },
+      "shared_volume": "reskate-mods"
     }
   }
 }

@@ -1,0 +1,64 @@
+# The helper services as one compose stack "tools": every service is the base image
+# dudedankdave/reskate-server (the full one, not -slim) in another RESKATE_MODE.
+# Run from this folder: DISCORD_TOKEN=... docker compose -p tools up -d
+# Replaces the containers of rollover/docker-compose.yml and bot/docker-compose.yml (see README.md).
+name: tools
+x-tool: &tool
+  image: dudedankdave/reskate-server:${RESKATE_TAG:-latest}
+  restart: unless-stopped
+  network_mode: host
+  user: root                 # the Docker socket is root's
+  healthcheck:
+    disable: true            # the image's check is for the game server
+
+services:
+  rollover:
+    <<: *tool
+    container_name: reskate-rollover
+    environment:
+      RESKATE_MODE: rollover
+      DRY_RUN: "true"          # false lets it act
+      # MODUPDATE_MIN_PLAYERS, MODUPDATE_WAIT, DISCORD_WEBHOOK, STEAM_TOKEN_1B ...: see rollover/README.md
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  status:
+    <<: *tool
+    container_name: reskate-status
+    environment:
+      RESKATE_MODE: status
+      STATUS_WEBHOOK: ""       # empty = only log the cards
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - status:/state
+
+  bot:
+    <<: *tool
+    container_name: reskate-bot
+    environment:
+      RESKATE_MODE: bot
+      DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      BOT_GUILD: "1558637403869155488"
+      BOT_STATUS_CHANNEL: ""
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/reskate/shared:/shared
+      - bot-state:/state
+
+  # The leaderboard database itself is written by the game servers (SQLite in /shared);
+  # this container keeps hourly backups of it.
+  leaderboard-backup:
+    <<: *tool
+    container_name: reskate-leaderboard-backup
+    network_mode: bridge
+    environment:
+      RESKATE_MODE: backup
+    volumes:
+      - /root/reskate/shared:/shared:ro
+      - /root/reskate/backup:/backup
+
+volumes:
+  status:
+    external: true
+    name: reskate-status     # the existing volume, so the Discord card message is kept
+  bot-state:

@@ -17,9 +17,24 @@ ANNOUNCE_KICKS (default true) starts announcer.py, which says admin kicks and ba
 import json
 import os
 import re
+import shutil
 import sys
 
 import leaderboard
+
+# The same image also runs the helper services, one per container: RESKATE_MODE (or the first
+# argument) = rollover | status | bot | backup; the default "server" is the game server.
+TOOLS = {
+    "rollover": "/app/tools/rollover.py",
+    "status": "/app/tools/status.py",
+    "bot": "/app/tools/bot.py",
+    "backup": "/app/tools/dbbackup.py",
+}
+_mode = (sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESKATE_MODE", "server")).strip().lower()
+if _mode != "server":
+    if _mode not in TOOLS:
+        sys.exit(f"RESKATE_MODE: expected server, {', '.join(TOOLS)}; got {_mode!r}")
+    os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode]])
 
 CONFIG = "/data/ReSkateServer.json"
 
@@ -441,6 +456,28 @@ with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n")
 os.replace(tmp, CONFIG)
 
+# Roles (data/roles.json: who is admin, moderator, vip) shared by all servers that mount the same
+# folder at /shared: the server's file becomes a link to /shared/roles.json (created from this server's
+# file the first time). ROLES_SCOPE=server keeps each server's own list.
+ROLES_FILE = os.path.join(os.path.dirname(CONFIG), "data", "roles.json")
+SHARED_ROLES = "/shared/roles.json"
+roles_scope = choice("shared", "server")("ROLES_SCOPE", env("ROLES_SCOPE") or "shared")
+if roles_scope == "shared" and os.path.ismount("/shared"):
+    try:
+        os.makedirs(os.path.dirname(ROLES_FILE), exist_ok=True)
+        linked = os.path.islink(ROLES_FILE) and os.readlink(ROLES_FILE) == SHARED_ROLES
+        if not os.path.exists(SHARED_ROLES) and os.path.isfile(ROLES_FILE) and not os.path.islink(ROLES_FILE):
+            shutil.copyfile(ROLES_FILE, SHARED_ROLES)
+        if os.path.exists(SHARED_ROLES) and not linked:
+            if os.path.lexists(ROLES_FILE):
+                os.replace(ROLES_FILE, ROLES_FILE + ".local")   # kept, not deleted
+            os.symlink(SHARED_ROLES, ROLES_FILE)
+            linked = True
+        if linked:
+            print("[roles] data/roles.json is shared through /shared/roles.json", flush=True)
+    except OSError as exc:  # the server must start even if this breaks
+        print(f"[roles] not shared: {exc!r}", flush=True)
+
 # Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
 if (value := env("MODS")) is not None:
     update = as_bool("MODS_UPDATE", env("MODS_UPDATE") or "true")
@@ -495,10 +532,13 @@ if (value := env("DISCORD_CONSOLE")) is not None:
 announce_kicks = as_bool("ANNOUNCE_KICKS", env("ANNOUNCE_KICKS") or "true")
 if (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value):
     choice("shared", "server")("LEADERBOARD_SCOPE", env("LEADERBOARD_SCOPE") or "shared")
+    choice("ranked", "unranked")("LEADERBOARD_LEAGUE", env("LEADERBOARD_LEAGUE") or "ranked")
     int_range(1, 1440)("LEADERBOARD_INTERVAL", env("LEADERBOARD_INTERVAL") or "60")
     int_range(1, 10)("LEADERBOARD_SIZE", env("LEADERBOARD_SIZE") or "5")
     for item in as_list(env("LEADERBOARD_BOARDS") or ""):
         choice(*leaderboard.KINDS)("LEADERBOARD_BOARDS", item)
+    int_range(0, 1000)("LEADERBOARD_PROPS_PER_DAY", env("LEADERBOARD_PROPS_PER_DAY") or "5")
+    as_bool("LEADERBOARD_PROPS_ANNOUNCE", env("LEADERBOARD_PROPS_ANNOUNCE") or "true")
     for var in ("LEADERBOARD_INTERVALS", "LEADERBOARD_DISCORD_INTERVALS"):
         for item in as_list(env(var) or ""):
             kind, _, minutes = item.partition("=")
