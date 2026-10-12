@@ -412,6 +412,10 @@ func entrypointMain(serverArgs []string) {
 		{"GLOBAL_BANS", "access", "use_global_bans", boolConv},
 		{"MAP", "maps", "map", text},
 		{"MAP_ROTATION_MINUTES", "maps", "rotation_minutes", nonNegative},
+		{"MAP_ROTATION_VOTE", "maps", "rotation_vote", boolConv},
+		{"MAP_ROTATION_VOTE_SECONDS", "maps", "rotation_vote_seconds", intRange(10, 120)},
+		{"MAP_ROTATION_EXTEND_MINUTES", "maps", "rotation_extend_minutes", intRange(0, 240)},
+		{"MAP_ROTATION_ANNOUNCE", "maps", "rotation_announce", boolConv},
 		{"MAP_LATEST_VERSIONS", "maps", "latest_versions", boolConv},
 		{"MAP_LATEST_CHECK_MINUTES", "maps", "latest_check_minutes", intRange(1, 1440)},
 		{"WORLD_LAYER_SYNC", "maps", "world_layer_sync", boolConv},
@@ -473,7 +477,7 @@ func entrypointMain(serverArgs []string) {
 
 	votes := sub(cfg, "votes")
 	for _, p := range []struct{ prefix, key string }{
-		{"VOTE_MAP", "map"}, {"VOTE_KICK", "kick"}, {"VOTE_TIME_OF_DAY", "time_of_day"},
+		{"VOTE_MAP", "map"}, {"VOTE_KICK", "kick"}, {"VOTE_TIME_OF_DAY", "time_of_day"}, {"VOTE_EXTEND_MAP", "extend_map"},
 	} {
 		for _, f := range []struct {
 			suffix, field string

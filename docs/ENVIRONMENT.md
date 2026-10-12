@@ -20,6 +20,10 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `MAP` | text | Map everyone skates: `San Vansterdam`, `Isle of Grom`, `Super Ultra Mega Resort`, `Stadium 1`, or the `displayName` of a custom map mod (`reskate-levels.json`). |
 | `MAP_POOL` | map list, `off` | Maps players may vote for and the rotation goes through, in order, e.g. `San Vansterdam,Isle of Grom,Skate2Map`. Empty = every map; admins can still pick any. `off` empties it. Pins the list (in-game changes are replaced on restart). Unknown names stop the server (`Config problem`). |
 | `MAP_ROTATION_MINUTES` | minutes, `0` = off | Minutes on each map before the server moves to the next one in `MAP_POOL`. Players get a minute's warning; the clock waits while nobody is on and starts over whenever the map changes (by a vote or an admin too). |
+| `MAP_ROTATION_VOTE` | `true` / `false` | ReSkate 2.0.7 and later. When the time of `MAP_ROTATION_MINUTES` is up, players vote for the next map (a map from the pool, a random one, or staying) instead of the server moving straight on to the next map in `MAP_POOL`. Needs `MAP_ROTATION_MINUTES`. Off by default. |
+| `MAP_ROTATION_VOTE_SECONDS` | seconds, `10`-`120` | How long that vote runs. Default `30`. |
+| `MAP_ROTATION_EXTEND_MINUTES` | minutes, `0`-`240` | Minutes a map gets when players choose to stay on it (the `rotation stay` console setting). `0` = staying is not offered. Default `15`. |
+| `MAP_ROTATION_ANNOUNCE` | `true` / `false` | Tell players in chat how many minutes the map has left. On by default. |
 | `MAP_LATEST_VERSIONS` | `true` / `false` | ReSkate 2.0.7 and later. The server asks Thunderstore for the newest version of each of its custom maps, at start and every `MAP_LATEST_CHECK_MINUTES`, and holds players to that version. Nothing is downloaded by this check; it only changes the version players are asked for, so install the new version too (see [Updates](../README.md#updates)). The map being played is left alone until nobody is on it. If a new version adds, removes or renames levels, copy its new `reskate-levels.json` to the server. Off by default. |
 | `MAP_LATEST_CHECK_MINUTES` | minutes, `1`-`1440` | How often that check runs. Default `60`. |
 | `PORT` | number | Game port. Only used with `USE_STEAM_RELAY=false`. |
@@ -116,11 +120,13 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `VOTE_KICK_PERCENT` | number | Share of connected players whose yes passes a kick vote. |
 | `VOTE_TIME_OF_DAY_ENABLED` | `true` / `false` | Players can vote on the time of day (`/vote tod <time>`). Needs `WORLD_LAYER_SYNC`. |
 | `VOTE_TIME_OF_DAY_PERCENT` | number | Share of connected players whose yes passes a time-of-day vote. |
+| `VOTE_EXTEND_MAP_ENABLED` | `true` / `false` | ReSkate 2.0.7 and later. Players can vote to add time to the current map (`/vote extend`). Needs `MAP_ROTATION_MINUTES`: on a server whose maps are not on a timer there is nothing to extend. **On by default**, unlike the other votes. |
+| `VOTE_EXTEND_MAP_PERCENT` | number | Share of connected players whose yes passes an extend vote. Default `50`. |
 | `VOTE_SECONDS` | seconds | How long a vote runs. Default `30`. |
 | `VOTE_COOLDOWN_SECONDS` | seconds | How long a player waits before starting another vote. Default `60`. |
-| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_SECONDS` | seconds, `0` | That vote's own run time. `0` (default) = `VOTE_SECONDS`. |
-| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_COOLDOWN_SECONDS` | seconds, `0` | That vote's own cooldown. `0` (default) = `VOTE_COOLDOWN_SECONDS`. |
-| `VOTE_<MAP\|KICK\|TIME_OF_DAY>_MIN_PLAYERS` | 1-249 | Players who must be on before anyone can start that vote. Default `1`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY\|EXTEND_MAP>_SECONDS` | seconds, `0` | That vote's own run time. `0` (default) = `VOTE_SECONDS`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY\|EXTEND_MAP>_COOLDOWN_SECONDS` | seconds, `0` | That vote's own cooldown. `0` (default) = `VOTE_COOLDOWN_SECONDS`. |
+| `VOTE_<MAP\|KICK\|TIME_OF_DAY\|EXTEND_MAP>_MIN_PLAYERS` | 1-249 | Players who must be on before anyone can start that vote. Default `1`. |
 | `VOTE_STARTER_YES` | `true` / `false` | Whoever starts a vote has voted yes. Default `true`. |
 | `VOTES_CUSTOM` | JSON list, `off` | Votes of your own, each running a server command when it passes, e.g. `[{"name": "restart", "description": "Reload the map", "command": "map {map}", "percent": 60}]`. `{map}` = current map, `{arg}` = the choice picked from `"choices"`. Players use `/vote restart`, `/vote list`. Up to 16, names 1-16 of `a-z 0-9 - _`. Each takes `enabled`, `percent`, `seconds`, `cooldown_seconds`, `min_players`. Pins the list; `off` clears it. Single-quote the value in env files. |
 | `POLLS` | `off` `admins` `everyone` | Who may ask everyone a question (`/poll Next map? \| Grom \| Stadium`, answers with `/1`, `/2`...). Default `admins`. |
