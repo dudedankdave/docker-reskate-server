@@ -275,6 +275,8 @@ SIMPLE = {
     "GLOBAL_BANS": ("access", "use_global_bans", as_bool),
     "MAP": ("maps", "map", text),
     "MAP_ROTATION_MINUTES": ("maps", "rotation_minutes", non_negative),
+    "MAP_LATEST_VERSIONS": ("maps", "latest_versions", as_bool),
+    "MAP_LATEST_CHECK_MINUTES": ("maps", "latest_check_minutes", int_range(1, 1440)),
     "WORLD_LAYER_SYNC": ("maps", "world_layer_sync", as_bool),
     "BOOSTS": ("players", "allow_boosts", as_bool),
     "NO_BAIL": ("players", "allow_no_bail", as_bool),
