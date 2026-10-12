@@ -281,13 +281,13 @@ SIMPLE = {
     "MAP_ROTATION_EXTEND_MINUTES": ("maps", "rotation_extend_minutes", int_range(0, 240)),
     "MAP_ROTATION_ANNOUNCE": ("maps", "rotation_announce", as_bool),
     "MAP_LATEST_VERSIONS": ("maps", "latest_versions", as_bool),
-    "MAP_LATEST_CHECK_MINUTES": ("maps", "latest_check_minutes", int_range(1, 1440)),
+    "MAP_LATEST_CHECK_MINUTES": ("maps", "latest_check_minutes", int_range(5, 1440)),
     "WORLD_LAYER_SYNC": ("maps", "world_layer_sync", as_bool),
     "BOOSTS": ("players", "allow_boosts", as_bool),
     "NO_BAIL": ("players", "allow_no_bail", as_bool),
     "NOCLIP": ("players", "allow_noclip", as_bool),
     "PARTIES": ("players", "allow_parties", as_bool),
-    "PARTY_SIZE": ("players", "party_size", as_int),
+    "PARTY_SIZE": ("players", "party_size", int_range(2, 8)),
     "VOICE_CHAT": ("players", "allow_voice_chat", as_bool),
     "VOICE_RANGE": ("players", "voice_range", int_range(50, 1000)),
     "OBJECT_PLACEMENT": ("players", "object_placement", choice("everyone", "admins", "nobody")),
@@ -297,8 +297,10 @@ SIMPLE = {
     "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
     "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
     "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
+    "GLOBAL_WORD_FILTER": ("players", "use_global_word_filter", as_bool),
     "SPEED_CHECK": ("anti_cheat", "speed_hack", choice("off", "warn", "kick")),
     "SCORE_CHECK": ("anti_cheat", "modified_scoring", choice("off", "warn", "kick")),
+    "BOARD_CHECK": ("anti_cheat", "pinned_board", choice("off", "warn", "kick")),
     "ENFORCE_TUNING": ("anti_cheat", "enforce_tuning", as_bool),
     "BONE_SCALE_LIMIT": ("anti_cheat", "bone_scale_limit", int_range(0, 8)),
     "BONE_REACH_LIMIT": ("anti_cheat", "bone_reach_limit", reach),
@@ -337,6 +339,29 @@ for var, key in {"PARK_CONSTRUCTION": "construction", "PARK_HISTORIC": "historic
     value = env(var)
     if value is not None:
         cfg.setdefault("maps", {}).setdefault("parks", {})[key] = value
+
+for var, key, convert in (("PARK_LIMIT_PARKS", "parks", int_range(1, 16)),
+                          ("PARK_LIMIT_OBJECTS", "objects", int_range(1, 1024))):
+    if (value := env(var)) is not None:
+        cfg.setdefault("maps", {}).setdefault("park_limits", {})[key] = convert(var, value)
+
+
+def json_list(var, value, example):
+    """A JSON list of objects from var ("off" = empty), or exit saying what was expected."""
+    if value.lower() in ("off", "none"):
+        return []
+    try:
+        items = json.loads(value)
+    except ValueError as exc:
+        sys.exit(f"{var}: expected a JSON list, {exc}")
+    if not isinstance(items, list) or not all(isinstance(v, dict) for v in items):
+        sys.exit(f"{var}: expected a JSON list like {example}")
+    return items
+
+
+# PARK_MODS=[{"name": "street", "folder": "...", "map": "San Vansterdam", "key": "bam"}]  (pins the list; off = none)
+if (value := env("PARK_MODS")) is not None:
+    setting("maps", "park_mods", json_list("PARK_MODS", value, '[{"name": ..., "folder": ..., "map": ...}]'))
 
 votes = cfg.setdefault("votes", {})
 for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_DAY", "time_of_day"),
@@ -463,6 +488,17 @@ with open(tmp, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 os.replace(tmp, CONFIG)
+
+# WORDS_FILTERED / WORDS_BLOCKED=word,other: this server's own chat words (data/words_filtered.txt,
+# data/words_blocked.txt, see ReSkate's README "Chat words"). Pins the file; "off" empties it.
+for var, name in (("WORDS_FILTERED", "words_filtered.txt"), ("WORDS_BLOCKED", "words_blocked.txt")):
+    if (value := env(var)) is not None:
+        words = [] if value.lower() in ("off", "none") else as_list(value)
+        path = os.path.join(os.path.dirname(CONFIG), "data", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            f.write(f"# Written from {var} on every start: change it there.\n" + "".join(w + "\n" for w in words))
+        os.replace(path + ".tmp", path)
 
 # Roles (data/roles.json: who is admin, moderator, vip) shared by all servers that mount the same
 # folder at /shared: the server's file becomes a link to /shared/roles.json (created from this server's

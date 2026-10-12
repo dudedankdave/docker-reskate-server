@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const configPath = "/data/ReSkateServer.json"
@@ -417,13 +418,13 @@ func entrypointMain(serverArgs []string) {
 		{"MAP_ROTATION_EXTEND_MINUTES", "maps", "rotation_extend_minutes", intRange(0, 240)},
 		{"MAP_ROTATION_ANNOUNCE", "maps", "rotation_announce", boolConv},
 		{"MAP_LATEST_VERSIONS", "maps", "latest_versions", boolConv},
-		{"MAP_LATEST_CHECK_MINUTES", "maps", "latest_check_minutes", intRange(1, 1440)},
+		{"MAP_LATEST_CHECK_MINUTES", "maps", "latest_check_minutes", intRange(5, 1440)},
 		{"WORLD_LAYER_SYNC", "maps", "world_layer_sync", boolConv},
 		{"BOOSTS", "players", "allow_boosts", boolConv},
 		{"NO_BAIL", "players", "allow_no_bail", boolConv},
 		{"NOCLIP", "players", "allow_noclip", boolConv},
 		{"PARTIES", "players", "allow_parties", boolConv},
-		{"PARTY_SIZE", "players", "party_size", intConv},
+		{"PARTY_SIZE", "players", "party_size", intRange(2, 8)},
 		{"VOICE_CHAT", "players", "allow_voice_chat", boolConv},
 		{"VOICE_RANGE", "players", "voice_range", intRange(50, 1000)},
 		{"OBJECT_PLACEMENT", "players", "object_placement", choice("everyone", "admins", "nobody")},
@@ -433,8 +434,10 @@ func entrypointMain(serverArgs []string) {
 		{"WORD_WARNINGS", "players", "word_warnings", intRange(0, 10)},
 		{"OBJECT_SCALING", "players", "allow_object_scaling", boolConv},
 		{"SYNC_EFFECTS", "players", "sync_effects", boolConv},
+		{"GLOBAL_WORD_FILTER", "players", "use_global_word_filter", boolConv},
 		{"SPEED_CHECK", "anti_cheat", "speed_hack", choice("off", "warn", "kick")},
 		{"SCORE_CHECK", "anti_cheat", "modified_scoring", choice("off", "warn", "kick")},
+		{"BOARD_CHECK", "anti_cheat", "pinned_board", choice("off", "warn", "kick")},
 		{"ENFORCE_TUNING", "anti_cheat", "enforce_tuning", boolConv},
 		{"BONE_SCALE_LIMIT", "anti_cheat", "bone_scale_limit", intRange(0, 8)},
 		{"BONE_REACH_LIMIT", "anti_cheat", "bone_reach_limit", reach},
@@ -473,6 +476,19 @@ func entrypointMain(serverArgs []string) {
 		if v, ok := env(p.env); ok {
 			sub(sub(cfg, "maps"), "parks")[p.key] = v
 		}
+	}
+
+	for _, p := range []struct {
+		env, key string
+		c        conv
+	}{{"PARK_LIMIT_PARKS", "parks", intRange(1, 16)}, {"PARK_LIMIT_OBJECTS", "objects", intRange(1, 1024)}} {
+		if v, ok := env(p.env); ok {
+			sub(sub(cfg, "maps"), "park_limits")[p.key] = p.c(p.env, v)
+		}
+	}
+	// PARK_MODS=[{"name": "street", "folder": "...", "map": "San Vansterdam", "key": "bam"}]  (pins the list; off = none)
+	if v, ok := env("PARK_MODS"); ok {
+		sub(cfg, "maps")["park_mods"] = jsonList("PARK_MODS", v, `[{"name": ..., "folder": ..., "map": ...}]`)
 	}
 
 	votes := sub(cfg, "votes")
@@ -676,6 +692,8 @@ func entrypointMain(serverArgs []string) {
 
 	sub(cfg, "server")["auto_update"] = false // the server's own updater would replace /app, see below
 	writeJSON(configPath, cfg)
+	writeWords()
+	shareRoles()
 
 	// Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
 	if v, ok := env("MODS"); ok {
@@ -843,4 +861,105 @@ func entrypointMain(serverArgs []string) {
 		go announcer(sup)
 	}
 	sup.run()
+}
+
+// jsonList: a JSON list of objects from an env var ("off" = empty), or exit saying what was expected.
+func jsonList(name, v, example string) []any {
+	items := []any{}
+	if l := strings.ToLower(v); l == "off" || l == "none" {
+		return items
+	}
+	dec := json.NewDecoder(strings.NewReader(v))
+	dec.UseNumber()
+	if err := dec.Decode(&items); err != nil {
+		die("%s: expected a JSON list, %v", name, err)
+	}
+	for _, it := range items {
+		if _, ok := it.(map[string]any); !ok {
+			die("%s: expected a JSON list like %s", name, example)
+		}
+	}
+	return items
+}
+
+// writeWords: WORDS_FILTERED / WORDS_BLOCKED=word,other are this server's own chat words
+// (data/words_filtered.txt, data/words_blocked.txt, see ReSkate's README "Chat words").
+// Pins the file; "off" empties it.
+func writeWords() {
+	for _, w := range []struct{ env, file string }{{"WORDS_FILTERED", "words_filtered.txt"}, {"WORDS_BLOCKED", "words_blocked.txt"}} {
+		v, ok := env(w.env)
+		if !ok {
+			continue
+		}
+		var b strings.Builder
+		b.WriteString("# Written from " + w.env + " on every start: change it there.\n")
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			for _, word := range asList(v) {
+				b.WriteString(word + "\n")
+			}
+		}
+		path := filepath.Join(filepath.Dir(configPath), "data", w.file)
+		_ = os.MkdirAll(filepath.Dir(path), 0o755)
+		if err := os.WriteFile(path+".tmp", []byte(b.String()), 0o644); err == nil {
+			_ = os.Rename(path+".tmp", path)
+		}
+	}
+}
+
+// isMount: true when dir is a mount point (another device than its parent).
+func isMount(dir string) bool {
+	var a, b syscall.Stat_t
+	if syscall.Stat(dir, &a) != nil || syscall.Stat(filepath.Dir(dir), &b) != nil {
+		return false
+	}
+	return a.Dev != b.Dev
+}
+
+// shareRoles: data/roles.json (who is admin, moderator, vip) shared by all servers that mount the same
+// folder at /shared: the server's file becomes a link to /shared/roles.json (created from this server's
+// file the first time). ROLES_SCOPE=server keeps each server's own list. As in app/entrypoint.py.
+func shareRoles() {
+	scope := "shared"
+	if v, ok := env("ROLES_SCOPE"); ok {
+		scope = choice("shared", "server")("ROLES_SCOPE", v).(string)
+	}
+	if scope != "shared" || !isMount("/shared") {
+		return
+	}
+	const shared = "/shared/roles.json"
+	file := filepath.Join(filepath.Dir(configPath), "data", "roles.json")
+	fail := func(err error) { fmt.Printf("[roles] not shared: %v\n", err) }
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		fail(err)
+		return
+	}
+	target, _ := os.Readlink(file)
+	linked := target == shared
+	_, sharedErr := os.Stat(shared)
+	if info, err := os.Lstat(file); os.IsNotExist(sharedErr) && err == nil && info.Mode().IsRegular() {
+		raw, err := os.ReadFile(file)
+		if err == nil {
+			err = os.WriteFile(shared, raw, 0o644)
+		}
+		if err != nil {
+			fail(err)
+			return
+		}
+	}
+	if _, err := os.Stat(shared); err == nil && !linked {
+		if _, err := os.Lstat(file); err == nil {
+			if err := os.Rename(file, file+".local"); err != nil { // kept, not deleted
+				fail(err)
+				return
+			}
+		}
+		if err := os.Symlink(shared, file); err != nil {
+			fail(err)
+			return
+		}
+		linked = true
+	}
+	if linked {
+		fmt.Println("[roles] data/roles.json is shared through /shared/roles.json")
+	}
 }

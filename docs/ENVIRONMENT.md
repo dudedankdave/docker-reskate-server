@@ -25,7 +25,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `MAP_ROTATION_EXTEND_MINUTES` | minutes, `0`-`240` | Minutes a map gets when players choose to stay on it (the `rotation stay` console setting). `0` = staying is not offered. Default `15`. |
 | `MAP_ROTATION_ANNOUNCE` | `true` / `false` | Tell players in chat how many minutes the map has left. On by default. |
 | `MAP_LATEST_VERSIONS` | `true` / `false` | ReSkate 2.0.7 and later. The server asks Thunderstore for the newest version of each of its custom maps, at start and every `MAP_LATEST_CHECK_MINUTES`, and holds players to that version. Nothing is downloaded by this check; it only changes the version players are asked for, so install the new version too (see [Updates](../README.md#updates)). The map being played is left alone until nobody is on it. If a new version adds, removes or renames levels, copy its new `reskate-levels.json` to the server. Off by default. |
-| `MAP_LATEST_CHECK_MINUTES` | minutes, `1`-`1440` | How often that check runs. Default `60`. |
+| `MAP_LATEST_CHECK_MINUTES` | minutes, `5`-`1440` | How often that check runs. Default `60`. |
 | `PORT` | number | Game port. Only used with `USE_STEAM_RELAY=false`. |
 | `QUERY_PORT` | number | Server browser / A2S queries. |
 | `STEAM_TOKEN` | token, `off` | Steam game server token: keeps the Steam ID across restarts (not always the join code). One per server from steamcommunity.com/dev/managegameservers (App ID 3354750) and keep it private. Empty = anonymous sign-in, a new Steam ID on every start. `off` clears it. |
@@ -69,6 +69,9 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 | `WORD_WARNINGS` | 0-10 | Chat messages with a word from the ReSkate team's list are never passed on and their player is warned; after this many warnings the next one gets them kicked (they can rejoin). Warnings last until the server restarts. Default `3`, `0` = never warn or kick. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
+| `GLOBAL_WORD_FILTER` | `true` / `false` | Use the ReSkate team's chat word lists. `false` leaves them out: only `WORDS_BLOCKED` is refused in chat. Default `true`. |
+| `WORDS_FILTERED` | word list | This server's own filtered words, comma-separated, on top of the team's: still passed on, shown as stars to players with their chat filter on. Written to `data/words_filtered.txt` on every start (pins the file; `off` empties it; unset leaves the file alone). |
+| `WORDS_BLOCKED` | word list | This server's own blocked words, comma-separated: a message with one is not passed on and its player is warned (`WORD_WARNINGS`). Written to `data/words_blocked.txt` like `WORDS_FILTERED`. |
 | `ACTIVITY_LOG` | `true` / `false` | Log what players do: throwdowns, joins, objects placed or removed, load times. Default `true`. |
 
 <br/>
@@ -79,6 +82,7 @@ All settings of the [ReSkate server image](../README.md), one table per topic. [
 |---|---|---|
 | `SPEED_CHECK` | `off` `warn` `kick` | Catch players whose game runs faster than normal (speedhack). `warn` (default) takes them out of throwdowns and coop challenges and tells admins. |
 | `SCORE_CHECK` | `off` `warn` `kick` | Catch players whose mods change trick scoring or handling. `warn` (default) takes them out of throwdowns and coop challenges. |
+| `BOARD_CHECK` | `off` `warn` `kick` | Catch players whose skateboard stays on another player as that player moves (a hacked game). `warn` (default) stops showing their board to the others and tells the admins. |
 | `SCORE_ALLOW` | hex list | Comma-separated scoring fingerprints (16 hex digits) accepted like the game's own, for servers running a scoring mod everyone installs. Merged with the existing list. |
 
 <br/>
@@ -153,6 +157,9 @@ ReSkate 2.0.3 always shows announcements as a card at the top of the screen; `AN
 | `PARK_CONSTRUCTION` | park id | Layout of the construction park lot, e.g. `skatepark_01`, or `empty`. |
 | `PARK_HISTORIC` | park id | Layout of the historic park lot, e.g. `megapark_05`, or `empty`. |
 | `PARK_FINANCIAL` | park id | Layout of the financial park lot, e.g. `flumppark_08`, or `empty`. |
+| `PARK_MODS` | JSON list, `off` | Parks built in the game's Park Editor and shared as mods, which the server can spawn (`park-mod add <name>`), e.g. `[{"name": "street", "folder": "popular skate 2 street park", "map": "San Vansterdam", "key": "bam"}]`. The mod's folder goes into `/data/Mods`. Pins the list; `off` clears it. Single-quote the value in env files. |
+| `PARK_LIMIT_PARKS` | 1-16 | How many park mods may be spawned at once. Default `3`. |
+| `PARK_LIMIT_OBJECTS` | 1-1024 | How many objects all spawned parks may have together. Default `512`. |
 | `WORLD_LAYER_SYNC` | `true` / `false` | Force the `LAYERS` below on every player. |
 | `LAYERS` | `key=on\|off\|default` list | World layers, comma-separated, e.g. `key=on,other=off`. `default` removes the setting. |
 
