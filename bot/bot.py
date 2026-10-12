@@ -27,6 +27,7 @@ import status  # noqa: E402
 import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
+import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -48,14 +49,20 @@ def load_config():
     return cfg
 
 
-def read_db(fn):
-    """fn(cursor) on the leaderboard file, opened read-only. None if it can't be read."""
+def db_path(league="ranked"):
+    """The Ranked database (leaderboard.db) or the Unranked one beside it (leaderboard-unranked.db)."""
+    return DB if league != "unranked" else os.path.join(os.path.dirname(DB), "leaderboard-unranked.db")
+
+
+def read_db(fn, league="ranked"):
+    """fn(cursor) on the leaderboard file of a league, opened read-only. None if it can't be read."""
+    path = db_path(league)
     try:
-        with closing(sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=10)) as db:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)) as db:
             db.row_factory = sqlite3.Row
             return fn(db.cursor())
     except sqlite3.Error as e:
-        say(f"cannot read {DB}: {e}")
+        say(f"cannot read {path}: {e}")
         return None
 
 
@@ -73,6 +80,7 @@ class Bot(discord.Client):
         super().__init__(intents=intents)
         self.cfg = cfg
         self.feeds = feeds.Feeds(self)
+        self.feed_failed = {}
         self.tree = app_commands.CommandTree(self)
         with open(rollover.CONFIG, encoding="utf-8") as f:
             self.board = status.Board(json.load(f))
@@ -100,6 +108,7 @@ class Bot(discord.Client):
             self.loop.create_task(self.cards())
         if self.cfg.get("servers"):
             self.loop.create_task(self.run_feeds())
+        posts.start(self, read_db)
 
     async def on_ready(self):
         say(f"logged in as {self.user}")
@@ -122,11 +131,23 @@ class Bot(discord.Client):
         await self.wait_until_ready()
         while True:
             try:
-                for (number, scope), lines in (await asyncio.to_thread(self.feeds.collect)).items():
-                    await self.feeds.post(number, scope, lines)
+                batches = await asyncio.to_thread(self.feeds.collect)
             except Exception as e:
-                say(f"feeds failed: {e!r}")
+                say(f"feeds: could not read the logs: {e!r}")
+                batches = {}
+            for (number, scope), lines in batches.items():   # one channel failing must not stop the others
+                try:
+                    await self.feeds.post(number, scope, lines)
+                except Exception as e:
+                    self.feed_error(number, scope, e)
             await asyncio.sleep(5)
+
+    def feed_error(self, number, scope, error):
+        """Log a failing channel at most every 10 minutes."""
+        key, now = (number, scope), time.time()
+        if now - self.feed_failed.get(key, 0) >= 600:
+            self.feed_failed[key] = now
+            say(f"feeds: server {number} {scope} channel failed ({error!r}); retrying silently for 10 min")
 
     def is_admin(self, member):
         roles = {str(r) for r in self.cfg.get("admin_roles") or []}
@@ -226,31 +247,36 @@ def add_commands(bot):
             lines.append(f"**{role}**: {s.players}/{s.max or '?'} on {s.map or '?'}")
         await i.followup.send("\n".join(lines) or "Unknown server.")
 
+    leagues = app_commands.choices(league=[app_commands.Choice(name="Ranked", value="ranked"),
+                                           app_commands.Choice(name="Unranked", value="unranked")])
+
     def board_for(cur, spec):
         return lb.Store.find(cur, spec or "", time.time())
 
     @tree.command(name="top", description="Leaderboard (all time by default)")
-    @app_commands.describe(board="general, week, month, year, event, a week number, or add a mode: week skate")
-    async def top(i: discord.Interaction, board: str = ""):
+    @app_commands.describe(board="general, week, month, year, event, a week number, or add a mode: week skate", league="Ranked (default) or Unranked")
+    @leagues
+    async def top(i: discord.Interaction, board: str = "", league: str = "ranked"):
         def get(cur):
             b = board_for(cur, board)
             return (b, lb.Store.top(cur, b["id"], 10)) if b else None
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("No such board, or the leaderboard is not available.", ephemeral=True)
         b, rows = result
-        await i.response.send_message(f"**{b['name']}**\n{table(rows)}")
+        await i.response.send_message(f"**{b['name']}** ({league.title()})\n{table(rows)}")
 
     @tree.command(name="rank", description="Your or another player's rank")
-    @app_commands.describe(player="Name (part of it) or SteamID; leave empty for the top of the board", board="Board, as for /top")
-    async def rank(i: discord.Interaction, player: str, board: str = ""):
+    @app_commands.describe(player="Name (part of it) or SteamID", board="Board, as for /top", league="Ranked (default) or Unranked")
+    @leagues
+    async def rank(i: discord.Interaction, player: str, board: str = "", league: str = "ranked"):
         def get(cur):
             b = board_for(cur, board)
             p = find_player(cur, player)
             if not b or not p:
                 return None
             return b, p, lb.Store.rank(cur, b["id"], p["steam_id"])
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("No such player or board.", ephemeral=True)
         b, p, r = result
@@ -266,19 +292,22 @@ def add_commands(bot):
                 or cur.execute("SELECT * FROM players WHERE lower(name) LIKE '%' || lower(?) || '%' ORDER BY name LIMIT 1", (text,)).fetchone())
 
     @tree.command(name="boards", description="All boards")
-    async def boards(i: discord.Interaction):
+    @app_commands.describe(league="Ranked (default) or Unranked")
+    @leagues
+    async def boards(i: discord.Interaction, league: str = "ranked"):
         def get(cur):
             return cur.execute("SELECT b.name, b.closed_at, COUNT(s.steam_id) n FROM boards b LEFT JOIN scores s "
                                "ON s.board = b.id AND s.points > 0 WHERE b.kind != 'mode' GROUP BY b.id "
                                "ORDER BY b.closed_at IS NOT NULL, b.created_at DESC LIMIT 25").fetchall()
-        rows = await asyncio.to_thread(read_db, get)
+        rows = await asyncio.to_thread(read_db, get, league)
         if rows is None:
             return await i.response.send_message("The leaderboard is not available.", ephemeral=True)
         await i.response.send_message("\n".join(f"{'🔒' if r['closed_at'] else '🟢'} **{r['name']}**: {r['n']} players" for r in rows) or "No boards yet.")
 
     @tree.command(name="player", description="A player's profile")
-    @app_commands.describe(player="Name (part of it) or SteamID")
-    async def player(i: discord.Interaction, player: str):
+    @app_commands.describe(player="Name (part of it) or SteamID", league="Ranked (default) or Unranked")
+    @leagues
+    async def player(i: discord.Interaction, player: str, league: str = "ranked"):
         def get(cur):
             p = find_player(cur, player)
             if not p:
@@ -292,7 +321,7 @@ def add_commands(bot):
             recent = cur.execute("SELECT at, points, reason FROM ledger WHERE steam_id = ? AND board = 'general' "
                                  "ORDER BY id DESC LIMIT 5", (p["steam_id"],)).fetchall()
             return p, ranks, recent
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("No such player.", ephemeral=True)
         p, ranks, recent = result
@@ -302,14 +331,16 @@ def add_commands(bot):
         await i.response.send_message(embed=e)
 
     @tree.command(name="stats", description="Leaderboard totals")
-    async def stats(i: discord.Interaction):
+    @app_commands.describe(league="Ranked (default) or Unranked")
+    @leagues
+    async def stats(i: discord.Interaction, league: str = "ranked"):
         def get(cur):
             now = time.time()
             return (cur.execute("SELECT COUNT(*) FROM players").fetchone()[0],
                     cur.execute("SELECT COALESCE(SUM(points),0) FROM ledger WHERE board='general'").fetchone()[0],
                     cur.execute("SELECT COUNT(*) FROM ledger WHERE board='general' AND at > ?", (now - 86400,)).fetchone()[0],
                     cur.execute("SELECT COUNT(DISTINCT steam_id) FROM ledger WHERE board='general' AND at > ?", (now - 7 * 86400,)).fetchone()[0])
-        result = await asyncio.to_thread(read_db, get)
+        result = await asyncio.to_thread(read_db, get, league)
         if result is None:
             return await i.response.send_message("The leaderboard is not available.", ephemeral=True)
         players_n, points, today, week = result

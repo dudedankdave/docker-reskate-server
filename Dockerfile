@@ -37,7 +37,7 @@ COPY --from=server --chown=reskate:reskate /out/ /app/
 COPY --chown=reskate:reskate app/*.py /app/
 # The helper services, started with RESKATE_MODE=rollover|status|bot|backup (see entrypoint.py)
 COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py bot/bot.py stack/dbbackup.py /app/tools/
-COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py app/leaderboard.py bot/console.py bot/feeds.py bot/coach.py /app/tools/lib/
+COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py app/leaderboard.py bot/console.py bot/feeds.py bot/coach.py bot/posts.py /app/tools/lib/
 COPY --chown=reskate:reskate rollover/servers.example.json /config/servers.json
 RUN ln -s /data/Mods /app/Mods \
  && ln -s /data/world-layers.json /app/world-layers.json \
