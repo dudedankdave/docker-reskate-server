@@ -50,6 +50,33 @@ CASES = {
 }
 
 
+# Settings files (/shared/settings) for the layer cases: {case: {file: text}}, each run as server 1.
+LAYERS = {
+    "layers": {
+        "common.env": (
+            "# shared by every server\n"
+            "WELCOME_MESSAGE=\"Welcome to the #1 yard\"   # quoted, keeps the #\n"
+            "MAX_PLAYERS=100   # a comment\n"
+            "ANNOUNCEMENTS=Join our Discord|Be nice\n"
+            "MAP_POOL=Isle of Grom,San Vansterdam\n"
+            "COMMANDS='[{\"name\": \"discord\", \"reply\": \"Join us\"}]'\n"
+            "PORT=1   # identity: ignored here\n"
+            "export SPEED_CHECK=warn\n"
+        ),
+        "secrets/common.env": "SERVER_PASSWORD=shh\n",
+        "server-1.env": (
+            "SERVER_NAME=Yard 1 - Main\n"
+            "MAX_PLAYERS=20\n"
+            "MAP_POOL+=Super Ultra Mega Resort\n"
+            "ANNOUNCEMENTS+=Ranked server\n"
+            "COMMANDS+=[{\"reply\": \"No griefing\", \"name\": \"rules\"}]\n"
+        ),
+        "secrets/server-1.env": "STEAM_TOKEN=token-1\nWEBHOOK_URL_x=https://example.invalid/secret-hook\n",
+        "server-2.env": "MAX_PLAYERS=5\n",
+    },
+}
+
+
 def files(folder):
     out = {}
     for base, _, names in os.walk(folder):
@@ -74,19 +101,53 @@ class ConfigParityTest(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp)
 
-    def run_config(self, cmd, env):
+    def run_config(self, cmd, env, layers=None):
         data = tempfile.mkdtemp(dir=self.tmp)
-        run = subprocess.run(cmd, env={"PATH": os.environ["PATH"], "RESKATE_DATA": data, **env},
+        settings = os.path.join(data, "..", os.path.basename(data) + "-settings")
+        for name, text in (layers or {}).items():
+            os.makedirs(os.path.dirname(os.path.join(settings, name)), exist_ok=True)
+            with open(os.path.join(settings, name), "w", encoding="utf-8") as f:
+                f.write(text)
+        run = subprocess.run(cmd, env={"PATH": os.environ["PATH"], "RESKATE_DATA": data, "SETTINGS_DIR": settings, **env},
                              capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         return files(data), run.stdout
+
+    def python(self, env, layers=None):
+        return self.run_config([sys.executable, os.path.join(ROOT, "app", "entrypoint.py"), "config"], env, layers)
+
+    def test_layers(self):
+        env = {"RESKATE_SERVER": "1", "PORT": "12400", "QUERY_PORT": "12401", "STEAM_TOKEN": "slot-a", "MAX_PLAYERS": "250",
+               "SERVER_NAME": "from the container"}
+        py, out = self.python(env, LAYERS["layers"])
+        cfg = py["ReSkateServer.json"]
+        self.assertEqual(cfg["server"]["welcome_message"], "Welcome to the #1 yard")
+        self.assertEqual(cfg["server"]["max_players"], 20)                 # own beats shared beats container
+        self.assertEqual(cfg["server"]["name"], "Yard 1 - Main")
+        self.assertEqual(cfg["server"]["port"], 12400)                     # PORT in common.env is ignored
+        self.assertEqual(cfg["server"]["password"], "shh")
+        self.assertEqual(cfg["server"]["steam_token"], "slot-a")           # per slot: the container's
+        self.assertIn("STEAM_TOKEN in secrets/server-1.env is ignored", out)
+        self.assertEqual(cfg["maps"]["pool"], ["Isle of Grom", "San Vansterdam", "Super Ultra Mega Resort"])
+        self.assertEqual(cfg["announcements"]["messages"], ["Join our Discord", "Be nice", "Ranked server"])
+        self.assertEqual([c["name"] for c in cfg["commands"]], ["discord", "rules"])
+        self.assertEqual(cfg["anti_cheat"]["speed_hack"], "warn")
+        self.assertIn("[settings] common.env: WELCOME_MESSAGE, MAX_PLAYERS", out)
+        self.assertNotIn("shh", out)
+        self.assertNotIn("secret-hook", out)
+        if self.slim:
+            go, go_out = self.run_config([self.slim, "config"], env, LAYERS["layers"])
+            self.assertEqual(py, go)
+            digest = [line for line in out.splitlines() if line.startswith("[settings] digest")]
+            self.assertEqual(digest, [line for line in go_out.splitlines() if line.startswith("[settings] digest")])
+            self.assertEqual(len(digest), 1)
 
     def test_same_config(self):
         if not self.slim:
             self.skipTest("go is not installed")
         for name, env in CASES.items():
             with self.subTest(name):
-                py, _ = self.run_config([sys.executable, os.path.join(ROOT, "app", "entrypoint.py"), "config"], env)
+                py, _ = self.python(env)
                 go, _ = self.run_config([self.slim, "config"], env)
                 self.assertEqual(py, go)
 

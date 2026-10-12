@@ -40,6 +40,12 @@ if _mode not in ("server", "config"):
     os.execv(sys.executable, [sys.executable, "-I", TOOLS[_mode]])
 CONFIG_ONLY = _mode == "config"
 
+# Settings from /shared/settings (common.env, server-<n>.env, secrets/) go into the environment
+# first, so everything below and the server's helpers see them (see settings.py).
+import settings  # noqa: E402
+
+settings.apply()
+
 DATA = os.environ.get("RESKATE_DATA") or "/data"
 MODS_DIR = os.path.join(DATA, "Mods")
 CONFIG = os.path.join(DATA, "ReSkateServer.json")

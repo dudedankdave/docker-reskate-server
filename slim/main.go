@@ -26,6 +26,9 @@ func main() {
 	if filepath.Base(os.Args[0]) == "curl" {
 		os.Exit(curlMain(os.Args[1:]))
 	}
+	if len(os.Args) < 2 || os.Args[1] != "healthcheck" {
+		applySettings()
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "mods":

@@ -12,6 +12,11 @@ them runs the server. When a newer ReSkate release is out:
 A newer version of an unpinned MODS entry (a map) is handled the same way: nobody on -> restart
 (mods install on start), players on -> a copy on the same ReSkate version in the other slot.
 
+Settings from /shared/settings (settings_dir; see app/settings.py in the image) are read when a
+server starts. When the files now say something else for a server than what it started with (the
+"[settings] digest" line in its log), it is restarted once nobody is on it; nobody is kicked.
+Every container this tool creates gets RESKATE_SERVER (its number), so it finds its server-<n>.env.
+
 The copy is a clone of the running container (env, mounts, restart policy) with the slot's
 ports, token, volume and a new SERVER_NAME. If Docker Hub has an image tag for the release it
 runs that; otherwise it runs the current image with the release installed into its volume
@@ -35,6 +40,12 @@ import urllib.request
 from calendar import timegm
 from datetime import datetime, timezone
 
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")]
+try:
+    import settings          # app/settings.py, in the image's /app/tools/lib
+except ImportError:
+    settings = None
+
 CONFIG = os.environ.get("CONFIG", "/config/servers.json")
 SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
 DOCKER_API = os.environ.get("DOCKER_API", "")   # instead of the socket, e.g. Portainer's .../api/endpoints/3/docker
@@ -45,6 +56,7 @@ JOINED = re.compile(r"^.+ joined \(\d+(?:, admin)?\), (\d+)/\d+ players, loaded 
 LEFT = re.compile(r"^.+ left \(.*\)( \[.*\])?$")
 NETWORK = re.compile(r"^\[network\] (\d+) players, ")
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
+DIGEST = re.compile(r"^\[settings\] digest ([0-9a-f]+)$")
 
 
 def say(message):
@@ -254,6 +266,8 @@ class Rollover:
             return                                     # mid-rollover: one change at a time
         if self.lacks_mods(server, newest):
             return self.repair(number, server, newest, instances)
+        if self.settings_changed(number, server, newest):
+            return
         updates = self.pending_mods(number, server, newest)
         if updates:
             what = "map/mod update " + ", ".join(f"{o}-{n} {have} -> {new}" for o, n, new, have in updates)
@@ -361,6 +375,26 @@ class Rollover:
         self.mods_checked[inst.info["Id"]] = (time.time(), cached)
         return cached
 
+    def settings_changed(self, number, server, inst):
+        """Restart a server whose settings files changed since it started, once it is empty. True
+        while that is pending (one change at a time)."""
+        folder = str(setting(self.cfg, server, "settings_dir", "/shared/settings"))
+        if settings is None or not os.path.isdir(folder):
+            return False
+        started = [m.group(1) for m in map(DIGEST.match, logs(inst.info)) if m]
+        if not started:
+            return False                           # an image from before the settings files
+        values, _, _ = settings.load(inst.env, folder)
+        want = settings.digest(values)
+        if started[-1] == want:
+            return False
+        if self.empty_for(inst) <= 0:
+            self.once(("settings-wait", inst.name, want),
+                      f"Server {number}: its settings changed, restarting {inst.name} once nobody is on it.")
+            return True
+        self.restart(inst, f"Server {number}: its settings changed, nobody is on {inst.name}, restarting it")
+        return True
+
     def restart(self, s, why):
         self.notify(why + (" (dry run, not restarted)" if self.dry else ""))
         if not self.dry:
@@ -426,7 +460,7 @@ class Rollover:
                 docker("DELETE", f"/containers/{x.info['Id']}")
         env = dict(old.env)
         env.update(PORT=str(s["port"]), QUERY_PORT=str(s["query_port"]), STEAM_TOKEN=token,
-                   SERVER_NAME=server_name(self.cfg, number, server, version))
+                   SERVER_NAME=server_name(self.cfg, number, server, version), RESKATE_SERVER=str(number))
         for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "PATH",
                   "LD_LIBRARY_PATH", "HOME", "SteamAppId"):
             if suffix and k in ("UPDATE_MODE", "UPDATE_POLICY") and k in env:
