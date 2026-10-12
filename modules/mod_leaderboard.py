@@ -68,12 +68,16 @@ class Module:
                     common.say(f"server {key[0]} slot {key[1]}: leaderboard stopped here")
                     del self.boards[key]
             for key, env in want.items():
-                if key in self.boards:
-                    continue
+                if key in self.boards and self.boards[key].environ == env:
+                    continue                      # settings unchanged (else the board starts again with them)
                 number, slot = key
                 board = leaderboard.Leaderboard(lambda line, n=number, s=slot: bridgeclient.console(n, line, BY, s),
                                                 webhook_post(env), env)
                 if board.ok:
+                    old = self.boards.get(key)
+                    if old:                       # new settings: keep who is on, so nobody waits for a rejoin
+                        for attr in ("online", "admins", "waiting", "modded", "speeding", "told", "asked"):
+                            setattr(board, attr, getattr(old, attr))
                     self.boards[key] = board
                     common.say(f"server {number} slot {slot}: leaderboard runs here ({board.league}, {board.label})")
 
