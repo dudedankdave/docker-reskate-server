@@ -73,6 +73,7 @@ class Bot(discord.Client):
         super().__init__(intents=intents)
         self.cfg = cfg
         self.feeds = feeds.Feeds(self)
+        self.feed_failed = {}
         self.tree = app_commands.CommandTree(self)
         with open(rollover.CONFIG, encoding="utf-8") as f:
             self.board = status.Board(json.load(f))
@@ -122,11 +123,23 @@ class Bot(discord.Client):
         await self.wait_until_ready()
         while True:
             try:
-                for (number, scope), lines in (await asyncio.to_thread(self.feeds.collect)).items():
-                    await self.feeds.post(number, scope, lines)
+                posts = await asyncio.to_thread(self.feeds.collect)
             except Exception as e:
-                say(f"feeds failed: {e!r}")
+                say(f"feeds: could not read the logs: {e!r}")
+                posts = {}
+            for (number, scope), lines in posts.items():   # one channel failing must not stop the others
+                try:
+                    await self.feeds.post(number, scope, lines)
+                except Exception as e:
+                    self.feed_error(number, scope, e)
             await asyncio.sleep(5)
+
+    def feed_error(self, number, scope, error):
+        """Log a failing channel at most every 10 minutes."""
+        key, now = (number, scope), time.time()
+        if now - self.feed_failed.get(key, 0) >= 600:
+            self.feed_failed[key] = now
+            say(f"feeds: server {number} {scope} channel failed ({error!r}); retrying silently for 10 min")
 
     def is_admin(self, member):
         roles = {str(r) for r in self.cfg.get("admin_roles") or []}
