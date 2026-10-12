@@ -23,10 +23,13 @@ RELEASES = "https://github.com/Dingo-Shenanigans/ReSkate/releases"
 BLURPLE, GREEN = 0x5865F2, 0x2ECC71
 
 
-def board_embed(name, rows):
+LEAGUES = ("ranked", "unranked")
+
+
+def board_embed(name, rows, league="ranked"):
     body = "\n".join(f"{i}. {r['name']} - {r['points']:,} pts" + (f" ({r['wins']} wins)" if r["wins"] else "")
                      for i, r in enumerate(rows, 1)) or "Nobody has points yet."
-    embed = discord.Embed(title=f"🏆 {name}", description=f"```\n{body}\n```"[:4000], color=BLURPLE)
+    embed = discord.Embed(title=f"🏆 {name} ({league.title()})", description=f"```\n{body}\n```"[:4000], color=BLURPLE)
     embed.set_footer(text="/top, /rank, /player in Discord · /top, /rank in game")
     return embed
 
@@ -60,13 +63,17 @@ async def run_leaderboards(bot, read_db):
     while True:
         try:
             channel = await channel_of(bot, "leaderboards_channel")
-            boards = await asyncio.to_thread(current_boards, read_db)
             ids = bot.state.setdefault("boards", {})
-            for board_id, name, rows in boards or []:
+            work = []
+            for league in LEAGUES:
+                got = await asyncio.to_thread(current_boards, lambda fn, league=league: read_db(fn, league))
+                # the Ranked boards keep their old message ids (plain board id); Unranked ones get a prefix
+                work += [(board_id if league == "ranked" else f"unranked:{board_id}", name, rows, league) for board_id, name, rows in got or []]
+            for board_id, name, rows, league in work:
                 signature = json.dumps([name, rows], sort_keys=True)
                 if shown.get(board_id) == signature:
                     continue
-                embed = board_embed(name, rows)
+                embed = board_embed(name, rows, league)
                 msg = None
                 if ids.get(board_id):
                     try:
