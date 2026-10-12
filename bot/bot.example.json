@@ -1,4 +1,9 @@
 {
   "guild": "1558637403869155488",
-  "status_channel": "CHANNEL_ID_FOR_THE_STATUS_CARDS"
+  "status_channel": "CHANNEL_ID_FOR_THE_STATUS_CARDS",
+  "admin_roles": ["ROLE_ID_OF_THE_ADMINS"],
+  "console_chat": false,
+  "servers": {
+    "1": {"public": "", "chat": "", "admin": "", "log": "", "console": ""}
+  }
 }

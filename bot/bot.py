@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import leaderboard as lb  # noqa: E402  (app/leaderboard.py, copied into the image)
 import rollover  # noqa: E402
 import status  # noqa: E402
+import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
+import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -65,8 +67,11 @@ def table(rows):
 
 class Bot(discord.Client):
     def __init__(self, cfg):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.message_content = bool(cfg.get("console_chat"))   # privileged: enable it in the developer portal too
+        super().__init__(intents=intents)
         self.cfg = cfg
+        self.feeds = feeds.Feeds(self)
         self.tree = app_commands.CommandTree(self)
         with open(rollover.CONFIG, encoding="utf-8") as f:
             self.board = status.Board(json.load(f))
@@ -77,6 +82,7 @@ class Bot(discord.Client):
         except (OSError, ValueError):
             pass
         add_commands(self)
+        add_admin_commands(self)
 
     async def setup_hook(self):
         if self.cfg.get("guild"):
@@ -87,6 +93,8 @@ class Bot(discord.Client):
             await self.tree.sync()
         if self.cfg.get("status_channel"):
             self.loop.create_task(self.cards())
+        if self.cfg.get("servers"):
+            self.loop.create_task(self.run_feeds())
 
     async def on_ready(self):
         say(f"logged in as {self.user}")
@@ -104,6 +112,56 @@ class Bot(discord.Client):
         message = await asyncio.to_thread(self.board.message)
         summary = dict(message["embeds"][-1], description=f"Updated <t:{int(time.time())}:R>")
         return [discord.Embed.from_dict(e) for e in message["embeds"][:-1] + [summary]]
+
+    async def run_feeds(self):
+        await self.wait_until_ready()
+        while True:
+            try:
+                for (number, scope), lines in (await asyncio.to_thread(self.feeds.collect)).items():
+                    await self.feeds.post(number, scope, lines)
+            except Exception as e:
+                say(f"feeds failed: {e!r}")
+            await asyncio.sleep(5)
+
+    def is_admin(self, member):
+        roles = {str(r) for r in self.cfg.get("admin_roles") or []}
+        return bool(roles & {str(r.id) for r in getattr(member, "roles", [])})
+
+    async def running(self, number):
+        """The running container of a server, or None."""
+        found = await asyncio.to_thread(self.board.gather)
+        return next((i for i in found.get(number, []) if i["State"].get("Running")), None)
+
+    async def audit(self, number, who, line):
+        """Tell the server's admin channel who typed what into the console."""
+        channel = (self.cfg.get("servers", {}).get(number) or {}).get("admin")
+        if channel:
+            try:
+                ch = self.get_channel(int(channel)) or await self.fetch_channel(int(channel))
+                await ch.send(f"🛠 **{who}** typed into the console of server {number}: `{line[:300]}`",
+                              allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException as e:
+                say(f"audit post failed: {e}")
+
+    async def on_message(self, message):
+        if message.author.bot or not self.cfg.get("console_chat"):
+            return
+        for number, cfg in (self.cfg.get("servers") or {}).items():
+            if cfg.get("console") and str(message.channel.id) == str(cfg["console"]):
+                if not self.is_admin(message.author):
+                    return
+                why = console.refused(message.content)
+                if why:
+                    return await message.reply(f"Not sent: {why}.", mention_author=False)
+                info = await self.running(number)
+                if not info:
+                    return await message.reply("That server is not running.", mention_author=False)
+                try:
+                    await asyncio.to_thread(console.send, info, message.content)
+                    await message.add_reaction("✅")
+                    await self.audit(number, message.author.display_name, message.content)
+                except (OSError, RuntimeError) as e:
+                    await message.reply(f"Could not type into the console: {e}", mention_author=False)
 
     async def cards(self):
         await self.wait_until_ready()
@@ -251,6 +309,66 @@ def add_commands(bot):
             return await i.response.send_message("The leaderboard is not available.", ephemeral=True)
         players_n, points, today, week = result
         await i.response.send_message(f"**{players_n}** players known · **{points:,}** points handed out · **{today}** awards in the last 24 h · **{week}** players scored in the last 7 days")
+
+
+def add_admin_commands(bot):
+    tree = bot.tree
+
+    async def servers_ac(_i, current: str):
+        return [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
+                for n, s in bot.board.cfg["servers"].items() if current.lower() in f"{n} {s.get('role', '')}".lower()][:25]
+
+    async def run(i, server, line):
+        """Send one console line for an admin; answers the interaction."""
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        if server not in bot.board.cfg["servers"]:
+            return await i.response.send_message("Unknown server.", ephemeral=True)
+        why = console.refused(line)
+        if why:
+            return await i.response.send_message(f"Not sent: {why}.", ephemeral=True)
+        await i.response.defer(ephemeral=True)
+        info = await bot.running(server)
+        if not info:
+            return await i.followup.send("That server is not running.", ephemeral=True)
+        try:
+            await asyncio.to_thread(console.send, info, line)
+        except (OSError, RuntimeError) as e:
+            return await i.followup.send(f"Could not type into the console: {e}", ephemeral=True)
+        await bot.audit(server, i.user.display_name, line)
+        await i.followup.send(f"Sent to server {server}: `{line[:300]}`", ephemeral=True)
+
+    guard = app_commands.default_permissions(manage_guild=True)
+
+    @tree.command(name="say", description="Admin: say something in the server's chat")
+    @guard
+    @app_commands.autocomplete(server=servers_ac)
+    async def say_cmd(i: discord.Interaction, server: str, text: str):
+        await run(i, server, f"say {text}")
+
+    @tree.command(name="announce", description="Admin: show an announcement to everyone on the server")
+    @guard
+    @app_commands.autocomplete(server=servers_ac)
+    async def announce(i: discord.Interaction, server: str, text: str):
+        await run(i, server, f"announce {text}")
+
+    @tree.command(name="msg", description="Admin: private message to a player")
+    @guard
+    @app_commands.autocomplete(server=servers_ac)
+    async def msg(i: discord.Interaction, server: str, player: str, text: str):
+        await run(i, server, f"msg {player} {text}")
+
+    @tree.command(name="kick", description="Admin: kick a player (until the server restarts)")
+    @guard
+    @app_commands.autocomplete(server=servers_ac)
+    async def kick(i: discord.Interaction, server: str, player: str):
+        await run(i, server, f"kick {player}")
+
+    @tree.command(name="console", description="Admin: type any console command (not quit/stop/restart/update)")
+    @guard
+    @app_commands.autocomplete(server=servers_ac)
+    async def console_cmd(i: discord.Interaction, server: str, command: str):
+        await run(i, server, command)
 
 
 def main():
