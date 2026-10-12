@@ -275,6 +275,10 @@ SIMPLE = {
     "GLOBAL_BANS": ("access", "use_global_bans", as_bool),
     "MAP": ("maps", "map", text),
     "MAP_ROTATION_MINUTES": ("maps", "rotation_minutes", non_negative),
+    "MAP_ROTATION_VOTE": ("maps", "rotation_vote", as_bool),
+    "MAP_ROTATION_VOTE_SECONDS": ("maps", "rotation_vote_seconds", int_range(10, 120)),
+    "MAP_ROTATION_EXTEND_MINUTES": ("maps", "rotation_extend_minutes", int_range(0, 240)),
+    "MAP_ROTATION_ANNOUNCE": ("maps", "rotation_announce", as_bool),
     "MAP_LATEST_VERSIONS": ("maps", "latest_versions", as_bool),
     "MAP_LATEST_CHECK_MINUTES": ("maps", "latest_check_minutes", int_range(1, 1440)),
     "WORLD_LAYER_SYNC": ("maps", "world_layer_sync", as_bool),
@@ -334,7 +338,8 @@ for var, key in {"PARK_CONSTRUCTION": "construction", "PARK_HISTORIC": "historic
         cfg.setdefault("maps", {}).setdefault("parks", {})[key] = value
 
 votes = cfg.setdefault("votes", {})
-for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_DAY", "time_of_day")):
+for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_DAY", "time_of_day"),
+                    ("VOTE_EXTEND_MAP", "extend_map")):
     for suffix, field, convert in (("_ENABLED", "enabled", as_bool), ("_PERCENT", "percent", as_int),
                                    ("_SECONDS", "seconds", non_negative),
                                    ("_COOLDOWN_SECONDS", "cooldown_seconds", non_negative),
