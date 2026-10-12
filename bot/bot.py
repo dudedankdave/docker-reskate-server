@@ -27,6 +27,7 @@ import status  # noqa: E402
 import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
+import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -101,6 +102,7 @@ class Bot(discord.Client):
             self.loop.create_task(self.cards())
         if self.cfg.get("servers"):
             self.loop.create_task(self.run_feeds())
+        posts.start(self, read_db)
 
     async def on_ready(self):
         say(f"logged in as {self.user}")
@@ -123,11 +125,11 @@ class Bot(discord.Client):
         await self.wait_until_ready()
         while True:
             try:
-                posts = await asyncio.to_thread(self.feeds.collect)
+                batches = await asyncio.to_thread(self.feeds.collect)
             except Exception as e:
                 say(f"feeds: could not read the logs: {e!r}")
-                posts = {}
-            for (number, scope), lines in posts.items():   # one channel failing must not stop the others
+                batches = {}
+            for (number, scope), lines in batches.items():   # one channel failing must not stop the others
                 try:
                     await self.feeds.post(number, scope, lines)
                 except Exception as e:
