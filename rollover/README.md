@@ -102,8 +102,8 @@ servers knowing about them. Every call needs `Authorization: Bearer $BRIDGE_TOKE
 | Call | |
 | --- | --- |
 | `GET /v1/actions` | The actions and their inputs: `say`, `announce`, `msg`, `kick`, `poll`, `poll_end`, `console`, and the info actions `players`, `log`. |
-| `GET /v1/servers` | Every server: running, players, max, map. |
-| `POST /v1/servers/<n>/do` | `{"action": "announce", "args": {"text": "..."}, "by": "David"}` types the line into the console of every running container of that server (Docker attach on the host socket). `quit`, `stop`, `restart`, `update` and `reload` are refused. Answers `{"ok": true, "text": "..."}`; the use is logged and appears as an `audit` event. |
+| `GET /v1/servers` | Every server: running, players, max, map, and per slot (`slots.A`, `slots.B`: running, players, max, map, version). |
+| `POST /v1/servers/<n>/do` | `{"action": "announce", "args": {"text": "..."}, "by": "David", "slot": "A"}` types the line into the console of every running container of that server, or only the one in slot `A`/`B` when `slot` is given (Docker attach on the host socket). `quit`, `stop`, `restart`, `update` and `reload` are refused. Answers `{"ok": true, "text": "..."}`; the use is logged and appears as an `audit` event. |
 | `GET /v1/events?after=<id>&wait=25&server=<n>&scope=<scope>` | Log lines of the running servers as events (`id`, `server`, `time`, `scopes`, `text`), waiting up to `wait` seconds for new ones. Scopes: `public`, `chat`, `admin`, `log`, `audit`. The last 5000 are kept (`BRIDGE_BUFFER`); nothing from before the bridge started. |
 | `GET /v1/health` | No token needed. |
 

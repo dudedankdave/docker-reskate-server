@@ -4,7 +4,8 @@ wants to talk to them (the Discord bot, scripts), so no server needs to know abo
 * Server -> outside: it follows the log of every running server container and keeps the last lines
   as events (id, server, time, scopes, text). GET /v1/events?after=<id>&wait=25 waits for new ones.
 * Outside -> server: POST /v1/servers/<n>/do {"action": "announce", "args": {"text": "..."}, "by": "name"}
-  types the matching line into the console of every running container of that server (the Docker
+  types the matching line into the console of every running container of that server (or only of
+  slot "A"/"B" when "slot" is given) (the Docker
   attach API on the host's socket, like bot/console.py). Only the actions below exist; `quit`, `stop`,
   `restart`, `update` and `reload` are never sent, restarts are the rollover's job.
 * GET /v1/actions lists the actions and their inputs (so a dialog can be built from it),
@@ -90,8 +91,19 @@ def push(server, stamp, text, scopes=None):
         cond.notify_all()
 
 
-def running(number):
-    return [i for i in board.gather().get(number, []) if i["State"].get("Running")]
+def slot_of(number, info):
+    """Slot letter (A/B ...) of a container: the slot whose port is the container's PORT, else None."""
+    port = rollover.env_of(info).get("PORT", "")
+    for letter, slot in board.cfg["servers"][number]["slots"].items():
+        if str(slot["port"]) == port:
+            return letter
+    return None
+
+
+def running(number, slot=None):
+    """The running containers of a server, only those in `slot` (A/B) when given."""
+    return [i for i in board.gather().get(number, []) if i["State"].get("Running")
+            and (not slot or slot_of(number, i) == slot)]
 
 
 def follow():
@@ -157,7 +169,7 @@ def clean(value, limit):
     return value[:limit]
 
 
-def do(number, action, args, by):
+def do(number, action, args, by, slot=None):
     """Run one action on a server; returns the text to show. Raises ValueError for bad requests."""
     spec = ACTIONS.get(action)
     if not spec:
@@ -165,9 +177,12 @@ def do(number, action, args, by):
     if number not in board.cfg["servers"]:
         raise ValueError("unknown server")
     args = args or {}
-    infos = running(number)
+    slot = str(slot).upper() if slot else None
+    if slot and slot not in board.cfg["servers"][number]["slots"]:
+        raise ValueError(f"unknown slot {slot!r}")
+    infos = running(number, slot)
     if not infos:
-        raise ValueError("that server is not running")
+        raise ValueError(f"that server is not running in slot {slot}" if slot else "that server is not running")
     if spec.get("info"):
         if action == "players":
             s = board.follow(infos[0])
@@ -191,10 +206,11 @@ def do(number, action, args, by):
             say(f"bridge: could not type into {info['Name']}: {e}")
     if not sent:
         raise RuntimeError("could not type into the console")
-    note = f"{by or 'someone'} used the bridge: {line[:300]}"
+    note = f"{by or 'someone'} used the bridge{' (slot ' + slot + ')' if slot else ''}: {line[:300]}"
     say(f"bridge: server {number}: {note}")
     push(number, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), note, ["admin", "audit"])
-    return f"Sent to server {number}: {line[:300]}" + (f" ({sent} containers)" if sent > 1 else "")
+    where = f" slot {slot}" if slot else ""
+    return f"Sent to server {number}{where}: {line[:300]}" + (f" ({sent} containers)" if sent > 1 else "")
 
 
 def server_list():
@@ -202,7 +218,16 @@ def server_list():
     for number, infos in board.gather().items():
         cfg = board.cfg["servers"][number]
         up = [i for i in infos if i["State"].get("Running")]
-        row = {"server": number, "role": cfg.get("role", ""), "running": bool(up), "players": None, "max": None, "map": None}
+        row = {"server": number, "role": cfg.get("role", ""), "running": bool(up), "players": None, "max": None,
+               "map": None, "slots": {}}
+        for letter in cfg["slots"]:
+            row["slots"][letter] = {"running": False, "players": None, "max": None, "map": None, "version": None}
+        for info in up:
+            s = board.follow(info)
+            slot = slot_of(number, info)
+            if slot:
+                row["slots"][slot].update(running=True, players=s.players, max=s.max, map=s.map,
+                                          version=status.version_of(info))
         if up:
             s = board.follow(up[0])
             row.update(players=s.players, max=s.max, map=s.map)
@@ -266,7 +291,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, {"error": "not found"})
         try:
             body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 16384)) or b"{}")
-            text = do(m.group(1), body.get("action"), body.get("args"), str(body.get("by") or "")[:64])
+            text = do(m.group(1), body.get("action"), body.get("args"), str(body.get("by") or "")[:64],
+                      body.get("slot"))
         except (ValueError, TypeError) as e:
             return self.reply(400, {"ok": False, "error": str(e)})
         except RuntimeError as e:
