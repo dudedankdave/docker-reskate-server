@@ -163,6 +163,7 @@ class Coach(discord.ui.View):
     def __init__(self, bot, user):
         super().__init__(timeout=300)
         self.bot, self.user, self.number = bot, user, None
+        self.origin = None      # the /coach interaction: its message is edited to keep the choices visible
         servers = [discord.SelectOption(label=f"{n} - {s.get('role', 'Server ' + n)}"[:100], value=n)
                    for n, s in bot.board.cfg["servers"].items()][:25]
         self.server_menu = discord.ui.Select(placeholder="Which server?", options=servers)
@@ -180,18 +181,33 @@ class Coach(discord.ui.View):
             return False
         return True
 
+    @staticmethod
+    def keep(menu, value):
+        """Show the chosen entry in the menu instead of snapping back to the placeholder."""
+        for option in menu.options:
+            option.default = option.value == value
+
     async def picked_server(self, i: discord.Interaction):
         self.number = self.server_menu.values[0]
+        self.keep(self.server_menu, self.number)
         self.action_menu.disabled = False
         self.action_menu.placeholder = f"What do you want to do on server {self.number}?"
         await i.response.edit_message(view=self)
 
     async def picked_action(self, i: discord.Interaction):
         action = self.action_menu.values[0]
+        self.keep(self.action_menu, action)
         if ACTIONS[action][2]:
-            return await i.response.send_modal(InputForm(self.bot, self.number, action))
-        await i.response.defer(ephemeral=True)
-        await i.followup.send(await execute(self.bot, i, self.number, action, []), ephemeral=True)
+            await i.response.send_modal(InputForm(self.bot, self.number, action))
+        else:
+            await i.response.defer(ephemeral=True)
+        if self.origin:
+            try:
+                await self.origin.edit_original_response(view=self)    # keeps both choices shown
+            except discord.HTTPException:
+                pass
+        if not ACTIONS[action][2]:
+            await i.followup.send(await execute(self.bot, i, self.number, action, []), ephemeral=True)
 
 
 def add(bot):
@@ -202,4 +218,6 @@ def add(bot):
     async def coach(i: discord.Interaction):
         if not bot.is_admin(i.user):
             return await i.response.send_message("Admins only.", ephemeral=True)
-        await i.response.send_message("Coach: pick a server, then what to do.", view=Coach(bot, i.user), ephemeral=True)
+        view = Coach(bot, i.user)
+        view.origin = i
+        await i.response.send_message("Coach: pick a server, then what to do.", view=view, ephemeral=True)
