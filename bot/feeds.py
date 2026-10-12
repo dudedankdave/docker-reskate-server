@@ -1,7 +1,8 @@
 """Discord feeds from the server logs, replacing the webhooks one scope at a time.
 
 bot.json: "servers": {"1": {"public": id, "chat": id, "admin": id, "log": id, "console": id}, ...}
-  public   joins, leaves, finished throwdowns, map changes
+  public   joins, leaves, finished throwdowns, map changes, server up (cleaned up like the public webhook:
+           no Steam IDs, no leave reasons)
   chat     in-game chat
   admin    kicks, bans, anti-cheat, commands typed in game, warnings and errors (+ who used the bot's console)
   log      every console line but chat
@@ -18,7 +19,7 @@ from status import STAMP, UP, MAP
 
 LINE = rollover.LINE
 CHAT = re.compile(r"^\[chat\] (.*)$")
-JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), \d+/\d+ players")
+JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players")
 LEAVE = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 THROW = re.compile(r"^\[throwdown\] .+ has finished: ")
 ADMIN = re.compile(r"^\[(?:kick|ban|anticheat|command|words|spam)\]|\b(?:kicked|banned|warning|error)\b", re.I)
@@ -32,18 +33,29 @@ def classify(text):
     if CHAT.match(body):
         return {"chat"}
     scopes = {"log"}
-    if JOIN.match(body) or LEAVE.match(body) or THROW.match(body) or MAP.match(body):
+    if JOIN.match(body) or LEAVE.match(body) or THROW.match(body) or MAP.match(body) or UP.match(body):
         scopes.add("public")
     if ADMIN.search(body) or JOIN.match(body) or LEAVE.match(body):
         scopes.add("admin")
     return scopes
 
 
-def show(text):
+def show(text, scope=""):
+    """A line as the scope posts it. public is for players, like the public webhook: a join reads
+    "Name joined, 3/100 players", a leave "Name left" (no Steam IDs, admin flag or leave reason)."""
     m = LINE.match(text)
     body = m.group(1) if m else text
     chat = CHAT.match(body)
-    return (chat.group(1) if chat else body)
+    if chat:
+        return chat.group(1)
+    if scope == "public":
+        if j := JOIN.match(body):
+            return f"{j.group(1)} joined, {j.group(2)} players"
+        if left := LEAVE.match(body):
+            return f"{left.group(1)} left"
+        if up := UP.match(body):
+            return f"Up on {up.group(1)} for {up.group(2)} players."
+    return body
 
 
 class Feeds:
@@ -90,7 +102,7 @@ class Feeds:
                 for text in self.read(info):
                     for scope in classify(text):
                         if cfg.get(scope):
-                            posts.setdefault((number, scope), []).append(show(text))
+                            posts.setdefault((number, scope), []).append(show(text, scope))
         return posts
 
     async def post(self, number, scope, lines):
