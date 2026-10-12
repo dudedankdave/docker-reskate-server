@@ -45,28 +45,83 @@ def answer_since(info, since):
     return out
 
 
-async def execute(bot, number, action, values):
-    """Run one action; returns the text for the admin."""
+async def execute(bot, i, number, action, values):
+    """Run one action (the interaction is already deferred); returns the text for the admin."""
     label, template, _ = ACTIONS[action]
     if action == "info":
         return await server_info(bot, number)
-    line = template.format(*[v.strip() for v in values])
+    return await send_line(bot, i, number, template.format(*[v.strip() for v in values]), i.user.display_name)
+
+
+class Target(discord.ui.View):
+    """Which of a server's running containers (two versions run side by side during an update) gets the line."""
+
+    def __init__(self, user, choices):
+        super().__init__(timeout=60)
+        self.user, self.chosen = user, asyncio.get_running_loop().create_future()
+        for name, infos in choices:
+            button = discord.ui.Button(label=name[:80], style=discord.ButtonStyle.primary if len(infos) == 1 else discord.ButtonStyle.secondary)
+            button.callback = self.pick(infos)
+            self.add_item(button)
+
+    def pick(self, infos):
+        async def callback(i: discord.Interaction):
+            await i.response.edit_message(content="Sending…", view=None)
+            if not self.chosen.done():
+                self.chosen.set_result(infos)
+        return callback
+
+    async def interaction_check(self, i: discord.Interaction):
+        return i.user.id == self.user.id
+
+    async def on_timeout(self):
+        if not self.chosen.done():
+            self.chosen.set_result(None)
+
+
+async def pick_targets(bot, i, number):
+    """The running containers of a server to send to: asks A or B when two run; None if cancelled."""
+    found = await asyncio.to_thread(bot.board.gather)
+    running = [x for x in found.get(number, []) if x["State"].get("Running")]
+    if len(running) < 2:
+        return running
+    choices = []
+    for info in running:
+        s = await asyncio.to_thread(bot.board.follow, info)
+        choices.append((f"{status_version(info) or info['Name'].lstrip('/')} · {s.players} players", [info]))
+    choices.append(("Both", running))
+    view = Target(i.user, choices)
+    await i.followup.send(f"Server {number} runs {len(running)} versions right now. Which one?", view=view, ephemeral=True)
+    return await view.chosen
+
+
+async def send_line(bot, i, number, line, who):
+    """Type `line` into the chosen container(s) of a server and return the answer text."""
     why = console.refused(line)
     if why:
         return f"Not sent: {why}."
-    info = await bot.running(number)
-    if not info:
+    targets = await pick_targets(bot, i, number)
+    if targets is None:
+        return "No choice made, nothing sent."
+    if not targets:
         return "That server is not running."
-    started = time.time()
-    try:
-        await asyncio.to_thread(console.send, info, line)
-    except (OSError, RuntimeError) as e:
-        return f"Could not type into the console: {e}"
-    await bot.audit(number, "coach", line)
+    started, parts = time.time(), []
+    for info in targets:
+        name = status_version(info) or info["Name"].lstrip("/")
+        try:
+            await asyncio.to_thread(console.send, info, line)
+        except (OSError, RuntimeError) as e:
+            parts.append(f"{name}: could not type into the console: {e}")
+            continue
+        parts.append(name)
+    await bot.audit(number, who, line + (f" (on {', '.join(parts)})" if len(targets) > 1 else ""))
     await asyncio.sleep(WAIT)
-    lines = await asyncio.to_thread(answer_since, info, started)
-    reply = "\n".join(lines)[-SHOW:]
-    return f"Sent: `{line[:200]}`" + (f"\n```\n{reply}\n```" if reply else "")
+    out = [f"Sent: `{line[:200]}`" + (f" to {', '.join(parts)}" if len(targets) > 1 else "")]
+    for info in targets:
+        answer = "\n".join(await asyncio.to_thread(answer_since, info, started))[-SHOW:]
+        if answer:
+            out.append((f"**{status_version(info) or info['Name'].lstrip('/')}**\n" if len(targets) > 1 else "") + f"```\n{answer}\n```")
+    return "\n".join(out)
 
 
 async def server_info(bot, number):
@@ -101,7 +156,7 @@ class InputForm(discord.ui.Modal):
         if not self.bot.is_admin(i.user):
             return await i.response.send_message("Admins only.", ephemeral=True)
         await i.response.defer(ephemeral=True)
-        await i.followup.send(await execute(self.bot, self.number, self.action, [b.value for b in self.inputs]), ephemeral=True)
+        await i.followup.send(await execute(self.bot, i, self.number, self.action, [b.value for b in self.inputs]), ephemeral=True)
 
 
 class Coach(discord.ui.View):
@@ -136,7 +191,7 @@ class Coach(discord.ui.View):
         if ACTIONS[action][2]:
             return await i.response.send_modal(InputForm(self.bot, self.number, action))
         await i.response.defer(ephemeral=True)
-        await i.followup.send(await execute(self.bot, self.number, action, []), ephemeral=True)
+        await i.followup.send(await execute(self.bot, i, self.number, action, []), ephemeral=True)
 
 
 def add(bot):
