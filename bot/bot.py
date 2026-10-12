@@ -26,6 +26,7 @@ import rollover  # noqa: E402
 import status  # noqa: E402
 import console  # noqa: E402  (bot/console.py: the console, through the Docker socket)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
+import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -83,6 +84,7 @@ class Bot(discord.Client):
             pass
         add_commands(self)
         add_admin_commands(self)
+        coach.add(self)
 
     async def setup_hook(self):
         try:
@@ -327,19 +329,8 @@ def add_admin_commands(bot):
             return await i.response.send_message("Admins only.", ephemeral=True)
         if server not in bot.board.cfg["servers"]:
             return await i.response.send_message("Unknown server.", ephemeral=True)
-        why = console.refused(line)
-        if why:
-            return await i.response.send_message(f"Not sent: {why}.", ephemeral=True)
         await i.response.defer(ephemeral=True)
-        info = await bot.running(server)
-        if not info:
-            return await i.followup.send("That server is not running.", ephemeral=True)
-        try:
-            await asyncio.to_thread(console.send, info, line)
-        except (OSError, RuntimeError) as e:
-            return await i.followup.send(f"Could not type into the console: {e}", ephemeral=True)
-        await bot.audit(server, i.user.display_name, line)
-        await i.followup.send(f"Sent to server {server}: `{line[:300]}`", ephemeral=True)
+        await i.followup.send(await coach.send_line(bot, i, server, line, i.user.display_name), ephemeral=True)
 
     guard = app_commands.default_permissions(manage_guild=True)
 
