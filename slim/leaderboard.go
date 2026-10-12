@@ -1372,7 +1372,9 @@ func (b *leaderboard) loop() {
 					fmt.Printf("[leaderboard] %v\n", r)
 				}
 			}()
-			b.tick()
+			if !external("leaderboard", "") { // off while the leaderboard module outside runs it
+				b.tick()
+			}
 		}()
 		time.Sleep(time.Second)
 	}

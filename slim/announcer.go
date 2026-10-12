@@ -41,7 +41,7 @@ func announcer(sup *supervisor) {
 	for {
 		time.Sleep(time.Second)
 		for _, line := range readNew(s) {
-			if text := announcement(line); text != "" {
+			if text := announcement(line); text != "" && !external("announcer", "") {
 				sup.send("say " + text) // false while the server restarts: skip
 			}
 		}

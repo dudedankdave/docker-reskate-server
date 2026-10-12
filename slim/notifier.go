@@ -256,16 +256,20 @@ func emit(scope, text string, ping bool) {
 	fmt.Fprintf(os.Stdout, "[event] %s %s\n", scope, b)
 }
 
+// eventScopes are the scopes whose messages are also [event] lines.
+var eventScopes = map[string]bool{"admin": true, "public": true, "updates": true, "updates-admin": true}
+
 func (h *hook) send(text string, ping bool) bool {
-	if h.scope != "" {
+	if eventScopes[h.scope] {
 		emit(h.scope, text, ping)
 	}
 	return h.post(text, ping)
 }
 
-// post sends to the webhooks only, without an [event] line.
+// post sends to the webhooks only, without an [event] line; nothing while /shared/modules.json
+// hands this scope's webhooks to the webhooks module.
 func (h *hook) post(text string, ping bool) bool {
-	if h.url == "" {
+	if h.url == "" || (h.scope != "" && external("webhooks", h.scope)) {
 		return true
 	}
 	users := []string{}
@@ -576,9 +580,9 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 	n := &notifier{
 		sup: sup, mode: mode, imageVersion: imageVersion, mentions: mentions,
 		essentials: newHook(hooks["essentials"], name, mentions, "admin"),
-		log:        newHook(hooks["log"], name, nil),
+		log:        newHook(hooks["log"], name, nil, "log"),
 		public:     newHook(hooks["public"], name, nil, "public"),
-		chat:       newHook(hooks["chat"], name, nil),
+		chat:       newHook(hooks["chat"], name, nil, "chat"),
 		updates:    newHook(hooks["updates"], name, nil, "updates"),
 		upd:        newHook(hooks["updates-admin"], name, mentions, "updates-admin"),
 		policy:     strings.ToLower(first(os.Getenv("UPDATE_POLICY"), "timed")),
@@ -606,7 +610,7 @@ func newNotifier(sup *supervisor, mode, imageVersion string) *notifier {
 	if len(boardURLs) == 0 {
 		boardURLs = hooks["public"]
 	}
-	boardHook := newHook(boardURLs, name, nil)
+	boardHook := newHook(boardURLs, name, nil, "leaderboard")
 	var post func(string)
 	if boardHook.url != "" {
 		post = func(text string) { boardHook.send(text, false) }
@@ -626,7 +630,7 @@ func (n *notifier) playersOn() bool {
 }
 
 func (n *notifier) track(line string) {
-	if n.leaderboard != nil {
+	if n.leaderboard != nil && !external("leaderboard", "") {
 		n.leaderboard.feed(line)
 	}
 	text := lineText(line)
