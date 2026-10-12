@@ -41,3 +41,11 @@ Admins only. `/coach` asks for the server, then the action (announce, say, messa
 who is online, any other console command, server info) and then the input in a form. Console actions
 show what the server printed back and are posted to the server's `admin` channel. It uses the same
 checks as `/say` etc.; nothing in it restarts or updates a server.
+
+## Posts the bot makes by itself
+* `leaderboards_channel`: one message per board and league (Ranked and Unranked: All Time, this Month, this Week, every running event), edited in place
+  when the points change (looked at every `LEADERBOARD_CHECK` seconds, default 300).
+* `updates_channel`: "ReSkate X is out" once per official ReSkate release. The first run only remembers the current version.
+
+`/top`, `/rank`, `/boards`, `/player` and `/stats` take a `league` (Ranked by default, or Unranked, the database
+`leaderboard-unranked.db` beside `leaderboard.db`).
