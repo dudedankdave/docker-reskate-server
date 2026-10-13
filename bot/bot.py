@@ -46,7 +46,7 @@ def load_config():
             cfg = json.load(f)
     except (OSError, ValueError):
         pass
-    for key in ("status_channel", "guild"):
+    for key in ("status_channel", "guild", "player_cutoff"):
         if os.environ.get("BOT_" + key.upper()):
             cfg[key] = os.environ["BOT_" + key.upper()]
     return cfg
