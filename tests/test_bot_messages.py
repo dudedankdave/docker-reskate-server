@@ -41,6 +41,21 @@ class MessagesTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 messages.set_text("1", "join", text)
 
+    def test_any_documented_setting_secrets_apart_and_unknown_refused(self):
+        messages.set_key("2", "map_pool", "A,B")
+        messages.set_key("2", "SERVER_PASSWORD", "geheim")
+        messages.set_key("all", "MAX_PLAYERS", "30")
+        self.assertTrue(os.path.exists(os.path.join(self.dir.name, "secrets", "server-2.env")))
+        self.assertEqual(messages.current_keys("2"), {"MAP_POOL": "A,B", "SERVER_PASSWORD": "(secret)"})
+        self.assertEqual(messages.current_keys("all"), {"MAX_PLAYERS": "30"})
+        for key in ("STEAM_TOKEN", "PORT", "NOPE", ""):
+            with self.assertRaises(ValueError):
+                messages.set_key("2", key, "x")
+        self.assertTrue(messages.live("MAP_POOL"))
+        self.assertFalse(messages.live("MAX_PLAYERS"))
+        messages.unset_key("2", "map_pool")
+        self.assertNotIn("MAP_POOL", messages.current_keys("2"))
+
 
 if __name__ == "__main__":
     unittest.main()

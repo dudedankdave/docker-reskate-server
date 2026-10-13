@@ -446,7 +446,7 @@ def add_admin_commands(bot):
 
     names = [app_commands.Choice(name=n, value=n) for n in messages.KEYS]
 
-    async def message_edit(i, server, change):
+    async def message_edit(i, server, change, note=""):
         if not bot.is_admin(i.user):
             return await i.response.send_message("Admins only.", ephemeral=True)
         if server != "all" and server not in bot.servers():
@@ -457,8 +457,42 @@ def add_admin_commands(bot):
             return await i.response.send_message(str(e), ephemeral=True)
         say(f"messages: {i.user.display_name} changed {key} for {server}")
         await i.response.send_message(f"{key} for {'all servers' if server == 'all' else 'server ' + server} changed. "
-                                      "The join text reaches a running server within about 20 s; the Ranked/Unranked texts "
-                                      "when the leaderboard module serves it (else at its next start).", ephemeral=True)
+                                      + (note or "The join text reaches a running server within about 20 s; the Ranked/Unranked "
+                                         "texts when the leaderboard module serves it (else at its next start)."),
+                                      ephemeral=True)
+
+    async def key_ac(_i, current: str):
+        return [app_commands.Choice(name=k, value=k) for k in messages.editable() if current.upper() in k][:25]
+
+    def how(key):
+        if key in messages.TEXT_KEYS and key != "WELCOME_MESSAGE":
+            return "The leaderboard module uses it within about a minute (a server with its own leaderboard: at its next start)."
+        return ("A running server takes it within about 20 s." if messages.live(key) else
+                "A running server cannot take it live: it applies when the server is next empty and restarted.")
+
+    @tree.command(name="setting-set", description="Admin: change any server setting (all servers or one)")
+    @guard
+    @app_commands.describe(server="A server or all", key="The setting, e.g. MAP_POOL or VOTE_MAP_PERCENT",
+                           value="The new value, as in the env file (off clears most)")
+    @app_commands.autocomplete(server=scope_ac, key=key_ac)
+    async def setting_set(i: discord.Interaction, server: str, key: str, value: str):
+        await message_edit(i, server, lambda: messages.set_key(server, key, value), how(key.strip().upper()))
+
+    @tree.command(name="setting-reset", description="Admin: remove a setting again (back to the shared or default value)")
+    @guard
+    @app_commands.autocomplete(server=scope_ac, key=key_ac)
+    async def setting_reset(i: discord.Interaction, server: str, key: str):
+        await message_edit(i, server, lambda: messages.unset_key(server, key), how(key.strip().upper()))
+
+    @tree.command(name="setting-list", description="Admin: the settings set for all servers or one (secrets hidden)")
+    @guard
+    @app_commands.autocomplete(server=scope_ac)
+    async def setting_list(i: discord.Interaction, server: str = "all"):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        got = messages.current_keys(server)
+        body = "\n".join(f"`{k}` = {v}" for k, v in got.items()) or "nothing set there"
+        await i.response.send_message(body[:1900], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @tree.command(name="message-set", description="Admin: the join message or a Ranked/Unranked text (all servers or one)")
     @guard
