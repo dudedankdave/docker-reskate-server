@@ -63,5 +63,44 @@ class AnnouncerModuleTest(unittest.TestCase):
         self.assertIsNone(mod_announcer.announcement("[20:00:00] [chat] Server: Bob was banned."))
 
 
+class ScheduleTest(unittest.TestCase):
+    DATA = {"default": [{"text": "cmds", "every": 10}, {"text": "discord", "every": 20, "offset": 5, "say": True}],
+            "servers": {"1": {"extra": [{"text": "maps", "every": 10}]}, "3": [], "6": [{"text": "rules", "every": 5}]}}
+
+    def test_lines_for(self):
+        texts = lambda n: [x[0] for x in mod_announcer.lines_for(self.DATA, n)]  # noqa: E731
+        self.assertEqual(texts("2"), ["cmds", "discord"])
+        self.assertEqual(texts("1"), ["cmds", "discord", "maps"])
+        self.assertEqual(texts("3"), [])
+        self.assertEqual(texts("6"), ["rules"])
+        self.assertEqual(mod_announcer.lines_for(self.DATA, "2")[1], ("discord", 1200, 300, True))
+
+    def test_due(self):
+        self.assertTrue(mod_announcer.due(600, 0, 599, 601))
+        self.assertFalse(mod_announcer.due(600, 0, 601, 700))
+        self.assertTrue(mod_announcer.due(1200, 300, 1499, 1501))     # 25 min = offset 5 of the second period
+        self.assertFalse(mod_announcer.due(1200, 300, 1501, 1999))
+
+    def test_tick_sends_to_slots_with_players_only(self):
+        sent = []
+        row = {"server": 2, "slots": {"A": {"running": True, "players": 3}, "B": {"running": False, "players": None}}}
+        with mock.patch.object(mod_announcer, "load_schedule", return_value=self.DATA), \
+                mock.patch.object(mod_announcer.bridgeclient, "servers", return_value=[row]), \
+                mock.patch.object(mod_announcer, "doubled", return_value=False), \
+                mock.patch.object(mod_announcer.bridgeclient, "console",
+                                  side_effect=lambda n, line, by, slot=None: sent.append((n, slot, line)) or True):
+            s = mod_announcer.Schedule()
+            s.tick(599)                                               # first tick: only remembers the time
+            s.tick(601)
+        self.assertEqual(sent, [("2", "A", "announce cmds")])
+
+    def test_own_announcements_skip_the_server(self):
+        with mock.patch.object(common, "server_settings", return_value={"A": {"ANNOUNCEMENT_INTERVAL_MINUTES": "10",
+                                                                             "ANNOUNCEMENTS": "hi"}}):
+            self.assertTrue(mod_announcer.doubled("2"))
+        with mock.patch.object(common, "server_settings", return_value={"A": {"ANNOUNCEMENT_INTERVAL_MINUTES": "0"}}):
+            self.assertFalse(mod_announcer.doubled("2"))
+
+
 if __name__ == "__main__":
     unittest.main()

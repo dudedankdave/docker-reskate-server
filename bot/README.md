@@ -42,6 +42,27 @@ Settings: `BOT_GUILD` (commands appear at once in that server), `BOT_STATUS_CHAN
 The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount (the `reskate-mods` volume) is read-write
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
 
+## /schedule-add, /schedule-remove, /schedule-list
+Admins only. Repeating announcements with an interval per line, kept in `/shared/announcements.json` and sent by the
+announcer module (docs/ENVIRONMENT.md, "Scheduled announcements"): `/schedule-add server text every [offset] [chat]`
+(`server` is a number or `all`), `/schedule-remove server number`, `/schedule-list [server]`. The bot needs `/shared`
+read-write (`ANNOUNCEMENTS_FILE` for another path).
+
+## /setting-set, /setting-reset, /setting-list
+Admins only. Any documented setting (docs/ENVIRONMENT.md; not the container's identity: ports, Steam token, file
+locations), for all servers (`/shared/settings/common.env`) or one (`server-<n>.env`): `/setting-set server key value`
+(the key completes as you type), `/setting-reset server key`, `/setting-list [server]`. Passwords and other secrets go
+to `secrets/` and are shown as `(secret)`. What a running server can take is typed into its console by the settings
+module; the rest (`MAX_PLAYERS`, `MODS`, `MAP` ...) the rollover applies when the server is empty. A value for one
+server wins over the one for all.
+
+## /message-set, /message-reset, /message-list
+Admins only. The join message (`WELCOME_MESSAGE`) and the Ranked/Unranked texts (`RANKED_MESSAGE`, `UNRANKED_MESSAGE`,
+`UNRANKED_TUNING_MESSAGE`, `UNRANKED_SPEED_MESSAGE`), for all servers (`/shared/settings/common.env`) or one
+(`server-<n>.env`): `/message-set server message text`. Only these keys are touched. The join text reaches a running
+server through the settings module; the Ranked/Unranked texts through the leaderboard module (a server that still runs
+its own leaderboard reads them at its next start). `SETTINGS_DIR` for another folder.
+
 ## /coach
 Admins only. `/coach` asks for the server, then the action (announce, say, message a player, kick, poll,
 who is online, any other console command, server info) and then the input in a form. Console actions
