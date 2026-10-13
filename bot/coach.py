@@ -21,7 +21,7 @@ ACTIONS = {
     "announce": ("Announce to everyone", "announce {0}", [("Text", "Shown to every player", True)]),
     "say": ("Say in chat", "say {0}", [("Text", "Appears as a chat line from the server", True)]),
     "msg": ("Message a player", "msg {0} {1}", [("Player", "Name or SteamID", False), ("Text", "Only they see it", True)]),
-    "kick": ("Kick a player", "kick {0}", [("Player", "Name or SteamID (until the server restarts)", False)]),
+    "kick": ("Kick a player", "kick {0}", [("Player", "Name or SteamID, optionally minutes or restart: Bob 30 (2.0.8+)", False)]),
     "poll": ("Start a poll", "poll {0}", [("Question | answer | answer", "Who wins? | Anna | Ben", True)]),
     "players": ("Who is online", "players", []),
     "console": ("Other console command", "{0}", [("Command", "e.g. votes poll-seconds 60 (not quit/stop/restart)", False)]),

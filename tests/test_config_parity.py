@@ -22,7 +22,7 @@ FULL = {
     "WORLD_LAYER_SYNC": "true", "LAYERS": "rain=on,fog=off", "BOOSTS": "false", "NO_BAIL": "true",
     "NOCLIP": "false", "PARTIES": "true", "PARTY_SIZE": "4", "VOICE_CHAT": "true", "VOICE_RANGE": "300",
     "OBJECT_PLACEMENT": "admins", "OBJECT_LIMIT": "200", "ANNOUNCE_THROWDOWNS": "false",
-    "AFK_KICK_MINUTES": "20", "WORD_WARNINGS": "2", "OBJECT_SCALING": "false", "SYNC_EFFECTS": "false",
+    "AFK_KICK_MINUTES": "20", "KICK_MINUTES": "30", "WORD_WARNINGS": "2", "OBJECT_SCALING": "false", "SYNC_EFFECTS": "false",
     "GLOBAL_WORD_FILTER": "false", "SPEED_CHECK": "kick", "SCORE_CHECK": "kick", "BOARD_CHECK": "kick",
     "ENFORCE_TUNING": "true", "BONE_SCALE_LIMIT": "2", "BONE_REACH_LIMIT": "1.5",
     "USE_STEAM_RELAY": "false", "SEND_RATE": "900", "CROWD_BUDGET": "600", "PACK_MS": "10", "THREADS": "4",
@@ -33,7 +33,7 @@ FULL = {
     "PARK_LIMIT_PARKS": "2", "PARK_LIMIT_OBJECTS": "300",
     "VOTE_MAP_ENABLED": "true", "VOTE_MAP_PERCENT": "60", "VOTE_KICK_ENABLED": "false",
     "VOTE_TIME_OF_DAY_ENABLED": "true", "VOTE_TIME_OF_DAY_MIN_PLAYERS": "3", "VOTE_EXTEND_MAP_SECONDS": "20",
-    "VOTE_SECONDS": "30", "VOTE_COOLDOWN_SECONDS": "60", "VOTE_STARTER_YES": "false", "POLLS": "everyone",
+    "VOTE_KICK_MINUTES": "restart", "VOTE_SECONDS": "30", "VOTE_COOLDOWN_SECONDS": "60", "VOTE_STARTER_YES": "false", "POLLS": "everyone",
     "POLL_SECONDS": "90", "VOTES_CUSTOM": '[{"name": "restart", "command": "map {map}", "percent": 60}]',
     "ANNOUNCEMENTS": "Join our Discord|Vote with /vote map", "ANNOUNCEMENT_INTERVAL_MINUTES": "10",
     "COMMANDS": '[{"name": "discord", "reply": "Join us"}]', "ADMINS": "76561198000000001",
@@ -158,10 +158,11 @@ class ConfigParityTest(unittest.TestCase):
         self.assertEqual(cfg["players"]["use_global_word_filter"], False)
         self.assertEqual(cfg["maps"]["park_limits"], {"parks": 2, "objects": 300})
         self.assertEqual(cfg["maps"]["park_mods"][0]["name"], "street")
+        self.assertEqual((cfg["players"]["kick_minutes"], cfg["votes"]["kick_minutes"]), (30, 0))
         self.assertIn("darn\nheck\n", py[os.path.join("data", "words_filtered.txt")])
 
     def test_bad_value_stops(self):
-        for env in ({"PARTY_SIZE": "9"}, {"BOARD_CHECK": "maybe"}, {"PARK_MODS": "{}"}):
+        for env in ({"PARTY_SIZE": "9"}, {"BOARD_CHECK": "maybe"}, {"KICK_MINUTES": "1441"}, {"PARK_MODS": "{}"}):
             with self.subTest(env):
                 run = subprocess.run([sys.executable, os.path.join(ROOT, "app", "entrypoint.py"), "config"],
                                      env={"PATH": os.environ["PATH"], "RESKATE_DATA": tempfile.mkdtemp(dir=self.tmp), **env},

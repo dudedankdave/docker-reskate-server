@@ -162,6 +162,11 @@ def int_range(lo, hi):
     return check
 
 
+def kick_time(name, value):
+    """Minutes a kicked player is kept out, 1-1440, or 0 / restart for until the server restarts."""
+    return 0 if value.strip().lower() == "restart" else int_range(0, 1440)(name, value)
+
+
 def reach(name, value):
     """Metres from 0.5 to 20, or 0 / off for no limit."""
     if value.strip().lower() == "off":
@@ -310,6 +315,7 @@ SIMPLE = {
     "OBJECT_LIMIT": ("players", "object_limit", int_range(0, 1024)),
     "ANNOUNCE_THROWDOWNS": ("players", "announce_throwdowns", as_bool),
     "AFK_KICK_MINUTES": ("players", "afk_kick_minutes", int_range(0, 1440)),
+    "KICK_MINUTES": ("players", "kick_minutes", kick_time),
     "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
     "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
     "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
@@ -388,6 +394,8 @@ for prefix, key in (("VOTE_MAP", "map"), ("VOTE_KICK", "kick"), ("VOTE_TIME_OF_D
                                    ("_MIN_PLAYERS", "min_players", int_range(1, 249))):
         if (value := env(prefix + suffix)) is not None:
             votes.setdefault(key, {})[field] = convert(prefix + suffix, value)
+if (value := env("VOTE_KICK_MINUTES")) is not None:
+    votes["kick_minutes"] = kick_time("VOTE_KICK_MINUTES", value)
 if (value := env("VOTE_STARTER_YES")) is not None:
     votes["starter_votes_yes"] = as_bool("VOTE_STARTER_YES", value)
 if (value := env("POLLS")) is not None:

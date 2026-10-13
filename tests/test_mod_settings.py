@@ -59,6 +59,9 @@ class AnnouncerModuleTest(unittest.TestCase):
     def test_announcement(self):
         self.assertEqual(mod_announcer.announcement("[20:00:00] Bob was kicked until the server restarts."),
                          "Bob was kicked.")
+        self.assertEqual(mod_announcer.announcement("[20:00:00] Bob was kicked for 30 minutes."),
+                         "Bob was kicked for 30 minutes.")
+        self.assertEqual(mod_announcer.announcement("[20:00:00] Bob was kicked for 1 minute."), "Bob was kicked for 1 minute.")
         self.assertEqual(mod_announcer.announcement("[20:00:00] Bob was banned."), "Bob was banned.")
         self.assertIsNone(mod_announcer.announcement("[20:00:00] [chat] Server: Bob was banned."))
 

@@ -66,11 +66,7 @@ def announcement(line):
     m = LINE.match(line.rstrip("\r\n"))
     if not m:
         return None
-    for pattern, what in ((announcer.KICKED, "kicked"), (announcer.BANNED, "banned")):
-        k = pattern.match(m.group(1))
-        if k:
-            return f"{k.group(1).strip()} was {what}."
-    return None
+    return announcer.said(m.group(1))
 
 
 def wanted(number, slot, cache={}):

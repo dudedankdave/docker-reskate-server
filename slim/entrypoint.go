@@ -154,6 +154,14 @@ func intRange(lo, hi int) conv {
 	}
 }
 
+// kickTime is minutes a kicked player is kept out, 1-1440, or 0 / restart for until the server restarts.
+func kickTime(name, v string) any {
+	if strings.ToLower(strings.TrimSpace(v)) == "restart" {
+		return 0
+	}
+	return intRange(0, 1440)(name, v)
+}
+
 // reach is metres from 0.5 to 20, or 0 / off for no limit.
 func reach(name, v string) any {
 	if strings.ToLower(strings.TrimSpace(v)) == "off" {
@@ -442,6 +450,7 @@ func entrypointMain(serverArgs []string) {
 		{"OBJECT_LIMIT", "players", "object_limit", intRange(0, 1024)},
 		{"ANNOUNCE_THROWDOWNS", "players", "announce_throwdowns", boolConv},
 		{"AFK_KICK_MINUTES", "players", "afk_kick_minutes", intRange(0, 1440)},
+		{"KICK_MINUTES", "players", "kick_minutes", kickTime},
 		{"WORD_WARNINGS", "players", "word_warnings", intRange(0, 10)},
 		{"OBJECT_SCALING", "players", "allow_object_scaling", boolConv},
 		{"SYNC_EFFECTS", "players", "sync_effects", boolConv},
@@ -520,6 +529,9 @@ func entrypointMain(serverArgs []string) {
 				sub(votes, p.key)[f.field] = f.c(p.prefix+f.suffix, v)
 			}
 		}
+	}
+	if v, ok := env("VOTE_KICK_MINUTES"); ok {
+		votes["kick_minutes"] = kickTime("VOTE_KICK_MINUTES", v)
 	}
 	if v, ok := env("VOTE_STARTER_YES"); ok {
 		votes["starter_votes_yes"] = asBool("VOTE_STARTER_YES", v)
