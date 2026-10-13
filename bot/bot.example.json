@@ -3,6 +3,7 @@
   "status_channel": "CHANNEL_ID_FOR_THE_STATUS_CARDS",
   "admin_roles": ["ROLE_ID_OF_THE_ADMINS"],
   "console_chat": false,
+  "player_cutoff": 3,
   "leaderboards_channel": "CHANNEL_ID",
   "updates_channel": "CHANNEL_ID",
   "servers": {

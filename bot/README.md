@@ -48,6 +48,11 @@ announcer module (docs/ENVIRONMENT.md, "Scheduled announcements"): `/schedule-ad
 (`server` is a number or `all`), `/schedule-remove server number`, `/schedule-list [server]`. The bot needs `/shared`
 read-write (`ANNOUNCEMENTS_FILE` for another path).
 
+## Busy servers
+A console command that is more than talking (not `say`, `announce`, `msg`, `poll`, `players` ...) on a server with more
+players than `player_cutoff` (`bot.json` or `BOT_PLAYER_CUTOFF`, default 3, the restart cutoff) first shows a warning with
+"Send anyway" / "Cancel" (60 s). `quit`, `stop`, `restart`, `update` stay refused on every server.
+
 ## /setting-set, /setting-reset, /setting-list
 Admins only. Any documented setting (docs/ENVIRONMENT.md; not the container's identity: ports, Steam token, file
 locations), for all servers (`/shared/settings/common.env`) or one (`server-<n>.env`): `/setting-set server key value`
