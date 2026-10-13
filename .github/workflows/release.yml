@@ -6,7 +6,7 @@
 # Every build is also tagged <ver>-r<n> (and <ver>-r<n>-slim), n = the commits on main, a tag that
 # never moves; RESKATE_IMAGE_REVISION in the image says which it is. A merge to main that changes the
 # image builds and pushes a new revision for the current release (the rollover's image_updates rolls
-# it out to empty servers). Pull requests build both images without pushing (slim stays feature-equal).
+# it out to empty servers); tools/hub-prune.py then deletes the older revision tags of each version. Pull requests build both images without pushing (slim stays feature-equal).
 # Needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker Hub access token).
 # Optional secret DISCORD_WEBHOOK_UPDATES_ADMIN: a Discord webhook told when a run fails (once, not
 # every 30 min) and when it runs through again. New releases and images are announced by the
@@ -217,6 +217,16 @@ jobs:
         env:
           U: ${{ secrets.DOCKERHUB_USERNAME }}
           P: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Only the newest <ver>-r<n> of each version stays on Docker Hub, the older ones clutter the tag list.
+      # Needs DOCKERHUB_TOKEN with the Delete permission; without it the step warns and the run goes on.
+      - name: Prune old revision tags
+        continue-on-error: true
+        if: steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true'
+        run: python3 tools/hub-prune.py "$IMAGE"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Tell Discord when the workflow fails or runs through again
         if: always() && github.event_name != 'pull_request'
