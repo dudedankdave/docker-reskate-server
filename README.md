@@ -55,7 +55,7 @@ volumes:
 | Console | `docker attach reskate-server-1` (detach with Ctrl-P Ctrl-Q) |
 | Status | `docker ps` (`healthy` once the log reports `... is up on <map>`) |
 | Update | `docker compose pull && docker compose up -d` |
-| Pin a version | `RESKATE_VERSION=2.0.8 docker compose up -d` (default `latest`) |
+| Pin a version | `RESKATE_VERSION=2.0.9 docker compose up -d` (default `latest`) |
 
 Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join code**. Either way a restart disconnects the players.
 
@@ -68,10 +68,10 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | Tag | What it is | Size on disk (download) |
 |---|---|---|
 | `latest` | Newest ReSkate release, default image (Debian slim) | 172 MB (64 MB) |
-| `2.0.8`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
+| `2.0.9`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
-| `2.0.8-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
-| `2.0.8-r123`, `2.0.8-r123-slim` | One build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`); the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
+| `2.0.9-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
+| `2.0.9-r123`, `2.0.9-r123-slim` | One build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`); the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
 
 The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) of the server inside and has to match the players' game. Older tags stay available. Most releases change the multiplayer protocol, and then servers and players on different versions can't join each other: 2.0.3, 2.0.6, 2.0.7 and 2.0.8 each did. 2.0.4 and 2.0.5 ship the same server as 2.0.3.
 
@@ -189,10 +189,10 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 
 - **`admin`** (or `essentials`): what an admin has to know. The "is up on" line and the **join code**, config problems, warnings and errors, server stops and crashes, **UPDATE AVAILABLE**, countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK** (these go to `updates-admin` instead once the server has one), and mod messages (**MOD UPDATE AVAILABLE**, **MOD INSTALLED**, **MOD UPDATED**). Pings `DISCORD_MENTION_IDS`.
 - **`log`** (or `console`): the whole console as code blocks except the in-game chat: joins with Steam IDs, leaves with reasons, `[admin]`, `[objects]`, `[join]`, throwdowns. Add `chat` to the same webhook to have the chat there too. The answer to an info command typed in the console (`status`, `players`, `net`, `bans`, `maps`, `votes`, `help`, ...) is posted as its own block titled **Console: `<command>`**.
-- **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.8"). No Steam IDs, chat, admin commands or join code.
+- **`public`**: for players, cleaned up: joins (`Name joined, 3/100 players`), leaves (`Name left`), throwdowns, the "is up on" line and update notices ("Restarting in 5 min to update ReSkate to 2.0.9"). No Steam IDs, chat, admin commands or join code.
 - **`chat`**: only the in-game chat, as `Name: message`.
 - **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
-- **`updates`**: each official ReSkate release, once: **ReSkate 2.0.8 is out.** with the release link. No pings, no image news, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
+- **`updates`**: each official ReSkate release, once: **ReSkate 2.0.9 is out.** with the release link. No pings, no image news, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
 - **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **Image available** (the new image is on Docker Hub), countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
 
 ```yaml
@@ -320,17 +320,17 @@ ReSkate releases often and the game client updates itself, so the server has to 
 
 ## Slim image
 
-`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.8-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see the table below). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
+`dudedankdave/reskate-server:slim` (and `<version>-slim`, e.g. `2.0.9-slim`) is the same server in a distroless image: **87 MB instead of 172 MB**, with no shell, package manager, Python or curl (see the table below). Same environment variables, Discord webhook and `/data` layout, so just change the tag:
 
 ```yaml
     image: dudedankdave/reskate-server:slim
 ```
 
 - One static Go binary (`/app/reskate`) replaces the entrypoint, Discord sidecar and healthcheck.
-- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.8 -t dudedankdave/reskate-server:slim .`
+- Source: [`slim/`](slim/). Build from the repo root: `docker build -f slim/Dockerfile --build-arg VERSION=2.0.9 -t dudedankdave/reskate-server:slim .`
 - `latest` and the plain tags stay the default image. The Discord update message points at the plain tag, so run `docker compose pull` on a slim setup once its `slim` tag is refreshed.
 
-| | Default (`latest`, `2.0.8`) | `slim` |
+| | Default (`latest`, `2.0.9`) | `slim` |
 |---|---|---|
 | Base image | `debian:trixie-slim` | `gcr.io/distroless/cc-debian13` |
 | ReSkate server | Native Linux x86_64 build from the release (no Wine), with the Steam libraries from the same archive (`libsteam_api.so`, `steamclient.so`, `libtier0_s.so`, `libvstdlib_s.so`) | same |
@@ -360,7 +360,7 @@ The default image ships real `curl`. The slim image ships a stand-in for exactly
 The server binaries are proprietary and not part of this repo. Download `ReSkateServer-Linux-<version>.tar.gz` from a [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) and copy `ReSkateServer`, `libsteam_api.so`, `libtier0_s.so`, `libvstdlib_s.so` and `steamclient.so` into `./Server/`, then:
 
 ```bash
-docker build --build-arg VERSION=2.0.8 -t dudedankdave/reskate-server:2.0.8 .
+docker build --build-arg VERSION=2.0.9 -t dudedankdave/reskate-server:2.0.9 .
 ```
 
 Use the release version as `VERSION`, and tag the image `<major>.<minor>` and `latest` as well.
