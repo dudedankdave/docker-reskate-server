@@ -29,6 +29,7 @@ import console  # noqa: E402  (bot/console.py: which console lines are refused)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
+import messages  # noqa: E402  (bot/messages.py: join and Ranked/Unranked texts in the settings files)
 import announcements  # noqa: E402  (bot/announcements.py: /shared/announcements.json)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
@@ -442,6 +443,48 @@ def add_admin_commands(bot):
         if not bot.is_admin(i.user):
             return await i.response.send_message("Admins only.", ephemeral=True)
         await i.response.send_message(announcements.listing(announcements.load(), server or None) or "nothing", ephemeral=True)
+
+    names = [app_commands.Choice(name=n, value=n) for n in messages.KEYS]
+
+    async def message_edit(i, server, change):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        if server != "all" and server not in bot.servers():
+            return await i.response.send_message("Unknown server.", ephemeral=True)
+        try:
+            key = change()
+        except (ValueError, OSError) as e:
+            return await i.response.send_message(str(e), ephemeral=True)
+        say(f"messages: {i.user.display_name} changed {key} for {server}")
+        await i.response.send_message(f"{key} for {'all servers' if server == 'all' else 'server ' + server} changed. "
+                                      "The join text reaches a running server within about 20 s; the Ranked/Unranked texts "
+                                      "when the leaderboard module serves it (else at its next start).", ephemeral=True)
+
+    @tree.command(name="message-set", description="Admin: the join message or a Ranked/Unranked text (all servers or one)")
+    @guard
+    @app_commands.describe(server="A server or all", message="Which text", text="The new text (max 200 bytes; off = none)")
+    @app_commands.choices(message=names)
+    @app_commands.autocomplete(server=scope_ac)
+    async def message_set(i: discord.Interaction, server: str, message: str, text: str):
+        await message_edit(i, server, lambda: messages.set_text(server, message, text))
+
+    @tree.command(name="message-reset", description="Admin: remove a text again (back to the shared or default one)")
+    @guard
+    @app_commands.describe(server="A server or all", message="Which text")
+    @app_commands.choices(message=names)
+    @app_commands.autocomplete(server=scope_ac)
+    async def message_reset(i: discord.Interaction, server: str, message: str):
+        await message_edit(i, server, lambda: messages.unset(server, message))
+
+    @tree.command(name="message-list", description="Admin: the texts set for all servers or one")
+    @guard
+    @app_commands.autocomplete(server=scope_ac)
+    async def message_list(i: discord.Interaction, server: str = "all"):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        got = messages.current(server)
+        body = "\n".join(f"**{n}**: {t}" for n, t in got.items()) or "nothing set there"
+        await i.response.send_message(body[:1900], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 def main():

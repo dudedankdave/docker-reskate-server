@@ -48,6 +48,13 @@ announcer module (docs/ENVIRONMENT.md, "Scheduled announcements"): `/schedule-ad
 (`server` is a number or `all`), `/schedule-remove server number`, `/schedule-list [server]`. The bot needs `/shared`
 read-write (`ANNOUNCEMENTS_FILE` for another path).
 
+## /message-set, /message-reset, /message-list
+Admins only. The join message (`WELCOME_MESSAGE`) and the Ranked/Unranked texts (`RANKED_MESSAGE`, `UNRANKED_MESSAGE`,
+`UNRANKED_TUNING_MESSAGE`, `UNRANKED_SPEED_MESSAGE`), for all servers (`/shared/settings/common.env`) or one
+(`server-<n>.env`): `/message-set server message text`. Only these keys are touched. The join text reaches a running
+server through the settings module; the Ranked/Unranked texts through the leaderboard module (a server that still runs
+its own leaderboard reads them at its next start). `SETTINGS_DIR` for another folder.
+
 ## /coach
 Admins only. `/coach` asks for the server, then the action (announce, say, message a player, kick, poll,
 who is online, any other console command, server info) and then the input in a form. Console actions
