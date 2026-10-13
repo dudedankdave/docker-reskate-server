@@ -102,5 +102,47 @@ class ScheduleTest(unittest.TestCase):
             self.assertFalse(mod_announcer.doubled("2"))
 
 
+class CoachTest(unittest.TestCase):
+    RAW = {"verbs": ["tells you"], "pad": 5, "lines": [{"text": "/top best"}, {"text": "/rank yours"}],
+           "servers": {"1": {"extra": [{"text": "vote"}]}, "6": ["rules"]}}
+
+    def feed(self, coach, server, *lines, raw=None):
+        out = []
+        for line in lines:
+            out += coach.event({"server": server, "slot": "A", "text": f"[20:00:00] {line}"}, self.RAW if raw is None else raw)
+        return out
+
+    def test_messages(self):
+        got = mod_announcer.coach_messages(self.RAW, "2", "7656")
+        self.assertEqual(got, ["msg 7656 Coach Frank tells you:     /top best", "msg 7656 Coach Frank tells you:     /rank yours",
+                               "msg 7656 " + "-" * 30])
+        self.assertEqual(len(mod_announcer.coach_messages(self.RAW, "1", "7656")), 4)
+        self.assertEqual(mod_announcer.coach_messages(self.RAW, "6", "7656")[0], "msg 7656 Coach Frank tells you:     rules")
+        self.assertEqual(mod_announcer.coach_messages({}, "2", "7656"), [])
+        long = mod_announcer.coach_messages({"pad": 100, "lines": ["x" * 300]}, "2", "1")[0]
+        self.assertLessEqual(len(long.encode()), len("msg 1 ") + 200)
+
+    def test_random_verbs_come_from_the_list(self):
+        raw = {"verbs": ["a", "b", "c"], "lines": ["x"] * 30}
+        verbs = {m.split(":")[0].split("Coach Frank ")[1] for m in mod_announcer.coach_messages(raw, "2", "1")[:-1]}
+        self.assertTrue(verbs <= {"a", "b", "c"} and len(verbs) > 1)
+
+    def test_follows_joins_and_answers_the_command_once(self):
+        coach = mod_announcer.Coach()
+        out = self.feed(coach, "2", "Bob joined (7656, admin), 1/100 players, loaded in 3 s", "[command] Bob /coach")
+        self.assertEqual([x[2] for x in out][-1], "msg 7656 " + "-" * 30)
+        self.assertEqual(out[0][:2], ("2", "A"))
+        self.assertEqual(self.feed(coach, "2", "[command] Bob /coach"), [])                  # asked again at once
+        self.assertEqual(self.feed(coach, "2", "[command] Eve /coach"), [])                  # nobody of that name on
+        self.assertEqual(self.feed(coach, "2", "Bob left (quit) [rtt 5 ms]", "[command] Bob /coach"), [])
+        self.assertEqual(self.feed(coach, "2", "Bob joined (7656), 1/100 players", "[command] Bob: /coach", raw={}), [])
+
+    def test_typed_text_that_looks_like_the_command_is_ignored(self):
+        coach = mod_announcer.Coach()
+        out = self.feed(coach, "2", "Bob joined (1), 1/100 players", "Eve joined (2), 2/100 players",
+                        "[command] Bob: /coach /coach")
+        self.assertEqual(out, [])
+
+
 if __name__ == "__main__":
     unittest.main()
