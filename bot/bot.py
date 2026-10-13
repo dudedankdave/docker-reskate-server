@@ -29,6 +29,7 @@ import console  # noqa: E402  (bot/console.py: which console lines are refused)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
+import announcements  # noqa: E402  (bot/announcements.py: /shared/announcements.json)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -393,6 +394,54 @@ def add_admin_commands(bot):
     @app_commands.autocomplete(server=servers_ac)
     async def console_cmd(i: discord.Interaction, server: str, command: str):
         await run(i, server, command)
+
+    scopes = [app_commands.Choice(name="All servers", value="all")]
+
+    async def scope_ac(_i, current: str):
+        found = [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
+                 for n, s in bot.servers().items() if current.lower() in f"{n} {s.get('role', '')}".lower()]
+        return (scopes + found)[:25]
+
+    async def edit(i, scope, change):
+        """Run change(data) on announcements.json for an admin; answers the interaction."""
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        if scope != "all" and scope not in bot.servers():
+            return await i.response.send_message("Unknown server.", ephemeral=True)
+        data = announcements.load()
+        try:
+            answer = change(data)
+        except ValueError as e:
+            return await i.response.send_message(str(e), ephemeral=True)
+        try:
+            announcements.save(data)
+        except OSError as e:
+            return await i.response.send_message(f"Could not save: {e}", ephemeral=True)
+        say(f"announcements: {i.user.display_name} changed {scope}: {answer}")
+        await i.response.send_message(f"{answer}\n\n{announcements.listing(data, scope)}", ephemeral=True)
+
+    @tree.command(name="schedule-add", description="Admin: a repeating announcement (each line has its own interval)")
+    @guard
+    @app_commands.describe(server="A server or all", text="The announcement", every="Minutes between two times",
+                           offset="Minutes into that period to start (default 0)", chat="In the chat, not as a card")
+    @app_commands.autocomplete(server=scope_ac)
+    async def schedule_add(i: discord.Interaction, server: str, text: str, every: int, offset: int = 0, chat: bool = False):
+        await edit(i, server, lambda d: f"Line {announcements.add(d, server, text, every, offset, chat)} added.")
+
+    @tree.command(name="schedule-remove", description="Admin: remove a repeating announcement")
+    @guard
+    @app_commands.describe(server="A server or all", number="The line's number from /schedule-list")
+    @app_commands.autocomplete(server=scope_ac)
+    async def schedule_remove(i: discord.Interaction, server: str, number: int):
+        await edit(i, server, lambda d: f"Removed: {announcements.remove(d, server, number)['text']}")
+
+    @tree.command(name="schedule-list", description="Admin: the repeating announcements")
+    @guard
+    @app_commands.autocomplete(server=scope_ac)
+    async def schedule_list(i: discord.Interaction, server: str = ""):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        await i.response.send_message(announcements.listing(announcements.load(), server or None) or "nothing", ephemeral=True)
 
 
 def main():

@@ -42,6 +42,12 @@ Settings: `BOT_GUILD` (commands appear at once in that server), `BOT_STATUS_CHAN
 The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount (the `reskate-mods` volume) is read-write
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
 
+## /schedule-add, /schedule-remove, /schedule-list
+Admins only. Repeating announcements with an interval per line, kept in `/shared/announcements.json` and sent by the
+announcer module (docs/ENVIRONMENT.md, "Scheduled announcements"): `/schedule-add server text every [offset] [chat]`
+(`server` is a number or `all`), `/schedule-remove server number`, `/schedule-list [server]`. The bot needs `/shared`
+read-write (`ANNOUNCEMENTS_FILE` for another path).
+
 ## /coach
 Admins only. `/coach` asks for the server, then the action (announce, say, message a player, kick, poll,
 who is online, any other console command, server info) and then the input in a form. Console actions
