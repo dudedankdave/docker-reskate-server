@@ -16,6 +16,7 @@ import sqlite3
 import sys
 import time
 from contextlib import closing
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -29,6 +30,8 @@ import console  # noqa: E402  (bot/console.py: which console lines are refused)
 import feeds  # noqa: E402  (bot/feeds.py: log feeds)
 import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
+import messages  # noqa: E402  (bot/messages.py: join and Ranked/Unranked texts in the settings files)
+import announcements  # noqa: E402  (bot/announcements.py: /shared/announcements.json)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -44,7 +47,7 @@ def load_config():
             cfg = json.load(f)
     except (OSError, ValueError):
         pass
-    for key in ("status_channel", "guild"):
+    for key in ("status_channel", "guild", "player_cutoff"):
         if os.environ.get("BOT_" + key.upper()):
             cfg[key] = os.environ["BOT_" + key.upper()]
     return cfg
@@ -382,17 +385,143 @@ def add_admin_commands(bot):
     async def msg(i: discord.Interaction, server: str, player: str, text: str):
         await run(i, server, f"msg {player} {text}")
 
-    @tree.command(name="kick", description="Admin: kick a player (until the server restarts)")
+    @tree.command(name="kick", description="Admin: kick a player (for the server's kick time, or the minutes given)")
     @guard
     @app_commands.autocomplete(server=servers_ac)
-    async def kick(i: discord.Interaction, server: str, player: str):
-        await run(i, server, f"kick {player}")
+    @app_commands.describe(minutes="ReSkate 2.0.8+: keep them out this many minutes (1-1440), 0 until the server restarts")
+    async def kick(i: discord.Interaction, server: str, player: str,
+                   minutes: Optional[app_commands.Range[int, 0, 1440]] = None):
+        await run(i, server, f"kick {player}" + ("" if minutes is None else f" {minutes or 'restart'}"))
 
     @tree.command(name="console", description="Admin: type any console command (not quit/stop/restart/update)")
     @guard
     @app_commands.autocomplete(server=servers_ac)
     async def console_cmd(i: discord.Interaction, server: str, command: str):
         await run(i, server, command)
+
+    scopes = [app_commands.Choice(name="All servers", value="all")]
+
+    async def scope_ac(_i, current: str):
+        found = [app_commands.Choice(name=f"{n} - {s.get('role', '')}", value=n)
+                 for n, s in bot.servers().items() if current.lower() in f"{n} {s.get('role', '')}".lower()]
+        return (scopes + found)[:25]
+
+    async def edit(i, scope, change):
+        """Run change(data) on announcements.json for an admin; answers the interaction."""
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        if scope != "all" and scope not in bot.servers():
+            return await i.response.send_message("Unknown server.", ephemeral=True)
+        data = announcements.load()
+        try:
+            answer = change(data)
+        except ValueError as e:
+            return await i.response.send_message(str(e), ephemeral=True)
+        try:
+            announcements.save(data)
+        except OSError as e:
+            return await i.response.send_message(f"Could not save: {e}", ephemeral=True)
+        say(f"announcements: {i.user.display_name} changed {scope}: {answer}")
+        await i.response.send_message(f"{answer}\n\n{announcements.listing(data, scope)}", ephemeral=True)
+
+    @tree.command(name="schedule-add", description="Admin: a repeating announcement (each line has its own interval)")
+    @guard
+    @app_commands.describe(server="A server or all", text="The announcement", every="Minutes between two times",
+                           offset="Minutes into that period to start (default 0)", chat="In the chat, not as a card")
+    @app_commands.autocomplete(server=scope_ac)
+    async def schedule_add(i: discord.Interaction, server: str, text: str, every: int, offset: int = 0, chat: bool = False):
+        await edit(i, server, lambda d: f"Line {announcements.add(d, server, text, every, offset, chat)} added.")
+
+    @tree.command(name="schedule-remove", description="Admin: remove a repeating announcement")
+    @guard
+    @app_commands.describe(server="A server or all", number="The line's number from /schedule-list")
+    @app_commands.autocomplete(server=scope_ac)
+    async def schedule_remove(i: discord.Interaction, server: str, number: int):
+        await edit(i, server, lambda d: f"Removed: {announcements.remove(d, server, number)['text']}")
+
+    @tree.command(name="schedule-list", description="Admin: the repeating announcements")
+    @guard
+    @app_commands.autocomplete(server=scope_ac)
+    async def schedule_list(i: discord.Interaction, server: str = ""):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        await i.response.send_message(announcements.listing(announcements.load(), server or None) or "nothing", ephemeral=True)
+
+    names = [app_commands.Choice(name=n, value=n) for n in messages.KEYS]
+
+    async def message_edit(i, server, change, note=""):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        if server != "all" and server not in bot.servers():
+            return await i.response.send_message("Unknown server.", ephemeral=True)
+        try:
+            key = change()
+        except (ValueError, OSError) as e:
+            return await i.response.send_message(str(e), ephemeral=True)
+        say(f"messages: {i.user.display_name} changed {key} for {server}")
+        await i.response.send_message(f"{key} for {'all servers' if server == 'all' else 'server ' + server} changed. "
+                                      + (note or "The join text reaches a running server within about 20 s; the Ranked/Unranked "
+                                         "texts when the leaderboard module serves it (else at its next start)."),
+                                      ephemeral=True)
+
+    async def key_ac(_i, current: str):
+        return [app_commands.Choice(name=k, value=k) for k in messages.editable() if current.upper() in k][:25]
+
+    def how(key):
+        if key in messages.TEXT_KEYS and key != "WELCOME_MESSAGE":
+            return "The leaderboard module uses it within about a minute (a server with its own leaderboard: at its next start)."
+        return ("A running server takes it within about 20 s." if messages.live(key) else
+                "A running server cannot take it live: it applies when the server is next empty and restarted.")
+
+    @tree.command(name="setting-set", description="Admin: change any server setting (all servers or one)")
+    @guard
+    @app_commands.describe(server="A server or all", key="The setting, e.g. MAP_POOL or VOTE_MAP_PERCENT",
+                           value="The new value, as in the env file (off clears most)")
+    @app_commands.autocomplete(server=scope_ac, key=key_ac)
+    async def setting_set(i: discord.Interaction, server: str, key: str, value: str):
+        await message_edit(i, server, lambda: messages.set_key(server, key, value), how(key.strip().upper()))
+
+    @tree.command(name="setting-reset", description="Admin: remove a setting again (back to the shared or default value)")
+    @guard
+    @app_commands.autocomplete(server=scope_ac, key=key_ac)
+    async def setting_reset(i: discord.Interaction, server: str, key: str):
+        await message_edit(i, server, lambda: messages.unset_key(server, key), how(key.strip().upper()))
+
+    @tree.command(name="setting-list", description="Admin: the settings set for all servers or one (secrets hidden)")
+    @guard
+    @app_commands.autocomplete(server=scope_ac)
+    async def setting_list(i: discord.Interaction, server: str = "all"):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        got = messages.current_keys(server)
+        body = "\n".join(f"`{k}` = {v}" for k, v in got.items()) or "nothing set there"
+        await i.response.send_message(body[:1900], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @tree.command(name="message-set", description="Admin: the join message or a Ranked/Unranked text (all servers or one)")
+    @guard
+    @app_commands.describe(server="A server or all", message="Which text", text="The new text (max 200 bytes; off = none)")
+    @app_commands.choices(message=names)
+    @app_commands.autocomplete(server=scope_ac)
+    async def message_set(i: discord.Interaction, server: str, message: str, text: str):
+        await message_edit(i, server, lambda: messages.set_text(server, message, text))
+
+    @tree.command(name="message-reset", description="Admin: remove a text again (back to the shared or default one)")
+    @guard
+    @app_commands.describe(server="A server or all", message="Which text")
+    @app_commands.choices(message=names)
+    @app_commands.autocomplete(server=scope_ac)
+    async def message_reset(i: discord.Interaction, server: str, message: str):
+        await message_edit(i, server, lambda: messages.unset(server, message))
+
+    @tree.command(name="message-list", description="Admin: the texts set for all servers or one")
+    @guard
+    @app_commands.autocomplete(server=scope_ac)
+    async def message_list(i: discord.Interaction, server: str = "all"):
+        if not bot.is_admin(i.user):
+            return await i.response.send_message("Admins only.", ephemeral=True)
+        got = messages.current(server)
+        body = "\n".join(f"**{n}**: {t}" for n, t in got.items()) or "nothing set there"
+        await i.response.send_message(body[:1900], ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
 def main():

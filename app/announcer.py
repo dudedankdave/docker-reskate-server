@@ -20,7 +20,8 @@ DATE = re.compile(r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] ")
 # The server's replies to `kick` / `ban` (Server/server_commands.cpp). Vote kicks are not
 # matched: the server already says those in chat. A tagged line ("[chat] Server: ...", our own
 # `say`) never matches, so nothing is announced twice.
-KICKED = re.compile(r"^([^\[].*) was kicked until the server restarts\.$")
+# ReSkate 2.0.8+ can kick for a time ("... was kicked for 30 minutes."), which the chat line keeps.
+KICKED = re.compile(r"^([^\[].*) was kicked(?: until the server restarts| for (\d+ minutes?))\.$")
 BANNED = re.compile(r"^([^\[].*) was banned\.$")
 
 
@@ -29,10 +30,15 @@ def announcement(line):
     text = DATE.sub("", line.rstrip("\r\n"), count=1)
     if text == line.rstrip("\r\n"):
         return None                                     # not a log line
-    for pattern, what in ((KICKED, "kicked"), (BANNED, "banned")):
-        m = pattern.match(text)
-        if m:
-            return f"{m.group(1).strip()} was {what}."
+    return said(text)
+
+
+def said(text):
+    """The chat line for the text of one server line (date or time stamp removed), or None."""
+    if m := KICKED.match(text):
+        return f"{m.group(1).strip()} was kicked{' for ' + m.group(2) if m.group(2) else ''}."
+    if m := BANNED.match(text):
+        return f"{m.group(1).strip()} was banned."
     return None
 
 

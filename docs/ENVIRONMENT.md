@@ -77,6 +77,7 @@ For both:
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
 | `WORD_WARNINGS` | 0-10 | Chat messages with a word from the ReSkate team's list are never passed on and their player is warned; after this many warnings the next one gets them kicked (they can rejoin). Warnings last until the server restarts. Default `3`, `0` = never warn or kick. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
+| `KICK_MINUTES` | 1-1440, `restart` | ReSkate 2.0.8 and later. How long a player kicked by an admin is kept out; they are told how long. `restart` (or `0`, the default) = until the server restarts. One kick can get its own time: `kick <player> 30` or `kick <player> restart`. A kick keeps the time it was given; bans are still for good. Console: `kick-time <minutes>\|restart`. |
 | `SYNC_EFFECTS` | `true` / `false` | Let players see each other's skater effects (sparks, dust, costume and board trails). `false` saves a little traffic on busy servers. Default `true`. |
 | `GLOBAL_WORD_FILTER` | `true` / `false` | Use the ReSkate team's chat word lists. `false` leaves them out: only `WORDS_BLOCKED` is refused in chat. Default `true`. |
 | `WORDS_FILTERED` | word list | This server's own filtered words, comma-separated, on top of the team's: still passed on, shown as stars to players with their chat filter on. Written to `data/words_filtered.txt` on every start (pins the file; `off` empties it; unset leaves the file alone). |
@@ -131,6 +132,7 @@ For both:
 | `VOTE_MAP_PERCENT` | number | Share of connected players whose yes passes a map vote. |
 | `VOTE_KICK_ENABLED` | `true` / `false` | Players can vote to kick someone (`/vote kick <player>`). Admins cannot be vote-kicked. |
 | `VOTE_KICK_PERCENT` | number | Share of connected players whose yes passes a kick vote. |
+| `VOTE_KICK_MINUTES` | 1-1440, `restart` | ReSkate 2.0.8 and later. How long a player kicked by a vote is kept out. `restart` (or `0`) = until the server restarts. Default `5` (before 2.0.8 a vote kick always lasted until the restart). Console: `votes kick-minutes <minutes>\|restart`. |
 | `VOTE_TIME_OF_DAY_ENABLED` | `true` / `false` | Players can vote on the time of day (`/vote tod <time>`). Needs `WORLD_LAYER_SYNC`. |
 | `VOTE_TIME_OF_DAY_PERCENT` | number | Share of connected players whose yes passes a time-of-day vote. |
 | `VOTE_EXTEND_MAP_ENABLED` | `true` / `false` | ReSkate 2.0.7 and later. Players can vote to add time to the current map (`/vote extend`). Needs `MAP_ROTATION_MINUTES`: on a server whose maps are not on a timer there is nothing to extend. **On by default**, unlike the other votes. |
@@ -186,7 +188,7 @@ These are read by the image's own scripts on every start and are not stored in `
 
 | Variable | Values | Description |
 |---|---|---|
-| `ANNOUNCE_KICKS` | `true` / `false` | Tell everyone in chat when an admin kicks or bans a player ("Server: Name was kicked."). ReSkate itself only tells the admin. Done by the image, not the server: it types `say` into the server console, which `docker attach` still reaches. Default `true`. |
+| `ANNOUNCE_KICKS` | `true` / `false` | Tell everyone in chat when an admin kicks or bans a player ("Server: Name was kicked." or, for a timed kick on ReSkate 2.0.8+, "Server: Name was kicked for 30 minutes."). ReSkate itself only tells the admin. Done by the image, not the server: it types `say` into the server console, which `docker attach` still reaches. Default `true`. |
 
 <br/>
 
@@ -297,6 +299,8 @@ outside it (bridge, bot, ...) while the server runs, with `/shared/modules.json`
 ```
 
 - Parts: `leaderboard`, `announcer`, `webhooks` (one value, or one per scope: `admin`, `log`, `public`, `chat`, `leaderboard`, `updates`, `updates-admin`), and `settings` (changes in the settings files are typed into the running server by the settings module; only the rest waits for a restart). `external` switches the server's own part off and the module of the [tools stack](../stack/README.md) on, `internal` (or no file) keeps it in the server. `servers` overrides per `RESKATE_SERVER`. The log says what is set (`[modules] ...`).
+- **Scheduled announcements** (announcer module, `/shared/announcements.json`, re-read every 15 s): every line has its own interval, which the server's own `ANNOUNCEMENTS` / `ANNOUNCEMENT_INTERVAL_MINUTES` (one interval for all lines) cannot do. `{"default": [{"text": "Commands: /top /rank", "every": 10}, {"text": "Discord ...", "every": 20, "offset": 5}], "servers": {"1": {"extra": [...]}, "6": [...]}}`: `every` minutes, `offset` minutes into that period, `say: true` for chat instead of the announcement card. A server's list replaces `default`, `{"extra": [...]}` adds to it, `[]` means none. Sent to slots with players on, on the UTC clock (a module restart repeats and skips nothing). A server whose own announcements are on is skipped (it would say everything twice): clear them in its settings first. Admins edit the file with the bot's `/schedule-add`, `/schedule-remove` and `/schedule-list` (the bot needs `/shared` read-write).
+- **/coach with Coach Frank** (announcer module, `"coach"` section of `/shared/announcements.json`): give the server a chat command `coach` whose reply is only a rule line, e.g. `COMMANDS='[{"name": "coach", "reply": "------------------------------"}]'` (the server then logs `[command] Name /coach`; it needs a restart when empty). The module answers with one private message per line, each starting `Coach Frank <random verb>:` (`tells you`, `shouts at you`, `teaches you` ... or your own `verbs`), then `pad` spaces (default 100: the chat wraps there, leading spaces are trimmed) and the text, and a closing rule. `{"coach": {"lines": [{"text": "/top shows the best players"}], "servers": {"1": {"extra": [{"text": "Map vote: /vote map <map>"}]}, "6": [...]}}}`: `lines` for every server, a server's list replaces it, `{"extra": [...]}` adds to it. A line is cut at 200 bytes in all. One answer per player every 5 s.
 - Every message the server's webhooks post in the `admin`, `public`, `updates` and `updates-admin` scopes is also printed as one line, whether a webhook is set or not: `[event] admin {"ping":true,"text":"**UPDATE AVAILABLE**: ..."}`. The [bridge](../rollover/README.md#bridge-servers---bot) passes them on as events of that scope.
 
 | Variable | Meaning |

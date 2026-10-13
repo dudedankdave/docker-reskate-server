@@ -142,6 +142,10 @@ def _list(clear, add, sep=","):
                                    [f"{add} {x.strip()}" for x in v.split(sep) if x.strip()])
 
 
+def _kick_time(cmd):
+    return lambda v, e: [f"{cmd} {'restart' if v.strip().lower() in ('0', 'restart') else v.strip()}"]
+
+
 def _distances(v, e):
     keys = ("DISTANCE_FULL_RATE_RETURN", "DISTANCE_HALF_RATE_START", "DISTANCE_HALF_RATE_RETURN", "DISTANCE_LOW_RATE_START")
     values = [e.get(k, "").strip() for k in keys]
@@ -179,6 +183,7 @@ LIVE = {
     "ANNOUNCEMENT_INTERVAL_MINUTES": _plain("announcements interval", True),
     "ANNOUNCE_THROWDOWNS": _onoff("announce-throwdowns"), "ACTIVITY_LOG": _onoff("activity-log"),
     "PARTIES": _onoff("parties"), "PARTY_SIZE": _plain("party-size"), "AFK_KICK_MINUTES": _plain("afk-kick", True),
+    "KICK_MINUTES": _kick_time("kick-time"), "VOTE_KICK_MINUTES": _kick_time("votes kick-minutes"),
     "SPEED_CHECK": _plain("speed-check"), "BOARD_CHECK": _plain("board-check"), "SCORE_CHECK": _plain("score-check"),
     "BONE_SCALE_LIMIT": _plain("bone-scale", True), "BONE_REACH_LIMIT": _plain("bone-reach", True),
     "SEND_RATE": _plain("rate"), "CROWD_BUDGET": _plain("crowd", True), "GLOBAL_WORD_FILTER": _onoff("words global"),

@@ -21,7 +21,7 @@ ACTIONS = {
     "announce": ("Announce to everyone", "announce {0}", [("Text", "Shown to every player", True)]),
     "say": ("Say in chat", "say {0}", [("Text", "Appears as a chat line from the server", True)]),
     "msg": ("Message a player", "msg {0} {1}", [("Player", "Name or SteamID", False), ("Text", "Only they see it", True)]),
-    "kick": ("Kick a player", "kick {0}", [("Player", "Name or SteamID (until the server restarts)", False)]),
+    "kick": ("Kick a player", "kick {0}", [("Player", "Name or SteamID, optionally minutes or restart: Bob 30 (2.0.8+)", False)]),
     "poll": ("Start a poll", "poll {0}", [("Question | answer | answer", "Who wins? | Anna | Ben", True)]),
     "players": ("Who is online", "players", []),
     "console": ("Other console command", "{0}", [("Command", "e.g. votes poll-seconds 60 (not quit/stop/restart)", False)]),
@@ -91,6 +91,48 @@ async def pick_targets(bot, i, number):
     return await view.chosen
 
 
+class Confirm(discord.ui.View):
+    """Send anyway / Cancel, for the admin who typed the command."""
+
+    def __init__(self, user):
+        super().__init__(timeout=60)
+        self.user, self.answer = user, asyncio.get_running_loop().create_future()
+        for label, value, style in (("Send anyway", True, discord.ButtonStyle.danger),
+                                    ("Cancel", False, discord.ButtonStyle.secondary)):
+            button = discord.ui.Button(label=label, style=style)
+            button.callback = self.pick(value)
+            self.add_item(button)
+
+    def pick(self, value):
+        async def callback(i: discord.Interaction):
+            await i.response.edit_message(content="Sending…" if value else "Cancelled.", view=None)
+            if not self.answer.done():
+                self.answer.set_result(value)
+        return callback
+
+    async def interaction_check(self, i: discord.Interaction):
+        return i.user.id == self.user.id
+
+    async def on_timeout(self):
+        if not self.answer.done():
+            self.answer.set_result(False)
+
+
+async def confirmed(bot, i, targets, line):
+    """True when `line` may go to `targets`: no busy server, or the admin confirmed after the warning."""
+    try:
+        cutoff = int(bot.cfg.get("player_cutoff", console.DEFAULT_CUTOFF))
+    except (TypeError, ValueError):
+        cutoff = console.DEFAULT_CUTOFF
+    busiest = max((t.players or 0 for t in targets), default=0)
+    warning = console.needs_confirmation(line, busiest, cutoff)
+    if not warning:
+        return True
+    view = Confirm(i.user)
+    await i.followup.send(warning, view=view, ephemeral=True)
+    return await view.answer
+
+
 async def send_line(bot, i, number, line, who):
     """Type `line` into the chosen container(s) of a server and return the answer text."""
     why = console.refused(line)
@@ -101,6 +143,8 @@ async def send_line(bot, i, number, line, who):
         return "No choice made, nothing sent."
     if not targets:
         return "That server is not running."
+    if not await confirmed(bot, i, targets, line):
+        return "Not sent: the server is busy and the command was not confirmed."
     started, parts = await asyncio.to_thread(bot.backend.marker), []
     for target in targets:
         try:
