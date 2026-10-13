@@ -17,7 +17,8 @@ var (
 	// The server's replies to `kick` / `ban` (Server/server_commands.cpp). Vote kicks are not
 	// matched: the server already says those in chat. A tagged line ("[chat] Server: ...", our
 	// own `say`) never matches, so nothing is announced twice.
-	kickedRe = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] ([^\[].*) was kicked until the server restarts\.$`)
+	// ReSkate 2.0.8+ can kick for a time ("... was kicked for 30 minutes."), which the chat line keeps.
+	kickedRe = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] ([^\[].*) was kicked(?: until the server restarts| for (\d+ minutes?))\.$`)
 	bannedRe = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] ([^\[].*) was banned\.$`)
 )
 
@@ -25,6 +26,9 @@ var (
 func announcement(line string) string {
 	line = strings.TrimRight(line, "\r")
 	if m := kickedRe.FindStringSubmatch(line); m != nil {
+		if m[2] != "" {
+			return strings.TrimSpace(m[1]) + " was kicked for " + m[2] + "."
+		}
 		return strings.TrimSpace(m[1]) + " was kicked."
 	}
 	if m := bannedRe.FindStringSubmatch(line); m != nil {

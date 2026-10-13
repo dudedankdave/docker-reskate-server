@@ -16,6 +16,7 @@ import sqlite3
 import sys
 import time
 from contextlib import closing
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -382,11 +383,13 @@ def add_admin_commands(bot):
     async def msg(i: discord.Interaction, server: str, player: str, text: str):
         await run(i, server, f"msg {player} {text}")
 
-    @tree.command(name="kick", description="Admin: kick a player (until the server restarts)")
+    @tree.command(name="kick", description="Admin: kick a player (for the server's kick time, or the minutes given)")
     @guard
     @app_commands.autocomplete(server=servers_ac)
-    async def kick(i: discord.Interaction, server: str, player: str):
-        await run(i, server, f"kick {player}")
+    @app_commands.describe(minutes="ReSkate 2.0.8+: keep them out this many minutes (1-1440), 0 until the server restarts")
+    async def kick(i: discord.Interaction, server: str, player: str,
+                   minutes: Optional[app_commands.Range[int, 0, 1440]] = None):
+        await run(i, server, f"kick {player}" + ("" if minutes is None else f" {minutes or 'restart'}"))
 
     @tree.command(name="console", description="Admin: type any console command (not quit/stop/restart/update)")
     @guard

@@ -26,6 +26,10 @@ class LiveTest(unittest.TestCase):
                                     "map-pool add C", "objects off", "score-check kick", "votes tod on", "welcome off"])
         self.assertEqual(restart, ["DISTANCE_LOW_RATE_START", "MAX_PLAYERS"])
 
+    def test_kick_times(self):
+        commands, _ = settings.live_commands({}, {"KICK_MINUTES": "30", "VOTE_KICK_MINUTES": "0"})
+        self.assertEqual(commands, ["kick-time 30", "votes kick-minutes restart"])
+
     def test_restart_digest_ignores_live_keys(self):
         a = settings.restart_digest({"MAX_PLAYERS": "10", "WELCOME_MESSAGE": "hi"})
         self.assertEqual(a, settings.restart_digest({"MAX_PLAYERS": "10", "WELCOME_MESSAGE": "other"}))
