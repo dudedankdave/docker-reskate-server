@@ -92,6 +92,20 @@ def version_of(info):
     return labels.get("reskate.version") or env.get("RESKATE_IMAGE_VERSION") or (m.group(1) if m else "")
 
 
+def slot_of(server, info):
+    """The slot ("a", "b") of server whose port the container uses, or None."""
+    port = env_of(info).get("PORT", "")
+    return next((name for name, slot in server.get("slots", {}).items() if str(slot.get("port")) == port), None)
+
+
+def join_codes(codes):
+    """The join code row: the code alone for one slot, one line per slot while two run (a rollover)."""
+    if len(codes) <= 1:
+        return f"`{codes[0][2]}`" if codes else "–"
+    return "\n".join(f"{(slot or '?').upper()} · `{code}`" + (f" ({version})" if version else "")
+                     for slot, version, code in sorted(codes, key=lambda c: c[0] or ""))
+
+
 class Board:
     def __init__(self, config):
         self.cfg = config
@@ -151,6 +165,7 @@ class Board:
         env = env_of(info) if info else {}
         name = env.get("SERVER_NAME") or role
         players = most = mp = code = None
+        codes = []                             # (slot, version, join code) of each running slot that is up
         total, up, draining = 0, False, []
         if not running:
             title, color = f"🔴 {role}", RED
@@ -165,6 +180,8 @@ class Board:
             players = s.players if s.ok else None
             most, mp = s.max or env.get("MAX_PLAYERS"), s.map or env.get("MAP")
             code = s.code if up and JOIN_CODE else None
+            if code:
+                codes.append((slot_of(server, info), version_of(info), code))
             total = players or 0
             started = started_at(info)
             if up:
@@ -176,6 +193,8 @@ class Board:
                 o = self.follow(other)
                 total += o.players if o.ok else 0
                 draining.append(f"**{o.players if o.ok else '?'}** on {version_of(other) or 'old'}")
+                if JOIN_CODE and o.code and (other["State"].get("Health") or {}).get("Status") in (None, "healthy"):
+                    codes.append((slot_of(server, other), version_of(other), o.code))
         fields = [
             {"name": "Players", "value": f"**{players if players is not None else '–'}** / {most or '–'}", "inline": True},
             {"name": "Version", "value": (version_of(info) if info else "") or "–", "inline": True},
@@ -183,7 +202,7 @@ class Board:
             {"name": "Map", "value": mp or "–", "inline": False},
         ]
         if JOIN_CODE:
-            fields.append({"name": "Join code", "value": f"`{code}`" if code else "–", "inline": False})
+            fields.append({"name": "Join code", "value": join_codes(codes), "inline": False})
         card = {"title": title, "color": color, "description": f"`{name}`\n{status}", "fields": fields,
                 "footer": {"text": f"Server {number}"}}
         if SPACER:
