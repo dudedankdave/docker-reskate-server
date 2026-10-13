@@ -23,6 +23,25 @@ def refused(line):
     return None
 
 
+# Lines that only talk or ask; everything else (map, votes, kick, ban, roles, settings ...) can disturb players.
+HARMLESS = {"say", "announce", "msg", "poll", "players", "help", "status", "version", "who", "list"}
+DEFAULT_CUTOFF = 3     # players: the restart cutoff (David, 2026-10-12): up to 3 may be disturbed, more not
+
+
+def disruptive(line):
+    """True when the line is more than talking (it changes the game for the players on the server)."""
+    word = (line.strip().split(None, 1) or [""])[0].lower().lstrip("/")
+    return word not in HARMLESS
+
+
+def needs_confirmation(line, players, cutoff=DEFAULT_CUTOFF):
+    """The warning to show before typing `line` on a server with `players` on, or None."""
+    if players is not None and players > cutoff and disruptive(line):
+        return (f"**{players} players** are on this server (more than {cutoff}). "
+                f"`{line[:150]}` can disturb them. Send it anyway?")
+    return None
+
+
 def send(info, line, timeout=10):
     """Type `line` into the container's console. Raises OSError/RuntimeError when it can't."""
     if rollover.DOCKER_API:
