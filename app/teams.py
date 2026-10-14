@@ -18,7 +18,7 @@ import time
 from contextlib import closing
 
 FILE = os.environ.get("TEAMS_FILE") or "/shared/teams.db"
-MAX_MEMBERS = max(2, int(os.environ.get("TEAMS_MAX_MEMBERS", "12") or 12))
+MAX_MEMBERS = max(0, int(os.environ.get("TEAMS_MAX_MEMBERS", "0") or 0))      # 0: no limit
 LINK_TTL = 15 * 60
 LEAGUES = ("ranked", "unranked", "both")
 CATEGORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .&'-]{0,19}$")     # e.g. Casual, Competitive, Street, Park, S.K.A.T.E.
@@ -58,7 +58,7 @@ HELP = [
 class Teams:
     def __init__(self, path=None, max_members=None):
         self.path = path or FILE
-        self.max_members = max_members or MAX_MEMBERS
+        self.max_members = MAX_MEMBERS if max_members is None else max_members
 
     # ---- the file ---------------------------------------------------------------------------------
     def run(self, fn, write=True):
@@ -209,7 +209,7 @@ class Teams:
                 invited = cur.execute("SELECT 1 FROM invites WHERE team = ? AND steam_id = ?", (team["id"], steam_id)).fetchone()
                 if not team["open"] and not invited:
                     return fail(f"[{team['tag'].upper()}] {team['name']} is invite only. Ask its owner for an invite.")
-                if self.size(cur, team["id"]) >= self.max_members:
+                if self.max_members and self.size(cur, team["id"]) >= self.max_members:
                     return fail(f"That team is full ({self.max_members} members).")
                 self.add(cur, team["id"], steam_id)
                 out["lines"] = [f"You joined [{team['tag'].upper()}] {team['name']}."]
