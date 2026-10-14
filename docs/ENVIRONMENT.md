@@ -219,6 +219,7 @@ These are read by the image's own scripts on every start and are not stored in `
 - Typing `update` in the console (`docker attach`) installs the latest release at once, in any policy.
 - Downloads come from the release's `launcher.json` and are checked against its SHA-256 before anything is replaced. The previous version is kept in `/data/server.old`; if the new server stops within 3 minutes it is rolled back and the `updates-admin` feed (else `admin`) says so.
 - The container keeps running through an update: the entrypoint runs the server as a child and restarts it. Console input is passed through as before.
+- **A pulled release:** if ReSkate's latest goes back to an older version than the one running (as 2.0.9 and 2.0.8 went back to 2.0.7), players on the latest can't join any more. Once two checks in a row see it, `auto` goes back to the latest the same way it installs an update (same policy and countdown, **RELEASE PULLED** in `updates-admin`), built from the image's own files rather than over the pulled ones. `/data/server` keeps that version over an image that is not newer than the pulled release, so pulling the same image again does not undo it. `pinned` posts **RELEASE PULLED** with the image tag to go back to.
 
 <br/>
 

@@ -358,6 +358,7 @@ class Notifier:
         self.channel = (os.environ.get("DISCORD_APPROVAL_CHANNEL") or "").strip()
         self.players = set()
         self.busy = None             # release version being handled
+        self.pulled = None           # (latest, running) when a check saw the running release pulled
         self.lock = threading.Lock()
         self.installing = threading.Lock()
         board_hook = Hook(hooks["leaderboard"] or hooks["public"], name, scope="leaderboard")
@@ -478,17 +479,25 @@ class Notifier:
             return
         version, have = info["version"], self.running()
         self.news(version)
-        if updater.numbers(version) <= updater.numbers(have):
+        if updater.numbers(version) == updater.numbers(have):
             if now:
                 print(f"[update] already on the latest ReSkate release ({have})", flush=True)
             return
+        if updater.numbers(version) < updater.numbers(have):
+            # ReSkate pulled the release this server runs; act once two checks in a row say so
+            seen, self.pulled = self.pulled, (version, have)
+            if seen != self.pulled and not now:
+                note(f"ReSkate's latest is {version}, older than {have}: checking again before going back")
+                return
+        else:
+            self.pulled = None
         if self.mode != "auto":
             return self.pinned_notice(version, have)
         if now:
             threading.Thread(target=self.apply, args=(info, 0), daemon=True).start()
             return
         state = read_json(STATE)
-        if state.get("version") == version and state.get("declined"):
+        if state.get("version") == version and state.get("from", have) == have and state.get("declined"):
             return
         with self.lock:
             if self.busy == version:
@@ -500,18 +509,24 @@ class Notifier:
         version = info["version"]
         try:
             state = read_json(STATE)
-            if state.get("version") != version:
-                state = {"version": version}
+            if state.get("version") != version or state.get("from", have) != have:
+                state = {"version": version, "from": have}
+            back = updater.numbers(version) < updater.numbers(have)
             how = {
                 "instant": "Installing it now.",
                 "timed": f"Installing it in {self.countdown} min (sooner if nobody is on).",
                 "scheduled": f"Installing it at the next update slot ({os.environ.get('UPDATE_SCHEDULE')} UTC).",
                 "ask": "Waiting for approval.",
             }[self.policy]
+            if back:
+                text = (f"**RELEASE PULLED**: ReSkate **{have}** was pulled, ReSkate's latest is **{version}** again "
+                        f"and players on it can't join this server. Going back to **{version}**: {how} "
+                        "`update` in the console does it now.")
+            else:
+                text = (f"**UPDATE AVAILABLE**: ReSkate **{version}** is out, this server runs **{have}**. {how} "
+                        f"`update` in the console installs it now.\nhttps://github.com/{REPO}/releases/tag/v{version}")
             if not state.get("announced"):
-                if self.upd.send(f"**UPDATE AVAILABLE**: ReSkate **{version}** is out, this server runs "
-                                 f"**{have}**. {how} `update` in the console installs it now.\n"
-                                 f"https://github.com/{REPO}/releases/tag/v{version}", ping=self.policy == "ask"):
+                if self.upd.send(text, ping=self.policy == "ask" or back):
                     state["announced"] = True
                     write_json(STATE, state)
             if self.policy == "scheduled":
@@ -529,8 +544,9 @@ class Notifier:
                     self.busy = None
 
     def outdated(self, version):
-        """False once something else (console `update`) already installed this version."""
-        return updater.numbers(self.running()) < updater.numbers(version)
+        """False once something else (console `update`) already installed this version. A version
+        older than the running one is a pulled release going back, so any difference counts."""
+        return updater.numbers(self.running()) != updater.numbers(version)
 
     def wait_for_slot(self, version):
         days, hour, minute = self.schedule
@@ -544,9 +560,10 @@ class Notifier:
         version = info["version"]
         if not self.outdated(version) or not self.installing.acquire(blocking=False):
             return                   # released by event() once the install is done or failed
-        print(f"[update] downloading ReSkate {version}", flush=True)
+        back = updater.numbers(version) < updater.numbers(self.running())
+        print(f"[update] downloading ReSkate {version}" + (" (going back, the newer one was pulled)" if back else ""), flush=True)
         try:
-            staged = updater.stage(info)
+            staged = updater.stage(info, self.running() if back else "")
         except Exception as e:
             print(f"[update] ReSkate {version} not installed: {e}", flush=True)
             self.event("failed", version=version, error=str(e))
@@ -616,8 +633,15 @@ class Notifier:
         return False
 
     def pinned_notice(self, latest, running):
-        published = on_hub(latest)
         state = read_json(PINNED_STATE)
+        if updater.numbers(latest) < updater.numbers(running):   # ReSkate pulled the release in this image
+            if state.get("pulled") != running and self.upd.send(
+                    f"**RELEASE PULLED**: ReSkate **{running}** was pulled, ReSkate's latest is **{latest}** again and "
+                    f"players on it can't join this server. Go back with the image `{HUB}:{latest}` "
+                    f"(`RESKATE_VERSION={latest} docker compose up -d`), or set `UPDATE_MODE=auto`.", ping=True):
+                write_json(PINNED_STATE, {**state, "pulled": running})
+            return
+        published = on_hub(latest)
         if state.get("version") == latest and (state.get("published") or not published):
             return                                          # already announced, nothing new to say
         if published:

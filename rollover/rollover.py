@@ -212,8 +212,10 @@ class Instance:
         self.managed = labels.get(LABEL) == "true"
         self.generation = int(labels.get("reskate.generation") or 0)   # newer copy of the same version
 
-    def rank(self):
-        return numbers(self.version), self.generation
+    def rank(self, latest=""):
+        """Newest first; a version above ReSkate's latest was pulled again and ranks below the rest."""
+        pulled = bool(latest) and numbers(self.version) > numbers(latest)
+        return not pulled, numbers(self.version), self.generation
 
 
 class Rollover:
@@ -268,10 +270,10 @@ class Rollover:
         live = [s for s in instances if s.running]
         if not live:
             return
-        newest = max(live, key=Instance.rank)
+        newest = max(live, key=lambda s: s.rank(latest))
         # drain: older instances stop once the newest is healthy and they have been empty long enough
         for s in live:
-            if s is newest or s.rank() >= newest.rank():
+            if s is newest or s.rank(latest) >= newest.rank(latest):
                 continue
             if s.name in self.protect:
                 self.once(("protect", s.name), f"Server {number}: {s.name} ({s.version}) is protected, leaving it running.")
@@ -287,6 +289,16 @@ class Rollover:
                 return self.once(("protect-new", newest.name, latest),
                                  f"Server {number}: {what}, {newest.name} is protected, nothing started.")
             return self.roll(number, server, newest, live, instances, latest, what, latest)
+        if numbers(newest.version) > numbers(latest):   # ReSkate pulled it again: back onto its latest
+            what = f"ReSkate {newest.version} was pulled, {latest} is the latest again"
+            if newest.name in self.protect:
+                return self.once(("protect-back", newest.name, latest),
+                                 f"Server {number}: {what}, {newest.name} is protected, nothing started.")
+            if not hub_has(self.repo, latest):
+                return self.once(("back-no-image", latest),
+                                 f"Server {number}: {what}, but {self.repo}:{latest} is not on Docker Hub; "
+                                 "going back is up to you.")
+            return self.roll(number, server, newest, live, instances, latest, what, f"back:{latest}", back=True)
         if len(live) > 1 or not newest.healthy or newest.name in self.protect:
             return                                     # mid-rollover: one change at a time
         if self.lacks_mods(server, newest):
@@ -301,8 +313,9 @@ class Rollover:
             key = "mods:" + ",".join(f"{o}-{n}-{new}" for o, n, new, _ in updates)
             self.roll(number, server, newest, live, instances, newest.version, what, key, mods=True)
 
-    def roll(self, number, server, newest, live, instances, version, what, key, mods=False):
-        """Bring the server onto `version` (or onto new mods): in place when empty, else a copy."""
+    def roll(self, number, server, newest, live, instances, version, what, key, mods=False, back=False):
+        """Bring the server onto `version` (or onto new mods, or back from a pulled release onto
+        `version`'s image): in place when empty, else a copy."""
         if not mods and not self.image_ready(version):
             return
         count = players(newest.info)
@@ -329,6 +342,9 @@ class Rollover:
                 return self.once(("busy", number, key),
                                  f"Server {number}: {what}, but slot {slot.upper()} still runs "
                                  f"{busy[0].name}; waiting until it is stopped.")
+        if back:      # its own name: the stopped copy of `version` from before is usually still there
+            return self.start_copy(number, server, newest, slot, version, count, instances, what,
+                                   suffix=time.strftime("-p%m%d%H%M", time.gmtime()), tag=version, back=True)
         self.start_copy(number, server, newest, slot, version, count, instances, what,
                         suffix=time.strftime("-m%m%d%H%M", time.gmtime()) if mods else "")
 
@@ -493,7 +509,7 @@ class Rollover:
                     return s.env["STEAM_TOKEN"]
         return token
 
-    def start_copy(self, number, server, old, slot, version, count, instances, what, suffix="", tag=None):
+    def start_copy(self, number, server, old, slot, version, count, instances, what, suffix="", tag=None, back=False):
         s = server["slots"][slot]
         token = self.token(number, slot, instances)
         if not token:
@@ -529,8 +545,9 @@ class Rollover:
                    SERVER_NAME=server_name(self.cfg, number, server, version), RESKATE_SERVER=str(number))
         for k in ("AUTO_UPDATE", "UPDATE_MODE", "UPDATE_POLICY", "RESKATE_IMAGE_VERSION", "RESKATE_IMAGE_REVISION", "PATH",
                   "LD_LIBRARY_PATH", "HOME", "SteamAppId"):
-            if suffix and k in ("UPDATE_MODE", "UPDATE_POLICY") and k in env:
+            if suffix and not back and k in ("UPDATE_MODE", "UPDATE_POLICY") and k in env:
                 continue                   # same release again: keep how the old one was told to update
+            # (going back runs the image's own server: an auto copy would keep the pulled one in /data/server)
             env.pop(k, None)               # image defaults come back from the image
         if install:                        # run the installed release; later ones are ours to roll out
             env.update(UPDATE_MODE="auto", UPDATE_POLICY="ask")

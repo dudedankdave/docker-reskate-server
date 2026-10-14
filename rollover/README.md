@@ -14,6 +14,13 @@ each new release per server:
 
 So most of the time each server runs one container; two only while the old one still has players.
 
+**A release ReSkate pulls again** (its latest goes back, as 2.0.9 and 2.0.8 went back to 2.0.7) is
+handled the same way the other way round: a version above ReSkate's latest counts as older than the
+latest, so a copy on the latest keeps running and the pulled one drains. A server that only runs the
+pulled version goes back onto the latest's Docker Hub image (in place when empty, else a copy, named
+`<name>-p<MMDDHHMM>`), with the image's own server (`UPDATE_MODE` left out, so `/data/server` does not
+keep the pulled release).
+
 **Map and mod updates** work the same way. Every `mod_check_minutes` (default `30`) the rollover asks
 each server, with the image's own `mods.py`, whether an unpinned `MODS` entry has a newer version on
 Thunderstore. If so, an empty server is restarted (mods install on start); a busy one gets a copy in
