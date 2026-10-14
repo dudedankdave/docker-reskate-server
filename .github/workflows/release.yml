@@ -38,6 +38,7 @@ on:
       - slim/**
       - app/**
       - rollover/*.py
+      - rollover/servers.example.json
       - bot/*.py
       - modules/**
       - stack/**
