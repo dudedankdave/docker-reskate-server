@@ -193,7 +193,7 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - **`chat`**: only the in-game chat, as `Name: message`.
 - **`leaderboard`**: the [leaderboard](#ranked-and-leaderboard). Without one, it goes to the `public` webhooks.
 - **`updates`**: each official ReSkate release, once: **ReSkate 2.0.8 is out.** with the release link. No pings, no image news, nothing about this server, so it fits a public channel. Every server posts the same news: give it to one server only.
-- **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **Image available** (the new image is on Docker Hub), countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
+- **`updates-admin`**: this server's update messages, taken out of `admin`: **UPDATE AVAILABLE** (with what this server runs and how to update it), **RELEASE PULLED** (ReSkate went back to an older release), **Image available** (the new image is on Docker Hub), countdowns, **UPDATED** / **UPDATE FAILED** / **ROLLED BACK**. Pings `DISCORD_MENTION_IDS`. Several servers can share one; each posts under its own name.
 
 ```yaml
       WEBHOOK_URL_1: https://discord.com/api/webhooks/<id>/<token>

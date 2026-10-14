@@ -524,6 +524,7 @@ type updState struct {
 	Declined   bool   `json:"declined,omitempty"`
 	AskMessage string `json:"ask_message,omitempty"`
 	Installed  string `json:"installed,omitempty"`
+	From       string `json:"from,omitempty"`
 }
 
 func readState() updState {
@@ -555,6 +556,7 @@ type notifier struct {
 	mu                      sync.Mutex
 	players                 map[string]bool
 	busy                    string
+	pulled                  [2]string // latest, running when a check saw the running release pulled
 	installing              sync.Mutex
 	installingHeld          bool
 	leaderboard             *leaderboard
@@ -749,7 +751,9 @@ func (n *notifier) running() string {
 	return n.imageVersion
 }
 
-func (n *notifier) outdated(version string) bool { return cmpVersion(n.running(), version) < 0 }
+// outdated is false once something else (console `update`) already installed this version. A
+// version older than the running one is a pulled release going back, so any difference counts.
+func (n *notifier) outdated(version string) bool { return cmpVersion(n.running(), version) != 0 }
 
 func (n *notifier) updateLoop() {
 	time.Sleep(time.Minute)
@@ -770,11 +774,22 @@ func (n *notifier) check(now bool) {
 	}
 	have := n.running()
 	n.news(r.Version)
-	if cmpVersion(r.Version, have) <= 0 {
+	if cmpVersion(r.Version, have) == 0 {
 		if now {
 			fmt.Printf("[update] already on the latest ReSkate release (%s)\n", have)
 		}
 		return
+	}
+	if cmpVersion(r.Version, have) < 0 {
+		// ReSkate pulled the release this server runs; act once two checks in a row say so
+		seen := n.pulled
+		n.pulled = [2]string{r.Version, have}
+		if seen != n.pulled && !now {
+			note("ReSkate's latest is %s, older than %s: checking again before going back", r.Version, have)
+			return
+		}
+	} else {
+		n.pulled = [2]string{}
 	}
 	if n.mode != "auto" {
 		n.pinnedNotice(r.Version, have)
@@ -784,7 +799,7 @@ func (n *notifier) check(now bool) {
 		guarded(func() { n.apply(r, 0) })
 		return
 	}
-	if st := readState(); st.Version == r.Version && st.Declined {
+	if st := readState(); st.Version == r.Version && (st.From == "" || st.From == have) && st.Declined {
 		return
 	}
 	n.mu.Lock()
@@ -806,17 +821,23 @@ func (n *notifier) handle(r release, have string) {
 		n.mu.Unlock()
 	}()
 	st := readState()
-	if st.Version != r.Version {
-		st = updState{Version: r.Version}
+	if st.Version != r.Version || (st.From != "" && st.From != have) {
+		st = updState{Version: r.Version, From: have}
 	}
+	back := cmpVersion(r.Version, have) < 0
 	how := map[string]string{
 		"instant":   "Installing it now.",
 		"timed":     fmt.Sprintf("Installing it in %d min (sooner if nobody is on).", n.countdown),
 		"scheduled": fmt.Sprintf("Installing it at the next update slot (%s UTC).", os.Getenv("UPDATE_SCHEDULE")),
 		"ask":       "Waiting for approval.",
 	}[n.policy]
-	if !st.Announced && n.upd.send(fmt.Sprintf("**UPDATE AVAILABLE**: ReSkate **%s** is out, this server runs **%s**. %s "+
-		"`update` in the console installs it now.\nhttps://github.com/%s/releases/tag/v%s", r.Version, have, how, repo, r.Version), n.policy == "ask") {
+	text := fmt.Sprintf("**UPDATE AVAILABLE**: ReSkate **%s** is out, this server runs **%s**. %s "+
+		"`update` in the console installs it now.\nhttps://github.com/%s/releases/tag/v%s", r.Version, have, how, repo, r.Version)
+	if back {
+		text = fmt.Sprintf("**RELEASE PULLED**: ReSkate **%s** was pulled, ReSkate's latest is **%s** again and players on it "+
+			"can't join this server. Going back to **%s**: %s `update` in the console does it now.", have, r.Version, r.Version, how)
+	}
+	if !st.Announced && n.upd.send(text, n.policy == "ask" || back) {
 		st.Announced = true
 		writeState(st)
 	}
@@ -850,8 +871,16 @@ func (n *notifier) apply(r release, countdown int) {
 	n.mu.Lock()
 	n.installingHeld = true
 	n.mu.Unlock()
-	fmt.Printf("[update] downloading ReSkate %s\n", r.Version)
-	staged, err := stageRelease(r)
+	pulled := ""
+	if cmpVersion(r.Version, n.running()) < 0 {
+		pulled = n.running()
+	}
+	if pulled != "" {
+		fmt.Printf("[update] downloading ReSkate %s (going back, the newer one was pulled)\n", r.Version)
+	} else {
+		fmt.Printf("[update] downloading ReSkate %s\n", r.Version)
+	}
+	staged, err := stageRelease(r, pulled)
 	if err != nil {
 		fmt.Printf("[update] ReSkate %s not installed: %v\n", r.Version, err)
 		n.event("failed", map[string]string{"version": r.Version, "error": err.Error()})
@@ -971,14 +1000,25 @@ func (n *notifier) approved(r release, have string, st *updState) bool {
 }
 
 func (n *notifier) pinnedNotice(latest, running string) {
-	published := onHub(latest)
 	var st struct {
 		Version   string `json:"version"`
 		Published bool   `json:"published"`
+		Pulled    string `json:"pulled,omitempty"`
 	}
 	if raw, err := os.ReadFile(pinnedState); err == nil {
 		_ = json.Unmarshal(raw, &st)
 	}
+	if cmpVersion(latest, running) < 0 { // ReSkate pulled the release in this image
+		if st.Pulled != running && n.upd.send(fmt.Sprintf("**RELEASE PULLED**: ReSkate **%s** was pulled, ReSkate's latest is **%s** again "+
+			"and players on it can't join this server. Go back with the image `%s:%s` (`RESKATE_VERSION=%s docker compose up -d`), "+
+			"or set `UPDATE_MODE=auto`.", running, latest, hub, latest, latest), true) {
+			st.Pulled = running
+			raw, _ := json.Marshal(st)
+			_ = os.WriteFile(pinnedState, raw, 0o644)
+		}
+		return
+	}
+	published := onHub(latest)
 	if st.Version == latest && (st.Published || !published) {
 		return // already announced, nothing new to say
 	}
