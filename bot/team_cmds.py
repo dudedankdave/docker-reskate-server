@@ -284,6 +284,6 @@ def add(bot, read_db=None):
 
 
 def start(bot):
-    """After the client is built: the buttons and the application loop."""
+    """The admin bot, in setup_hook: the Accept/Deny buttons and the loop that posts new applications."""
     bot.add_dynamic_items(Decision)
     bot.loop.create_task(run_applications(bot))

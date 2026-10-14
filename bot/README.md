@@ -21,6 +21,22 @@ a server; restarts and updates come in a later phase and will only run on empty 
   `shutdown`, `update` and `reload` are refused: restarts are only done on an empty server. Every console use is
   posted to the server's `admin` channel.
 
+## Three bots
+One image, three instances chosen by `BOT_ROLE` (or `"role"` in `bot.json`), each with its own Discord application and token:
+
+| Role | Name | Does |
+|---|---|---|
+| `stats` | Coach Frank | status cards, leaderboard posts, release news, `/servers /players /top /rank /boards /player /stats` |
+| `chat` | Vee | the `public` and `chat` feeds (joins, leaves, map changes, in-game chat) |
+| `admin` | Meat Man | the `admin` and `log` feeds, console channels, `/say /announce /msg /kick /console /coach /schedule-* /setting-* /message-*`, audit posts |
+| `all` | (default) | everything, as before the split |
+
+They share `bot.json` (channels, `admin_roles`) and the `/shared` volume; each keeps its own state file (`BOT_STATE`).
+Vee needs no slash commands and no privileged intents; Meat Man needs the Message Content intent only for `console_chat`.
+Invite each with the same permissions as in Setup. To switch over: start `bot-chat` and `bot-admin` (profile `split`, tokens
+`DISCORD_TOKEN_CHAT` / `DISCORD_TOKEN_ADMIN` in the host environment), check them, then set `BOT_ROLE=stats` on `bot` so the
+feeds and the console are not served twice. Keep the three in different display names/avatars in the Discord developer portal.
+
 ## Setup
 1. discord.com/developers/applications > New Application > Bot > Reset Token (copy it once).
    No privileged intents are needed in phase 1.
@@ -43,7 +59,7 @@ The server list comes from `/config/servers.json`, like the rollover. The `/shar
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
 
 ## /team
-`/team apply|profile|info|list|join|leave|cancel|invite|kick|owner|leader|set|disband|link` (needs the bridge). `/team profile` shows the team's card: logo, description, league, category, leaders, members and stats. Applications are posted into `teams_channel` with Accept/Deny buttons for `admin_roles` members; the decision goes to the bridge, which tells the applicant in game (else a Discord DM). `/team link <code>` ties a Discord account to a player (the code comes from `/team link` in game). `/players` shows who is on with their `[TAG]`, `/top`, `/rank` and the leaderboard channel show tags. See [Teams in the README](../README.md#teams).
+`/team apply|profile|info|list|join|leave|cancel|invite|kick|owner|leader|set|disband|link` (needs the bridge). `/team profile` shows the team's card: logo, description, league, category, leaders, members and stats. The `/team` commands belong to the `stats` bot (Coach Frank); the `admin` bot (Meat Man) posts applications into `teams_channel` with Accept/Deny buttons for `admin_roles` members; the decision goes to the bridge, which tells the applicant in game (else a Discord DM). `/team link <code>` ties a Discord account to a player (the code comes from `/team link` in game). `/players` shows who is on with their `[TAG]`, `/top`, `/rank` and the leaderboard channel show tags. See [Teams in the README](../README.md#teams).
 
 ## /schedule-add, /schedule-remove, /schedule-list
 Admins only. Repeating announcements with an interval per line, kept in `/shared/announcements.json` and sent by the
