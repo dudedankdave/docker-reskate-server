@@ -50,10 +50,45 @@ services:
       RESKATE_MODE: bot
       <<: *bridge-env
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
+      BOT_ROLE: ${BOT_ROLE:-all}   # all = one bot does everything; set stats once Vee and Meat Man run (bot/README.md, "Three bots")
       BOT_GUILD: "1558637403869155488"
       BOT_STATUS_CHANNEL: ""
     volumes:
       - reskate-shared:/shared      # the leaderboard databases, only read (SQLite's WAL needs the folder writable)
+      - bot-state:/state
+      # - ./bot.json:/config/bot.json:ro
+
+  # The other two bots of the split (profile "split": `docker compose -p tools --profile split up -d`).
+  # Each has its own Discord application and token; bot.json is shared.
+  bot-chat:                       # Vee: public and chat feeds
+    <<: *module
+    container_name: reskate-bot-chat
+    profiles: [split]
+    environment:
+      RESKATE_MODE: bot
+      <<: *bridge-env
+      DISCORD_TOKEN: ${DISCORD_TOKEN_CHAT:-}
+      BOT_ROLE: chat
+      BOT_STATE: /state/bot-chat.json
+      BOT_GUILD: "1558637403869155488"
+    volumes:
+      - reskate-shared:/shared
+      - bot-state:/state
+      # - ./bot.json:/config/bot.json:ro
+
+  bot-admin:                      # Meat Man: admin and log feeds, console, settings
+    <<: *module
+    container_name: reskate-bot-admin
+    profiles: [split]
+    environment:
+      RESKATE_MODE: bot
+      <<: *bridge-env
+      DISCORD_TOKEN: ${DISCORD_TOKEN_ADMIN:-}
+      BOT_ROLE: admin
+      BOT_STATE: /state/bot-admin.json
+      BOT_GUILD: "1558637403869155488"
+    volumes:
+      - reskate-shared:/shared      # /shared/settings and announcements.json are written
       - bot-state:/state
       # - ./bot.json:/config/bot.json:ro
 

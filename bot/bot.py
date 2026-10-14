@@ -32,6 +32,7 @@ import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
 import messages  # noqa: E402  (bot/messages.py: join and Ranked/Unranked texts in the settings files)
 import announcements  # noqa: E402  (bot/announcements.py: /shared/announcements.json)
+import roles  # noqa: E402  (bot/roles.py: stats / chat / admin split)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -80,7 +81,9 @@ def table(rows):
 class Bot(discord.Client):
     def __init__(self, cfg):
         intents = discord.Intents.default()
-        intents.message_content = bool(cfg.get("console_chat"))   # privileged: enable it in the developer portal too
+        self.role = roles.role_of(cfg)
+        self.jobs = roles.ROLES[self.role]
+        intents.message_content = bool(cfg.get("console_chat")) and self.jobs["console"]   # privileged: enable it in the developer portal too
         super().__init__(intents=intents)
         self.cfg = cfg
         self.feeds = feeds.Feeds(self)
@@ -93,9 +96,11 @@ class Bot(discord.Client):
                 self.state = json.load(f)
         except (OSError, ValueError):
             pass
-        add_commands(self)
-        add_admin_commands(self)
-        coach.add(self)
+        if self.jobs["stats"]:
+            add_commands(self)
+        if self.jobs["console"]:
+            add_admin_commands(self)
+            coach.add(self)
 
     async def setup_hook(self):
         try:
@@ -107,14 +112,15 @@ class Bot(discord.Client):
                 await self.tree.sync()
         except discord.HTTPException as e:   # e.g. 403: invited without the applications.commands scope
             say(f"could not register the slash commands ({e}); invite the bot with the applications.commands scope. Carrying on without them")
-        if self.cfg.get("status_channel"):
+        if self.jobs["stats"] and self.cfg.get("status_channel"):
             self.loop.create_task(self.cards())
-        if self.cfg.get("servers"):
+        if self.jobs["scopes"] and self.cfg.get("servers"):
             self.loop.create_task(self.run_feeds())
-        posts.start(self, read_db)
+        if self.jobs["stats"]:
+            posts.start(self, read_db)
 
     async def on_ready(self):
-        say(f"logged in as {self.user}")
+        say(f"logged in as {self.user} (role {self.role})")
 
     def save(self):
         try:
@@ -172,7 +178,7 @@ class Bot(discord.Client):
                 say(f"audit post failed: {e}")
 
     async def on_message(self, message):
-        if message.author.bot or not self.cfg.get("console_chat"):
+        if message.author.bot or not self.cfg.get("console_chat") or not self.jobs["console"]:
             return
         for number, cfg in (self.cfg.get("servers") or {}).items():
             if cfg.get("console") and str(message.channel.id) == str(cfg["console"]):
