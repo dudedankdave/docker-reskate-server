@@ -364,7 +364,8 @@ class Teams:
         return out
 
     def config(self, cur, out, mine, args, fail):
-        key, value = args.get("key", "").lower(), args.get("value", "")
+        key = (args.get("key") or args.get("setting") or args.get("field") or "").lower()
+        value = args.get("value", "")
         if key == "tag":
             if mine["role"] != "owner":
                 return fail("Only the owner can change the tag.")

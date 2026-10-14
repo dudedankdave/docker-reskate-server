@@ -129,6 +129,7 @@ class ProfileTest(TeamsTest):
         self.assertFalse(self.act(B, "set", key="logo", value="javascript:alert(1)")["ok"])
         self.assertFalse(self.act(B, "set", key="league", value="pro")["ok"])
         self.assertFalse(self.act(B, "set", key="tag", value="ZZ")["ok"])
+        self.assertTrue(self.act(B, "set", setting="motto", value="Push")["ok"])         # key, setting or field
         self.assertFalse(self.act(B, "kick", player="Anna")["ok"])               # the owner stays
         self.assertTrue(self.act(B, "kick", player="Cleo")["ok"])
         p = self.t.profile("alpha bravo")

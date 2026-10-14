@@ -130,7 +130,8 @@ class Decision(discord.ui.DynamicItem[discord.ui.Button], template=r"team:(?P<wh
             return await i.response.send_message("Admins only.", ephemeral=True)
         await i.response.defer()
         try:
-            result = await asyncio.to_thread(bridgeclient.team_decide, self.application, self.what == "accept", i.user.display_name)
+            who = f"{i.user.display_name} ({i.user.id})"           # the member who pressed the button, never the bot
+            result = await asyncio.to_thread(bridgeclient.team_decide, self.application, self.what == "accept", who)
         except bridgeclient.BridgeError as e:
             return await i.followup.send(f"Could not decide: {e}", ephemeral=True)
         if not result.get("ok"):
@@ -138,7 +139,7 @@ class Decision(discord.ui.DynamicItem[discord.ui.Button], template=r"team:(?P<wh
         apps = await asyncio.to_thread(bridgeclient.team_applications, "accepted" if self.what == "accept" else "denied")
         app = next((a for a in apps if a["id"] == self.application), None)
         if app:
-            await i.message.edit(embed=application_embed(app, "accepted" if self.what == "accept" else "denied", i.user.display_name), view=None)
+            await i.message.edit(embed=application_embed(app, "accepted" if self.what == "accept" else "denied", who), view=None)
         else:
             await i.message.edit(view=None)
         await tell(bot, result.get("notify"))
