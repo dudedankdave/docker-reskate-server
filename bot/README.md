@@ -21,6 +21,22 @@ a server; restarts and updates come in a later phase and will only run on empty 
   `shutdown`, `update` and `reload` are refused: restarts are only done on an empty server. Every console use is
   posted to the server's `admin` channel.
 
+## Three bots
+One image, three instances chosen by `BOT_ROLE` (or `"role"` in `bot.json`), each with its own Discord application and token:
+
+| Role | Name | Does |
+|---|---|---|
+| `stats` | Coach Frank | status cards, leaderboard posts, release news, `/servers /players /top /rank /boards /player /stats` |
+| `chat` | Vee | the `public` and `chat` feeds (joins, leaves, map changes, in-game chat) |
+| `admin` | Meat Man | the `admin` and `log` feeds, console channels, `/say /announce /msg /kick /console /coach /schedule-* /setting-* /message-*`, audit posts |
+| `all` | (default) | everything, as before the split |
+
+They share `bot.json` (channels, `admin_roles`) and the `/shared` volume; each keeps its own state file (`BOT_STATE`).
+Vee needs no slash commands and no privileged intents; Meat Man needs the Message Content intent only for `console_chat`.
+Invite each with the same permissions as in Setup. To switch over: start `bot-chat` and `bot-admin` (profile `split`, tokens
+`DISCORD_TOKEN_CHAT` / `DISCORD_TOKEN_ADMIN` in the host environment), check them, then set `BOT_ROLE=stats` on `bot` so the
+feeds and the console are not served twice. Keep the three in different display names/avatars in the Discord developer portal.
+
 ## Setup
 1. discord.com/developers/applications > New Application > Bot > Reset Token (copy it once).
    No privileged intents are needed in phase 1.
