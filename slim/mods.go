@@ -348,6 +348,18 @@ func installMod(owner, name, version, url, old string) error {
 	} else if err := installLocal(target, owner, name, version, url); err != nil {
 		return err
 	}
+	maps := mapsIn(target)
+	msg := fmt.Sprintf("%s-%s %s: installed", owner, name, version)
+	if len(maps) > 0 {
+		msg += ", maps: " + strings.Join(maps, ", ") + " (use as MAP)"
+	}
+	mlog("%s", msg)
+	recordModEvent(owner, name, old, version, maps)
+	return nil
+}
+
+// mapsIn: the display names of the maps a mod adds (its reskate-levels.json), nil for none.
+func mapsIn(target string) []string {
 	var lv struct {
 		Levels []struct {
 			DisplayName string `json:"displayName"`
@@ -361,13 +373,22 @@ func installMod(owner, name, version, url, old string) error {
 			}
 		}
 	}
-	msg := fmt.Sprintf("%s-%s %s: installed", owner, name, version)
-	if len(maps) > 0 {
-		msg += ", maps: " + strings.Join(maps, ", ") + " (use as MAP)"
+	return maps
+}
+
+// logMaps: one line per map of an installed mod with the version in place, for the status cards:
+// [mods] map Skate3Improved: 333-Skate_3_Improved 1.0.8
+func logMaps(owner, name string) { logMapsIn(filepath.Join(modsDir, name), owner, name) }
+
+func logMapsIn(target, owner, name string) {
+	if st, err := os.Stat(target); err != nil || !st.IsDir() {
+		return
 	}
-	mlog("%s", msg)
-	recordModEvent(owner, name, old, version, maps)
-	return nil
+	if have := manifestVersion(target); have != "" {
+		for _, m := range mapsIn(target) {
+			mlog("map %s: %s-%s %s", m, owner, name, have)
+		}
+	}
 }
 
 func ensureMod(owner, name, version string, update, dependency bool, seen map[string]bool) error {
@@ -424,6 +445,7 @@ func ensureMod(owner, name, version string, update, dependency bool, seen map[st
 			return err
 		}
 	}
+	logMaps(owner, name)
 	for _, dep := range m.Dependencies {
 		if d := idRe.FindStringSubmatch(dep); d != nil {
 			if err := ensureMod(d[1], d[2], d[3], update, true, seen); err != nil {

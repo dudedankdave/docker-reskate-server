@@ -40,6 +40,7 @@ LEFT = re.compile(r"^.+ left \(.*\)( \[.*\])?$")
 NETWORK = re.compile(r"^\[network\] (\d+) players, ")
 MAP = re.compile(r"^(?:Everyone has loaded (.+)|\[rotation\] Changing the map to (.+)|Changing map to (.+?))\.?$")
 CODE = re.compile(r"^Join code: (\S+)$")
+MAP_MOD = re.compile(r"^\[mods\] map (.+): (\S+) (\S+)$")     # map -> the mod and version that adds it
 STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z (.*)$")
 
 GREEN, YELLOW, RED, BLURPLE = 0x2ECC71, 0xF1C40F, 0xE74C3C, 0x5865F2
@@ -52,6 +53,7 @@ class Server:
         self.id, self.started = info["Id"], info["State"].get("StartedAt", "")
         self.last = (0, 0)                     # (seconds, nanoseconds) of the last line read
         self.players, self.max, self.map, self.code = 0, None, None, None
+        self.mods = {}                         # map display name (lower case) -> (mod, version)
         self.ok = False                        # the log was read at least once
 
     def read(self, info):
@@ -83,6 +85,14 @@ class Server:
             self.map = next(g for g in mp.groups() if g)
         elif c := CODE.match(text):
             self.code = c.group(1)
+        elif mm := MAP_MOD.match(text):
+            self.mods[mm.group(1).strip().lower()] = (mm.group(2), mm.group(3))
+
+
+def map_mod(s):
+    """(mod, version) of the map a server plays, None for a built-in map or an image that does
+    not log its maps yet."""
+    return (getattr(s, "mods", None) or {}).get((s.map or "").strip().lower())
 
 
 def version_of(info):
@@ -179,6 +189,9 @@ class Board:
             up = health in (None, "healthy") and s.map is not None
             players = s.players if s.ok else None
             most, mp = s.max or env.get("MAX_PLAYERS"), s.map or env.get("MAP")
+            mod = map_mod(s)
+            if mp and mod:
+                mp += f"\n`{mod[0]} {mod[1]}`"
             code = s.code if up and JOIN_CODE else None
             if code:
                 codes.append((slot_of(server, info), version_of(info), code))
@@ -192,7 +205,11 @@ class Board:
             for other in running[1:]:          # an older version still draining its players
                 o = self.follow(other)
                 total += o.players if o.ok else 0
-                draining.append(f"**{o.players if o.ok else '?'}** on {version_of(other) or 'old'}")
+                what = version_of(other) or "old"
+                old_mod = map_mod(o)
+                if old_mod and what == version_of(info) and old_mod != mod:   # a map update, not a release
+                    what += f", {old_mod[0]} {old_mod[1]}"
+                draining.append(f"**{o.players if o.ok else '?'}** on {what}")
                 if JOIN_CODE and o.code and (other["State"].get("Health") or {}).get("Status") in (None, "healthy"):
                     codes.append((slot_of(server, other), version_of(other), o.code))
         fields = [

@@ -93,6 +93,12 @@ never fills up. Players come from the server log like above; a server with no ru
 as offline, one that is still coming up as starting, and an older version still draining its players
 is listed on its server's card.
 
+When the map being played comes from a mod, the Map row names the mod and its version
+(`Skate3Improved` over `333-Skate_3_Improved 1.0.8`), from the `[mods] map <map>: <mod> <version>` lines
+the server logs at start. While an older copy only drains for a map update (same ReSkate version), its
+row says which map version it still has (`**12** on 2.0.7, 333-Skate_3_Improved 1.0.7`). Servers on an
+image from before these lines show the map name only.
+
 The Discord bot has the same cards as a message of its own (`BOT_STATUS_CHANNEL`), so the stack no
 longer runs this; for a setup without the bot it still runs as `RESKATE_MODE=status` of the tools image
 (`STATUS_WEBHOOK` set, a volume at `/state`).

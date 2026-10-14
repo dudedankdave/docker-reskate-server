@@ -296,14 +296,28 @@ def install(owner, name, version, url, old=None):
         os.rename(work, target)
         rmtree(backup)
         rmtree(TMP_DIR)
-    maps = []
-    try:
-        with open(os.path.join(target, "reskate-levels.json"), encoding="utf-8-sig") as f:
-            maps = [lv["displayName"] for lv in json.load(f).get("levels", []) if "displayName" in lv]
-    except (OSError, ValueError, KeyError):
-        pass
+    maps = maps_in(target)
     log(f"{owner}-{name} {version}: installed" + (f", maps: {', '.join(maps)} (use as MAP)" if maps else ""))
     record_event(owner, name, old, version, maps)
+
+
+def maps_in(target):
+    """The display names of the maps a mod adds (its reskate-levels.json), [] for none."""
+    try:
+        with open(os.path.join(target, "reskate-levels.json"), encoding="utf-8-sig") as f:
+            return [lv["displayName"] for lv in json.load(f).get("levels", []) if "displayName" in lv]
+    except (OSError, ValueError, KeyError, AttributeError):
+        return []
+
+
+def log_maps(owner, name):
+    """One line per map of an installed mod with the version in place, for the status cards:
+    [mods] map Skate3Improved: 333-Skate_3_Improved 1.0.8"""
+    target = os.path.join(MODS_DIR, name)
+    have = read_manifest(target).get("version_number") if os.path.isdir(target) else None
+    if have:
+        for m in maps_in(target):
+            log(f"map {m}: {owner}-{name} {have}")
 
 
 def ensure(owner, name, version, update, dependency=False, seen=None):
@@ -338,6 +352,7 @@ def ensure(owner, name, version, update, dependency=False, seen=None):
         log(f"{label}: {have} installed, newer {want} available (MODS_UPDATE=false)")
     else:
         install(owner, name, want, m["download_url"], have)
+    log_maps(owner, name)
     for dep in m.get("dependencies", []):
         d = ID.match(dep)
         if d:
