@@ -32,6 +32,7 @@ import coach  # noqa: E402  (bot/coach.py: the /coach dialog)
 import posts  # noqa: E402  (bot/posts.py: leaderboard messages and release news)
 import messages  # noqa: E402  (bot/messages.py: join and Ranked/Unranked texts in the settings files)
 import announcements  # noqa: E402  (bot/announcements.py: /shared/announcements.json)
+import team_cmds  # noqa: E402  (bot/team_cmds.py: /team, the admins' review of applications, tags)
 
 CONFIG = os.environ.get("BOT_CONFIG", "/config/bot.json")
 STATE = os.environ.get("BOT_STATE", "/state/bot.json")
@@ -70,10 +71,11 @@ def read_db(fn, league="ranked"):
         return None
 
 
-def table(rows):
+def table(rows, tags=None):
     if not rows:
         return "Nobody has points yet."
-    lines = [f"{i}. {r['name']} - {r['points']:,} pts ({r['wins']} wins, {r['played']} played)" for i, r in enumerate(rows, 1)]
+    tags = tags or {}
+    lines = [f"{i}. {team_cmds.with_tag(r, tags)} - {r['points']:,} pts ({r['wins']} wins, {r['played']} played)" for i, r in enumerate(rows, 1)]
     return "```\n" + "\n".join(lines) + "\n```"
 
 
@@ -96,6 +98,7 @@ class Bot(discord.Client):
         add_commands(self)
         add_admin_commands(self)
         coach.add(self)
+        team_cmds.add(self)
 
     async def setup_hook(self):
         try:
@@ -112,6 +115,7 @@ class Bot(discord.Client):
         if self.cfg.get("servers"):
             self.loop.create_task(self.run_feeds())
         posts.start(self, read_db)
+        team_cmds.start(self)
 
     async def on_ready(self):
         say(f"logged in as {self.user}")
@@ -216,6 +220,22 @@ class Bot(discord.Client):
             await asyncio.sleep(INTERVAL)
 
 
+def online_names(number):
+    """"[TAG] Name, Name ..." of the players on a server, from the bridge (empty without it)."""
+    if not team_cmds.available():
+        return ""
+    try:
+        people = team_cmds.bridgeclient.players(number)
+    except team_cmds.bridgeclient.BridgeError:
+        return ""
+    seen, names = set(), []
+    for p in sorted(people, key=lambda p: (not p["team"], p["team"], p["name"].lower())):
+        if p["steam_id"] not in seen:
+            seen.add(p["steam_id"])
+            names.append(f"`[{p['team']}]` {p['name']}" if p["team"] else p["name"])
+    return (", ".join(names))[:900]
+
+
 def add_commands(bot):
     tree = bot.tree
 
@@ -231,7 +251,7 @@ def add_commands(bot):
         await i.response.defer()
         await i.followup.send(embeds=await bot.payload())
 
-    @tree.command(name="players", description="Who is on a server (numbers; names are in the join/leave feed)")
+    @tree.command(name="players", description="Who is on a server, with their team")
     @app_commands.describe(server="Server number")
     @app_commands.autocomplete(server=servers_ac)
     async def players(i: discord.Interaction, server: str = ""):
@@ -247,6 +267,9 @@ def add_commands(bot):
                 continue
             t = targets[0]
             lines.append(f"**{role}**: {t.players}/{t.max or '?'} on {t.map or '?'}")
+            names = await asyncio.to_thread(online_names, n)
+            if names:
+                lines.append(names)
         await i.followup.send("\n".join(lines) or "Unknown server.")
 
     leagues = app_commands.choices(league=[app_commands.Choice(name="Ranked", value="ranked"),
@@ -266,7 +289,8 @@ def add_commands(bot):
         if result is None:
             return await i.response.send_message("No such board, or the leaderboard is not available.", ephemeral=True)
         b, rows = result
-        await i.response.send_message(f"**{b['name']}** ({league.title()})\n{table(rows)}")
+        tags = await asyncio.to_thread(team_cmds.team_tags)
+        await i.response.send_message(f"**{b['name']}** ({league.title()})\n{table(rows, tags)}")
 
     @tree.command(name="rank", description="Your or another player's rank")
     @app_commands.describe(player="Name (part of it) or SteamID", board="Board, as for /top", league="Ranked (default) or Unranked")
@@ -285,7 +309,8 @@ def add_commands(bot):
         if not r:
             return await i.response.send_message(f"{p['name']} has no points on {b['name']} yet.")
         place, total, row = r
-        await i.response.send_message(f"**{p['name']}** is #{place} of {total} on {b['name']}: {row['points']:,} pts, {row['wins']} wins, {row['played']} played.")
+        tags = await asyncio.to_thread(team_cmds.team_tags)
+        await i.response.send_message(f"**{team_cmds.with_tag(p, tags)}** is #{place} of {total} on {b['name']}: {row['points']:,} pts, {row['wins']} wins, {row['played']} played.")
 
     def find_player(cur, text):
         text = text.strip()

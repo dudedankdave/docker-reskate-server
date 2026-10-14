@@ -623,7 +623,7 @@ func entrypointMain(serverArgs []string) {
 		}
 		ours := func(c any) bool {
 			m, _ := c.(map[string]any)
-			for _, lc := range lbCommands {
+			for _, lc := range append(append([]map[string]any{}, lbCommands...), lbTeamCommand) {
 				if reflect.DeepEqual(map[string]any(lc), m) {
 					return true
 				}
@@ -644,8 +644,16 @@ func entrypointMain(serverArgs []string) {
 				}
 			}
 		}
+		teamsOn := false
+		if v, ok := env("TEAMS"); ok {
+			teamsOn = asBool("TEAMS", v)
+		}
 		if on {
-			for _, lc := range lbCommands {
+			all := append([]map[string]any{}, lbCommands...)
+			if teamsOn {
+				all = append(all, lbTeamCommand)
+			}
+			for _, lc := range all {
 				if !taken[lc["name"].(string)] {
 					commands = append(commands, map[string]any(lc))
 				}

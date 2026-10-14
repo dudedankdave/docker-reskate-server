@@ -36,6 +36,21 @@ def webhook_post(env):
     return post
 
 
+class BridgeTeams:
+    """The leaderboard's teams provider: the bridge keeps the teams (modules/bridgeclient.py)."""
+
+    @staticmethod
+    def tags():
+        return bridgeclient.team_tags()
+
+    @staticmethod
+    def act(who, verb, args):
+        try:
+            return bridgeclient.team_act(who, verb, args)
+        except bridgeclient.BridgeError as e:
+            return {"ok": False, "lines": [f"Teams are not available right now ({e})."]}
+
+
 class Module:
     def __init__(self):
         self.boards = {}         # (server, slot) -> Leaderboard
@@ -73,6 +88,7 @@ class Module:
                 number, slot = key
                 board = leaderboard.Leaderboard(lambda line, n=number, s=slot: bridgeclient.console(n, line, BY, s),
                                                 webhook_post(env), env)
+                board.teams = BridgeTeams()
                 if board.ok:
                     old = self.boards.get(key)
                     if old:                       # new settings: keep who is on, so nobody waits for a rejoin

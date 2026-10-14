@@ -75,7 +75,7 @@ CHECK_AFTER = 15      # seconds after joining before the mod report is taken as 
 CHAT_MAX = 200        # bytes in one chat line (multiplayer_chat_max_bytes)
 ASK_EVERY = 3         # seconds between two answers to the same player
 KINDS = ("general", "year", "month", "week", "event")
-VERBS = ("top", "rank", "boards", "props", "lb")
+VERBS = ("top", "rank", "boards", "props", "lb", "team")
 # The game modes with a board of their own next to every board: "All Time:jam", "Week 41:skate".
 MODES = {"jam": "Jam", "spot": "Spot Battle", "skate": "S.K.A.T.E.", "props": "Props"}
 MODE_OF = {"Jam": "jam", "throwdown": "jam", "Spot Battle": "spot", "S.K.A.T.E.": "skate"}
@@ -102,6 +102,7 @@ COMMANDS = [
     {"name": "props", "reply": RULE},
     {"name": "lb", "admin": True, "reply": RULE},
 ]
+TEAM_COMMAND = {"name": "team", "reply": RULE}   # added with TEAMS=true; the leaderboard module answers it through the bridge
 
 
 # Replies of the same commands in earlier builds: a command with one of these is ours, to be replaced.
@@ -371,6 +372,7 @@ class Leaderboard:
         """send(console line) types into the server; post(text) goes to Discord (or None). environ: the
         server's settings (default this process's env; the leaderboard module passes each server's)."""
         self.send, self.post, self.environ = send, post, environ
+        self.teams = None      # the leaderboard module sets a provider: tags() -> {SteamID64: tag}, act(who, verb, args) -> result
 
         def env(name, default=""):
             return globals()["env"](name, default, environ)
@@ -417,6 +419,7 @@ class Leaderboard:
         self.chat_at = {}      # kind -> time of the last chat post
         self.discord_at = time.time()
         self.started = time.time()
+        self.tags_at, self.tag_cache = 0.0, {}
 
     # ---- log lines ------------------------------------------------------------------
     def feed(self, line):
@@ -550,7 +553,8 @@ class Leaderboard:
         except Exception as e:                          # a bad command must not stop the log reader
             print(f"[leaderboard] /{verb} {arg!r}: {e!r}", flush=True)
             title, lines = "Leaderboard", ["Something went wrong with that command."]
-        title = f"{title} ({self.league})"
+        if verb != "team":
+            title = f"{title} ({self.league})"
         for text in [title] + lines:                    # after the server's own rule: the board, then one row per line
             self.send(fit(f"msg {steam_id} {text}", CHAT_MAX + 30))
 
@@ -580,7 +584,7 @@ class Leaderboard:
             return "Leaderboard", [f"No board called '{arg}'. Try /boards."]
         if not rows:
             return f"Top - {board['name']}", ["Nobody has points yet."]
-        return f"Top {len(rows)} - {board['name']}", [f"{i}. {r['name']}  {r['points']}" for i, r in enumerate(rows, 1)]
+        return f"Top {len(rows)} - {board['name']}", [f"{i}. {self.shown(r)}  {r['points']}" for i, r in enumerate(rows, 1)]
 
     def cmd_rank(self, steam_id, arg, now):
         def get(cur):
@@ -608,6 +612,65 @@ class Leaderboard:
         if rows is None:
             return "Leaderboard", [UNAVAILABLE]
         return "Boards", [f"{r['name']}{' (ended)' if r['closed_at'] else ''}  -  {r['n']} players" for r in rows]
+
+    # ---- teams ------------------------------------------------------------------------------------
+    def tag_map(self):
+        """{SteamID64: team tag}, from the teams provider (the bridge), looked up at most every 30 seconds."""
+        if self.teams is None:
+            return {}
+        if time.time() - self.tags_at > 30:
+            self.tags_at = time.time()
+            try:
+                self.tag_cache = self.teams.tags()
+            except Exception as e:           # no bridge, no teams: boards show names only
+                print(f"[leaderboard] teams: {e!r}", flush=True)
+        return self.tag_cache
+
+    def shown(self, row):
+        """A board row's name with its team tag: [TAG] Name."""
+        tag = self.tag_map().get(row["steam_id"]) if "steam_id" in row.keys() else None
+        return f"[{tag}] {row['name']}" if tag else row["name"]
+
+    def cmd_team(self, steam_id, arg, now):
+        """/team ...: apply for a team, join, leave, configure; the teams provider (the bridge) holds them."""
+        if self.teams is None:
+            return "Team", ["Teams are not available on this server."]
+        words = arg.split()
+        sub, rest = (words[0].lower() if words else "help"), " ".join(words[1:])
+        name = next((n for n, i in self.online.items() if i == steam_id), "")
+        if sub == "who":
+            tags = self.tag_map()
+            teamed = sorted((tags[i], n) for n, i in self.online.items() if i in tags)
+            lines = self.pack("Teams online:", [f"[{t}] {n}" for t, n in teamed])
+            return "Team", lines or ["Nobody from a team is on right now."]
+        args = {}
+        if sub == "apply":
+            tag, _, team = rest.partition(" ")
+            args = {"tag": tag, "name": team.strip()}
+        elif sub in ("info", "join"):
+            args = {"team": rest}
+        elif sub in ("invite", "kick", "owner"):
+            found = self.find_online(rest)
+            args = {"player": found[1] if found else rest}
+        elif sub == "set":
+            key, _, value = rest.partition(" ")
+            args = {"key": key, "value": value.strip()}
+        elif sub == "disband":
+            args = {"confirm": rest}
+        result = self.teams.act({"steam_id": steam_id, "name": name}, sub, args)
+        return "Team", [part for text in result.get("lines") or ["Done."] for part in self.wrap(text)]
+
+    @staticmethod
+    def wrap(text, limit=CHAT_MAX - 40):
+        """Chat lines of at most `limit` bytes, split between words."""
+        lines, line = [], ""
+        for word in text.split(" "):
+            if line and len((line + " " + word).encode("utf-8")) > limit:
+                lines.append(line)
+                line = word
+            else:
+                line = f"{line} {word}" if line else word
+        return lines + [line] if line else lines
 
     def find_online(self, text):
         """(name, SteamID64) of the online player called text: the exact name, else the only name starting with it."""
@@ -804,7 +867,7 @@ class Leaderboard:
             rows = rows[:self.size] if board["kind"] == kind else []
             if not rows:
                 continue
-            entries = [f"{n}. {p['name']} {p['points']}" for n, p in enumerate(rows, 1)]
+            entries = [f"{n}. {self.shown(p)} {p['points']}" for n, p in enumerate(rows, 1)]
             if first:
                 self.send("announce " + fit(f"{board['name']}: " + " | ".join(entries[:3])))
                 first = False
@@ -812,12 +875,12 @@ class Leaderboard:
             for line in self.pack(head, entries):
                 self.send("say " + fit(line))
 
-    @staticmethod
-    def table(rows, props=False):
-        width = max(len(p["name"]) for p in rows)
-        return "\n".join((f"{i:>2}. {p['name']:<{width}}  {p['points']:>5} props" if props else
-                          f"{i:>2}. {p['name']:<{width}}  {p['points']:>5} pts  {p['wins']} won / {p['played']} played")
-                         for i, p in enumerate(rows, 1)).replace("```", "'''")
+    def table(self, rows, props=False):
+        names = [self.shown(p) for p in rows]
+        width = max(len(n) for n in names)
+        return "\n".join((f"{i:>2}. {n:<{width}}  {p['points']:>5} props" if props else
+                          f"{i:>2}. {n:<{width}}  {p['points']:>5} pts  {p['wins']} won / {p['played']} played")
+                         for i, (n, p) in enumerate(zip(names, rows), 1)).replace("```", "'''")
 
     def post_discord(self, now):
         def due(cur):
