@@ -98,7 +98,7 @@ class Bot(discord.Client):
         add_commands(self)
         add_admin_commands(self)
         coach.add(self)
-        team_cmds.add(self)
+        team_cmds.add(self, read_db)
 
     async def setup_hook(self):
         try:

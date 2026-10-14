@@ -6,6 +6,8 @@ members with an admin role may press; the decision goes to the bridge, which tel
 (else by Discord DM when they linked their account). Without a bridge (BRIDGE_TOKEN) the commands answer
 that teams are off."""
 import asyncio
+import sqlite3
+import time
 
 import discord
 from discord import app_commands
@@ -38,6 +40,68 @@ def with_tag(row, tags):
     """A board row's name with the team tag in front: [TAG] Name."""
     tag = tags.get(row["steam_id"]) if "steam_id" in row.keys() else None
     return f"[{tag}] {row['name']}" if tag else row["name"]
+
+
+LEAGUES = ("ranked", "unranked")
+
+
+def team_stats(profile, read_db, leagues):
+    """{league: {"points", "wins", "played", "scorers", "best": (name, points)}} of the members on All Time."""
+    ids = [m["steam_id"] for m in profile["members"]]
+    names = {m["steam_id"]: m["name"] for m in profile["members"]}
+    out = {}
+    for league in leagues:
+        def get(cur, ids=ids):
+            return cur.execute(f"SELECT steam_id, points, wins, played FROM scores WHERE board = 'general' "
+                               f"AND steam_id IN ({','.join('?' * len(ids))})", ids).fetchall()
+        rows = read_db(get, league) if ids else []
+        if rows is None:
+            continue
+        best = max(rows, key=lambda r: r["points"], default=None)
+        out[league] = {"points": sum(r["points"] for r in rows), "wins": sum(r["wins"] for r in rows),
+                       "played": sum(r["played"] for r in rows), "scorers": sum(1 for r in rows if r["points"] > 0),
+                       "best": (names.get(best["steam_id"], best["steam_id"]), best["points"]) if best and best["points"] else None}
+    return out
+
+
+def standing(profile, profiles, read_db, league):
+    """(place, teams) of the team by All Time points in a league, among the teams that have points."""
+    totals = []
+    for p in profiles:
+        s = team_stats(p, read_db, [league]).get(league)
+        if s and s["points"] > 0:
+            totals.append((s["points"], p["tag"]))
+    totals.sort(reverse=True)
+    place = next((i for i, (_, tag) in enumerate(totals, 1) if tag == profile["tag"]), None)
+    return place, len(totals)
+
+
+def profile_embed(profile, profiles, read_db):
+    """The team's profile card: logo, description, league, category, leaders, members and stats."""
+    embed = discord.Embed(title=f"[{profile['tag']}] {profile['name']}", color=BLURPLE,
+                          description=(profile["description"] or "No description yet.")
+                          + (f"\n*\"{profile['motto']}\"*" if profile["motto"] else ""))
+    if profile["logo"]:
+        embed.set_thumbnail(url=profile["logo"])
+    leagues = LEAGUES if profile["league"] in ("", "both") else (profile["league"],)
+    embed.add_field(name="League", value=profile["league"].title() or "Not set", inline=True)
+    embed.add_field(name="Category", value=profile["category"] or "Not set", inline=True)
+    embed.add_field(name="Joining", value="Open" if profile["open"] else "Invite only", inline=True)
+    leaders = [m for m in profile["members"] if m["role"] in ("owner", "leader")]
+    rest = [m for m in profile["members"] if m["role"] == "member"]
+    embed.add_field(name="Team leaders", value="\n".join(f"{m['name']}{' (owner)' if m['role'] == 'owner' else ''}" for m in leaders)[:1000] or "–", inline=False)
+    embed.add_field(name=f"Members ({len(rest)})", value=", ".join(m["name"] for m in rest)[:1000] or "–", inline=False)
+    stats = team_stats(profile, read_db, leagues)
+    for league, s in stats.items():
+        place, total = standing(profile, profiles, read_db, league)
+        lines = [f"**{s['points']:,}** pts · {s['wins']} wins · {s['played']} played · {s['scorers']} scoring"]
+        if s["best"]:
+            lines.append(f"Top: {s['best'][0]} ({s['best'][1]:,} pts)")
+        if place:
+            lines.append(f"Team ranking: #{place} of {total}")
+        embed.add_field(name=f"Stats - {league.title()}", value="\n".join(lines), inline=False)
+    embed.set_footer(text=f"Founded {time.strftime('%Y-%m-%d', time.gmtime(profile['created']))} · /team join {profile['tag']}")
+    return embed
 
 
 def application_embed(app, state=None, by=""):
@@ -113,7 +177,7 @@ async def run_applications(bot):
         await asyncio.sleep(CHECK)
 
 
-def add(bot):
+def add(bot, read_db=None):
     team = app_commands.Group(name="team", description="Teams: apply, join, leave, configure")
 
     async def act(i: discord.Interaction, verb, **args):
@@ -132,7 +196,38 @@ def add(bot):
     async def apply(i: discord.Interaction, name: str, tag: str):
         await act(i, "apply", name=name, tag=tag)
 
-    @team.command(name="info", description="A team and its members (yours by default)")
+    async def teams_ac(_i, current: str):
+        try:
+            found = await asyncio.to_thread(bridgeclient.team_profiles) if available() else []
+        except bridgeclient.BridgeError:
+            return []
+        return [app_commands.Choice(name=f"[{p['tag']}] {p['name']}"[:100], value=p["tag"]) for p in found
+                if current.lower() in f"{p['tag']} {p['name']}".lower()][:25]
+
+    @team.command(name="profile", description="A team's profile: logo, description, league, category, members, stats")
+    @app_commands.describe(team="Name or tag (your own team by default)")
+    @app_commands.autocomplete(team=teams_ac)
+    async def profile(i: discord.Interaction, team: str = ""):
+        if not available():
+            return await i.response.send_message("Teams are not available (the bot has no bridge).", ephemeral=True)
+        await i.response.defer()
+        try:
+            if not team:                                  # your own: the bridge knows it from the link
+                mine = await asyncio.to_thread(bridgeclient.team_act, {"discord": str(i.user.id), "name": i.user.display_name}, "info", {})
+                if not mine.get("ok") or not mine.get("team"):
+                    return await i.followup.send("\n".join(mine.get("lines") or ["You are not in a team."]), ephemeral=True)
+                team = mine["team"]
+            found = await asyncio.to_thread(bridgeclient.team_profiles, team)
+            everyone = await asyncio.to_thread(bridgeclient.team_profiles)
+        except bridgeclient.BridgeError as e:
+            return await i.followup.send(f"Teams are not available right now ({e}).", ephemeral=True)
+        if not found:
+            return await i.followup.send(f"No team called '{team}'.", ephemeral=True)
+        embed = await asyncio.to_thread(profile_embed, found[0], everyone, read_db or (lambda fn, league="ranked": None))
+        await i.followup.send(embed=embed)
+
+    @team.command(name="info", description="A team and its members as text (yours by default)")
+    @app_commands.autocomplete(team=teams_ac)
     async def info(i: discord.Interaction, team: str = ""):
         await act(i, "info", team=team)
 
@@ -141,6 +236,7 @@ def add(bot):
         await act(i, "list")
 
     @team.command(name="join", description="Join an open team, or one that invited you")
+    @app_commands.autocomplete(team=teams_ac)
     async def join(i: discord.Interaction, team: str):
         await act(i, "join", team=team)
 
@@ -152,11 +248,11 @@ def add(bot):
     async def cancel(i: discord.Interaction):
         await act(i, "cancel")
 
-    @team.command(name="invite", description="Owner: invite a player (name of someone who played here, or SteamID64)")
+    @team.command(name="invite", description="Leaders: invite a player (name of someone who played here, or SteamID64)")
     async def invite(i: discord.Interaction, player: str):
         await act(i, "invite", player=player)
 
-    @team.command(name="kick", description="Owner: remove a member")
+    @team.command(name="kick", description="Leaders: remove a member")
     async def kick(i: discord.Interaction, player: str):
         await act(i, "kick", player=player)
 
@@ -164,9 +260,15 @@ def add(bot):
     async def owner(i: discord.Interaction, player: str):
         await act(i, "owner", player=player)
 
-    @team.command(name="set", description="Owner: change the tag, who may join (open) or the motto")
-    @app_commands.choices(setting=[app_commands.Choice(name=n, value=n) for n in ("tag", "open", "motto")])
-    @app_commands.describe(setting="What to change", value="tag: 2-5 characters · open: yes or no · motto: text")
+    @team.command(name="leader", description="Owner: make a member a team leader, or take it away again")
+    async def leader(i: discord.Interaction, player: str):
+        await act(i, "leader", player=player)
+
+    @team.command(name="set", description="Leaders: change the profile (tag: owner only)")
+    @app_commands.choices(setting=[app_commands.Choice(name=n, value=n) for n in
+                                   ("description", "logo", "league", "category", "open", "motto", "tag")])
+    @app_commands.describe(setting="What to change", value="logo: link to a picture (or none) · league: ranked, unranked, both · "
+                                                            "category: e.g. Casual, Competitive · open: yes or no · tag: 2-5 characters")
     async def set_(i: discord.Interaction, setting: str, value: str):
         await act(i, "set", key=setting, value=value)
 

@@ -20,6 +20,8 @@ from contextlib import closing
 FILE = os.environ.get("TEAMS_FILE") or "/shared/teams.db"
 MAX_MEMBERS = max(2, int(os.environ.get("TEAMS_MAX_MEMBERS", "12") or 12))
 LINK_TTL = 15 * 60
+LEAGUES = ("ranked", "unranked", "both")
+CATEGORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .&'-]{0,19}$")     # e.g. Casual, Competitive, Street, Park, S.K.A.T.E.
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.'-]{2,23}$")
 TAG = re.compile(r"^[A-Za-z0-9]{2,5}$")
 STEAM = re.compile(r"^\d{17}$")
@@ -30,7 +32,9 @@ CREATE TABLE IF NOT EXISTS links (steam_id TEXT PRIMARY KEY, discord_id TEXT NOT
 CREATE TABLE IF NOT EXISTS link_codes (code TEXT PRIMARY KEY, steam_id TEXT NOT NULL, expires REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS teams (
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, tag TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  motto TEXT NOT NULL DEFAULT '', open INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL);
+  motto TEXT NOT NULL DEFAULT '', open INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL,
+  description TEXT NOT NULL DEFAULT '', logo TEXT NOT NULL DEFAULT '', league TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS members (
   steam_id TEXT PRIMARY KEY, team INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'member', joined REAL NOT NULL);
@@ -45,7 +49,8 @@ CREATE TABLE IF NOT EXISTS applications (
 
 HELP = [
     "Team commands: /team apply TAG Team Name | info [team] | list | who | join <team> | leave",
-    "Owner: /team invite <player> | kick <player> | set tag|open|motto <value> | owner <player> | disband",
+    "Leaders: /team invite|kick <player> | set open|motto|description|logo|league|category <value>",
+    "Owner: /team leader <player> (make or drop a leader) | set tag <TAG> | owner <player> | disband",
     "Also: /team cancel (withdraw your application), /team link (code for Discord).",
 ]
 
@@ -73,7 +78,15 @@ class Teams:
     def setup(self):
         with closing(sqlite3.connect(self.path, timeout=15)) as db:
             db.execute("PRAGMA journal_mode=WAL")
-        self.run(lambda cur: [cur.execute(s) for s in SCHEMA.split(";") if s.strip()])
+        def init(cur):
+            for statement in SCHEMA.split(";"):
+                if statement.strip():
+                    cur.execute(statement)
+            have = {r["name"] for r in cur.execute("PRAGMA table_info(teams)")}
+            for column in ("description", "logo", "league", "category"):      # a file from before the profiles
+                if column not in have:
+                    cur.execute(f"ALTER TABLE teams ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+        self.run(init)
         return self
 
     # ---- who is who -------------------------------------------------------------------------------
@@ -177,6 +190,7 @@ class Teams:
                 cur.execute("INSERT OR REPLACE INTO known VALUES (?, ?, ?)", (steam_id, str(who["name"])[:64], time.time()))
             mine = self.team_of(cur, steam_id)
             owner = bool(mine and mine["role"] == "owner")
+            lead = bool(mine and mine["role"] in ("owner", "leader"))
             if verb == "info":
                 return self.info(cur, out, mine, "") if mine else fail("You are not in a team. /team list shows the teams.")
             if verb == "apply":
@@ -205,7 +219,9 @@ class Teams:
                 if not mine:
                     return fail("You are not in a team.")
                 return self.leave(cur, out, steam_id, mine)
-            if verb in ("invite", "kick", "owner", "set", "disband") and not owner:
+            if verb in ("invite", "kick", "set") and not lead:
+                return fail("Only the leaders of a team can do that." if mine else "You are not in a team.")
+            if verb in ("owner", "leader", "disband") and not owner:
                 return fail("Only the owner of a team can do that." if mine else "You are not in a team.")
             if verb == "invite":
                 target, why = self.find_player(cur, args.get("player"))
@@ -219,11 +235,13 @@ class Teams:
                 return out
             if verb == "kick":
                 target, why = self.find_player(cur, args.get("player"))
-                member = target and cur.execute("SELECT 1 FROM members WHERE steam_id = ? AND team = ?", (target, mine["id"])).fetchone()
+                member = target and cur.execute("SELECT role FROM members WHERE steam_id = ? AND team = ?", (target, mine["id"])).fetchone()
                 if not member:
                     return fail(why or "That player is not in your team.")
                 if target == steam_id:
                     return fail("Use /team leave, or /team disband.")
+                if member["role"] == "owner" or (member["role"] == "leader" and not owner):
+                    return fail("Only the owner can remove a leader.")
                 cur.execute("DELETE FROM members WHERE steam_id = ?", (target,))
                 out["lines"] = [f"{self.name_of(cur, target)} left the team."]
                 out["notify"] = [{"steam_id": target, "text": f"You were removed from [{mine['tag'].upper()}] {mine['name']}."}]
@@ -237,6 +255,16 @@ class Teams:
                 cur.execute("UPDATE members SET role='owner' WHERE steam_id=?", (target,))
                 out["lines"] = [f"{self.name_of(cur, target)} owns the team now."]
                 out["notify"] = [{"steam_id": target, "text": f"You own [{mine['tag'].upper()}] {mine['name']} now."}]
+                return out
+            if verb == "leader":
+                target, why = self.find_player(cur, args.get("player"))
+                member = target and cur.execute("SELECT role FROM members WHERE steam_id = ? AND team = ?", (target, mine["id"])).fetchone()
+                if not member or target == steam_id:
+                    return fail(why or "Name another member of your team.")
+                role = "member" if member["role"] == "leader" else "leader"
+                cur.execute("UPDATE members SET role = ? WHERE steam_id = ?", (role, target))
+                out["lines"] = [f"{self.name_of(cur, target)} {'leads the team now' if role == 'leader' else 'is a member again'}."]
+                out["notify"] = [{"steam_id": target, "text": f"You {'lead' if role == 'leader' else 'no longer lead'} [{mine['tag'].upper()}] {mine['name']}."}]
                 return out
             if verb == "set":
                 return self.config(cur, out, mine, args, fail)
@@ -260,18 +288,45 @@ class Teams:
 
     def owner_note(self, cur, team, text):
         return [{"steam_id": r["steam_id"], "text": text} for r in
-                cur.execute("SELECT steam_id FROM members WHERE team = ? AND role = 'owner'", (team,))]
+                cur.execute("SELECT steam_id FROM members WHERE team = ? AND role IN ('owner', 'leader')", (team,))]
 
     def info(self, cur, out, team, asked):
         if not team:
             out.update(ok=False, lines=[f"No team called '{asked}'."])
             return out
-        members = cur.execute("SELECT m.steam_id, m.role, COALESCE(k.name, m.steam_id) name FROM members m LEFT JOIN known k "
-                              "USING (steam_id) WHERE m.team = ? ORDER BY m.role = 'owner' DESC, m.joined", (team["id"],)).fetchall()
-        head = f"[{team['tag'].upper()}] {team['name']} - {len(members)} members, {'open' if team['open'] else 'invite only'}"
-        out["lines"] = [head] + ([f"\"{team['motto']}\""] if team["motto"] else []) + [
-            "Members: " + ", ".join(f"{m['name']}{' (owner)' if m['role'] == 'owner' else ''}" for m in members)]
+        profile = self.profile_of(cur, team)
+        out["team"] = profile["tag"]
+        members = profile["members"]
+        head = f"[{profile['tag']}] {profile['name']} - {len(members)} members, {'open' if profile['open'] else 'invite only'}"
+        facts = ", ".join(x for x in (profile["league"] and f"{profile['league'].title()} league", profile["category"]) if x)
+        out["lines"] = [head] + ([facts] if facts else []) + ([f"\"{profile['motto']}\""] if profile["motto"] else []) + [
+            "Members: " + ", ".join(f"{m['name']}{' (owner)' if m['role'] == 'owner' else ' (leader)' if m['role'] == 'leader' else ''}"
+                                   for m in members)]
         return out
+
+    @staticmethod
+    def profile_of(cur, team):
+        """The team's profile: everything but the stats (those come from the leaderboards), leaders first."""
+        members = cur.execute("SELECT m.steam_id, m.role, COALESCE(k.name, m.steam_id) name FROM members m LEFT JOIN known k "
+                              "USING (steam_id) WHERE m.team = ? ORDER BY m.role = 'owner' DESC, m.role = 'leader' DESC, m.joined",
+                              (team["id"],)).fetchall()
+        return {"name": team["name"], "tag": team["tag"].upper(), "motto": team["motto"], "description": team["description"],
+                "logo": team["logo"], "league": team["league"], "category": team["category"], "open": bool(team["open"]),
+                "created": team["created"], "members": [dict(m) for m in members]}
+
+    def profile(self, text):
+        """profile_of the team called text (name or tag), or None."""
+        def get(cur):
+            team = self.find_team(cur, text)
+            return team and self.profile_of(cur, team)
+        return self.run(get, write=False)
+
+    def profiles(self):
+        """Every team's profile, biggest first."""
+        def get(cur):
+            return sorted((self.profile_of(cur, t) for t in cur.execute("SELECT * FROM teams")),
+                          key=lambda p: (-len(p["members"]), p["name"].lower()))
+        return self.run(get, write=False)
 
     def apply(self, cur, out, steam_id, who, args, mine, fail):
         if mine:
@@ -311,6 +366,8 @@ class Teams:
     def config(self, cur, out, mine, args, fail):
         key, value = args.get("key", "").lower(), args.get("value", "")
         if key == "tag":
+            if mine["role"] != "owner":
+                return fail("Only the owner can change the tag.")
             if not TAG.match(value):
                 return fail("Tag: 2-5 letters or numbers.")
             if cur.execute("SELECT 1 FROM teams WHERE tag = ? AND id != ?", (value, mine["id"])).fetchone() or cur.execute(
@@ -323,8 +380,29 @@ class Teams:
             cur.execute("UPDATE teams SET open = ? WHERE id = ?", (int(value.lower() in ("yes", "true", "on")), mine["id"]))
         elif key == "motto":
             cur.execute("UPDATE teams SET motto = ? WHERE id = ?", (value[:60], mine["id"]))
+        elif key == "description":
+            cur.execute("UPDATE teams SET description = ? WHERE id = ?", (value[:300], mine["id"]))
+        elif key == "logo":
+            if value.lower() in ("", "none", "off"):
+                value = ""
+            elif not re.match(r"^https://[^\s]{4,290}$", value):
+                return fail("Logo: the link (https://...) of a picture, or 'none'.")
+            cur.execute("UPDATE teams SET logo = ? WHERE id = ?", (value, mine["id"]))
+        elif key == "league":
+            value = value.lower()
+            if value in ("", "none", "off"):
+                value = ""
+            elif value not in LEAGUES:
+                return fail("League: ranked, unranked, both or none.")
+            cur.execute("UPDATE teams SET league = ? WHERE id = ?", (value, mine["id"]))
+        elif key == "category":
+            if value.lower() in ("", "none", "off"):
+                value = ""
+            elif not CATEGORY.match(value):
+                return fail("Category: up to 20 letters or numbers, like Casual, Competitive, Street, Park.")
+            cur.execute("UPDATE teams SET category = ? WHERE id = ?", (value, mine["id"]))
         else:
-            return fail("/team set tag <TAG> | open yes/no | motto <text>")
+            return fail("/team set open yes/no | motto | description | logo <link> | league ranked/unranked/both | category <text> (owner: tag)")
         out["lines"] = [f"Team {key} changed."]
         return out
 

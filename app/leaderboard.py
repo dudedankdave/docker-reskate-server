@@ -649,7 +649,7 @@ class Leaderboard:
             args = {"tag": tag, "name": team.strip()}
         elif sub in ("info", "join"):
             args = {"team": rest}
-        elif sub in ("invite", "kick", "owner"):
+        elif sub in ("invite", "kick", "owner", "leader"):
             found = self.find_online(rest)
             args = {"player": found[1] if found else rest}
         elif sub == "set":

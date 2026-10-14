@@ -43,7 +43,7 @@ The server list comes from `/config/servers.json`, like the rollover. The `/shar
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
 
 ## /team
-`/team apply|info|list|join|leave|cancel|invite|kick|owner|set|disband|link` (needs the bridge). Applications are posted into `teams_channel` with Accept/Deny buttons for `admin_roles` members; the decision goes to the bridge, which tells the applicant in game (else a Discord DM). `/team link <code>` ties a Discord account to a player (the code comes from `/team link` in game). `/players` shows who is on with their `[TAG]`, `/top`, `/rank` and the leaderboard channel show tags. See [Teams in the README](../README.md#teams).
+`/team apply|profile|info|list|join|leave|cancel|invite|kick|owner|leader|set|disband|link` (needs the bridge). `/team profile` shows the team's card: logo, description, league, category, leaders, members and stats. Applications are posted into `teams_channel` with Accept/Deny buttons for `admin_roles` members; the decision goes to the bridge, which tells the applicant in game (else a Discord DM). `/team link <code>` ties a Discord account to a player (the code comes from `/team link` in game). `/players` shows who is on with their `[TAG]`, `/top`, `/rank` and the leaderboard channel show tags. See [Teams in the README](../README.md#teams).
 
 ## /schedule-add, /schedule-remove, /schedule-list
 Admins only. Repeating announcements with an interval per line, kept in `/shared/announcements.json` and sent by the

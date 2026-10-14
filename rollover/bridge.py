@@ -15,7 +15,7 @@ wants to talk to them (the Discord bot, scripts), so no server needs to know abo
   GET /v1/servers the servers with players and map, GET /v1/status the status cards (status.py's message,
   for the bot), GET /v1/health is for checks.
 * Teams (app/teams.py, /shared/teams.db, the bridge is its only writer; /shared must be writable for it):
-  GET /v1/servers/<n>/players (who is on, with their team tag), GET /v1/teams/tags, GET /v1/teams/applications,
+  GET /v1/servers/<n>/players (who is on, with their team tag), GET /v1/teams/tags, GET /v1/teams/profiles[?team=], GET /v1/teams/applications,
   POST /v1/teams/act {"who": {"steam_id"|"discord", "name"}, "verb", "args"}, POST /v1/teams/decide
   {"id", "accept", "by"}. Messages for players go to them in game (msg), else back to the caller.
 * GET /v1/servers/<n>/settings: per running slot, the settings the server started with (its env plus the
@@ -404,6 +404,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, players_of(m.group(1)))
             if url.path == "/v1/teams/tags":
                 return self.reply(200, teams_db.tags() if teams_db else {})
+            if url.path == "/v1/teams/profiles":
+                if not teams_db:
+                    raise RuntimeError("teams are off")
+                found = teams_db.profile(q["team"]) if q.get("team") else None
+                return self.reply(200, ([found] if found else []) if q.get("team") else teams_db.profiles())
             if url.path == "/v1/teams/applications":
                 if not teams_db:
                     raise RuntimeError("teams are off")

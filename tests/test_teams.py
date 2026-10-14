@@ -6,9 +6,11 @@ import tempfile
 import unittest
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-sys.path[:0] = [os.path.join(ROOT, "app"), os.path.join(ROOT, "rollover"), os.path.join(ROOT, "modules")]
+sys.path[:0] = [os.path.join(ROOT, "app"), os.path.join(ROOT, "rollover"), os.path.join(ROOT, "modules"), os.path.join(ROOT, "bot")]
 import bridge  # noqa: E402
 import leaderboard  # noqa: E402
+import sqlite3  # noqa: E402
+import team_cmds  # noqa: E402
 import teams  # noqa: E402
 
 A, B, C = "76561198000000001", "76561198000000002", "76561198000000003"
@@ -108,6 +110,57 @@ class TeamsTest(unittest.TestCase):
         self.assertEqual(self.t.applications()[0]["steam_id"], A)
         self.assertEqual(self.t.discord_of(A), "42")
         self.assertFalse(self.t.act({"discord": "43"}, "link", {"code": code})["ok"])    # a code works once
+
+
+class ProfileTest(TeamsTest):
+    """Profiles: leaders, the profile settings and the stats the bot adds from the leaderboards."""
+
+    def test_leaders_can_run_the_team_but_not_the_owner_things(self):
+        self.found()
+        self.act(A, "set", key="open", value="yes")
+        self.act(B, "join", team="AB")
+        self.act(C, "join", team="AB")
+        self.assertFalse(self.act(B, "set", key="description", value="x")["ok"])
+        self.assertFalse(self.act(B, "leader", player="Cleo")["ok"])
+        self.assertTrue(self.act(A, "leader", player="Ben")["ok"])
+        self.assertTrue(self.act(B, "set", key="description", value="We skate parks.")["ok"])
+        self.assertTrue(self.act(B, "set", key="category", value="Competitive")["ok"])
+        self.assertTrue(self.act(B, "set", key="league", value="Ranked")["ok"])
+        self.assertTrue(self.act(B, "set", key="logo", value="https://example.com/logo.png")["ok"])
+        self.assertFalse(self.act(B, "set", key="logo", value="javascript:alert(1)")["ok"])
+        self.assertFalse(self.act(B, "set", key="league", value="pro")["ok"])
+        self.assertFalse(self.act(B, "set", key="tag", value="ZZ")["ok"])
+        self.assertFalse(self.act(B, "kick", player="Anna")["ok"])               # the owner stays
+        self.assertTrue(self.act(B, "kick", player="Cleo")["ok"])
+        p = self.t.profile("alpha bravo")
+        self.assertEqual((p["description"], p["category"], p["league"], p["logo"]),
+                         ("We skate parks.", "Competitive", "ranked", "https://example.com/logo.png"))
+        self.assertEqual([(m["name"], m["role"]) for m in p["members"]], [("Anna", "owner"), ("Ben", "leader")])
+        self.assertEqual(self.act(A, "info")["team"], "AB")
+
+    def test_stats_come_from_the_members_all_time_scores(self):
+        self.found()
+        self.act(A, "set", key="open", value="yes")
+        self.act(B, "join", team="AB")
+        db = os.path.join(self.dir.name, "lb.db")
+        con = sqlite3.connect(db)
+        con.executescript(leaderboard.SCHEMA)
+        con.execute("INSERT INTO boards (id, name, kind, created_at) VALUES ('general', 'All Time', 'general', 0)")
+        for steam_id, points, wins, played in ((A, 30, 3, 5), (B, 10, 1, 4), (C, 99, 9, 9)):
+            con.execute("INSERT INTO scores VALUES ('general', ?, ?, ?, ?)", (steam_id, points, wins, played))
+        con.commit()
+        con.close()
+
+        def read_db(fn, league="ranked"):
+            c = sqlite3.connect(db)
+            c.row_factory = sqlite3.Row
+            return fn(c.cursor())
+        profile = self.t.profile("AB")
+        stats = team_cmds.team_stats(profile, read_db, ["ranked"])["ranked"]
+        self.assertEqual((stats["points"], stats["wins"], stats["played"], stats["best"]), (40, 4, 9, ("Anna", 30)))
+        embed = team_cmds.profile_embed(profile, self.t.profiles(), read_db)
+        self.assertEqual(embed.title, "[AB] Alpha Bravo")
+        self.assertIn("Team ranking: #1 of 1", " ".join(f.value for f in embed.fields))
 
 
 class LeaderboardTeamsTest(unittest.TestCase):

@@ -58,6 +58,12 @@ def team_tags():
     return call("GET", "/v1/teams/tags")
 
 
+def team_profiles(team=""):
+    """Team profiles (one when `team` is given): name, tag, motto, description, logo, league, category, members."""
+    from urllib.parse import quote
+    return call("GET", "/v1/teams/profiles" + (f"?team={quote(team)}" if team else ""))
+
+
 def team_act(who, verb, args=None):
     """Run a /team command; {"ok", "lines", "notify", "application"}."""
     return call("POST", "/v1/teams/act", {"who": who, "verb": verb, "args": args or {}})
