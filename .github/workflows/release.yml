@@ -3,6 +3,8 @@
 # <ver>-slim tag for that version yet, it downloads the Linux server (checked against its SHA-256),
 # builds the missing image(s) from main and pushes <ver>, <major>.<minor>, latest and/or
 # <ver>-slim, slim. Each image is checked on its own, so a slim push that failed is retried too.
+# If ReSkate pulls a release and its latest goes back to an older version, latest, <major>.<minor>
+# and slim still point at the pulled one: the older version is built again so they move back.
 # Every build is also tagged <ver>-r<n> (and <ver>-r<n>-slim), n = the commits on main, a tag that
 # never moves; RESKATE_IMAGE_REVISION in the image says which it is. A merge to main that changes the
 # image builds and pushes a new revision for the current release (the rollover's image_updates rolls
@@ -36,6 +38,7 @@ on:
       - slim/**
       - app/**
       - rollover/*.py
+      - rollover/servers.example.json
       - bot/*.py
       - modules/**
       - stack/**
@@ -109,11 +112,23 @@ jobs:
               *) echo "::error::Docker Hub answered $code for $IMAGE:$1" >&2; return 1 ;;
             esac
           }
+          digest() {
+            curl -fsS -m 20 "https://hub.docker.com/v2/repositories/$IMAGE/tags/$1" \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin).get("digest") or "")'
+          }
           if [ "${{ github.event_name }}" = pull_request ] || [ "${{ github.event_name }}" = push ] || [ "${{ inputs.force }}" = true ]; then
             default=true slim=true
           else
             default=$(missing "$v")
             slim=$(missing "$v-slim")
+            # a release ReSkate pulled again (2.0.8 went back to 2.0.7): <v> is on Docker Hub, but the
+            # moving tags still point at the pulled one, so build <v> again to move them back
+            if [ "$default" = false ] && [ "$(digest latest)" != "$(digest "$v")" ]; then
+              echo "$IMAGE:latest is not $IMAGE:$v, building it again" >&2; default=true
+            fi
+            if [ "$slim" = false ] && [ "$(digest slim)" != "$(digest "$v-slim")" ]; then
+              echo "$IMAGE:slim is not $IMAGE:$v-slim, building it again" >&2; slim=true
+            fi
           fi
           echo "default=$default" >> "$GITHUB_OUTPUT"
           echo "slim=$slim" >> "$GITHUB_OUTPUT"
