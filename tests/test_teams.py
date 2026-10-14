@@ -10,7 +10,6 @@ sys.path[:0] = [os.path.join(ROOT, "app"), os.path.join(ROOT, "rollover"), os.pa
 import bridge  # noqa: E402
 import leaderboard  # noqa: E402
 import sqlite3  # noqa: E402
-import team_cmds  # noqa: E402
 import teams  # noqa: E402
 
 A, B, C = "76561198000000001", "76561198000000002", "76561198000000003"
@@ -139,6 +138,10 @@ class ProfileTest(TeamsTest):
         self.assertEqual(self.act(A, "info")["team"], "AB")
 
     def test_stats_come_from_the_members_all_time_scores(self):
+        try:
+            import team_cmds
+        except ImportError:                       # other tests stub discord; the real library is needed for embeds
+            self.skipTest("discord.py is not installed")
         self.found()
         self.act(A, "set", key="open", value="yes")
         self.act(B, "join", team="AB")

@@ -6,7 +6,6 @@ members with an admin role may press; the decision goes to the bridge, which tel
 (else by Discord DM when they linked their account). Without a bridge (BRIDGE_TOKEN) the commands answer
 that teams are off."""
 import asyncio
-import sqlite3
 import time
 
 import discord
