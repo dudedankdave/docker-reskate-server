@@ -454,6 +454,7 @@ func entrypointMain(serverArgs []string) {
 		{"WORD_WARNINGS", "players", "word_warnings", intRange(0, 10)},
 		{"OBJECT_SCALING", "players", "allow_object_scaling", boolConv},
 		{"SYNC_EFFECTS", "players", "sync_effects", boolConv},
+		{"SYNC_DRONES", "players", "sync_drones", boolConv},
 		{"GLOBAL_WORD_FILTER", "players", "use_global_word_filter", boolConv},
 		{"SPEED_CHECK", "anti_cheat", "speed_hack", choice("off", "warn", "kick")},
 		{"SCORE_CHECK", "anti_cheat", "modified_scoring", choice("off", "warn", "kick")},
