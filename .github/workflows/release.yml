@@ -61,6 +61,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only for the GitHub pre-release of a pre_tag build
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -223,6 +226,27 @@ jobs:
           tags: |
             ${{ env.TOOLS_IMAGE }}:latest
             ${{ env.TOOLS_IMAGE }}:${{ steps.rev.outputs.revision }}
+
+      # A pre_tag build also publishes a GitHub pre-release (never "latest"). Nothing here touches the
+      # servers or the rollover: they follow the latest upstream release and the Hub tags <ver> / latest.
+      - name: GitHub pre-release
+        if: steps.release.outputs.pre == 'true' && steps.hub.outputs.push == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.version }}-pre
+          VERSION: ${{ steps.release.outputs.version }}
+          PRE_TAG: ${{ inputs.pre_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "release $TAG exists already"; exit 0; fi
+          cat > notes.md <<NOTES
+          Test build of the upstream ReSkate pre-release [$PRE_TAG](https://github.com/$UPSTREAM/releases/tag/$PRE_TAG) as a server image.
+
+          - Docker Hub: \`$IMAGE:$VERSION-pre\` and \`$IMAGE:$VERSION-pre-slim\` (only these tags; \`latest\`, \`$VERSION\` and the revision tags are not touched).
+          - Servers and the rollover do not pick this up: they follow the latest upstream release, which a pre-release is not.
+          - New server setting in this image: \`SYNC_DRONES\` (ReSkate 2.1.0+). Timed kicks (\`KICK_MINUTES\`, \`VOTE_KICK_MINUTES\`) were already supported.
+          NOTES
+          gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "ReSkate $VERSION pre-release (test build)" --notes-file notes.md
 
       - name: Docker Hub README
         continue-on-error: true
