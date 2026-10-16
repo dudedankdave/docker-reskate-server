@@ -450,7 +450,7 @@ if (value := env("COMMANDS")) is not None:
 # The leaderboard's chat commands (/top, /rank, /boards, admin-only /lb) are added to "commands"
 # when LEADERBOARD is on (LEADERBOARD_COMMANDS=false: not). Earlier copies of them are replaced;
 # a command of the same name that you defined yourself stays and ours is skipped.
-lb_commands = {c["name"]: c for c in leaderboard.COMMANDS}
+lb_commands = {c["name"]: c for c in leaderboard.COMMANDS + [leaderboard.TEAM_COMMAND]}
 lb_on = (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value)
 lb_commands_on = lb_on and as_bool("LEADERBOARD_COMMANDS", env("LEADERBOARD_COMMANDS") or "true")
 commands = [c for c in cfg.get("commands") or []
@@ -458,7 +458,8 @@ commands = [c for c in cfg.get("commands") or []
                                              or c.get("name") in lb_commands and c.get("reply") in leaderboard.OLD_REPLIES))]
 if lb_commands_on:
     taken = {c.get("name") for c in commands if isinstance(c, dict)}
-    commands += [c for name, c in lb_commands.items() if name not in taken]
+    teams_on = as_bool("TEAMS", env("TEAMS") or "false")    # /team: answered by the leaderboard module (bridge teams)
+    commands += [c for name, c in lb_commands.items() if name not in taken and (name != "team" or teams_on)]
 if len(commands) > 32:
     sys.exit(f"COMMANDS: the server allows 32 chat commands, got {len(commands)} (the leaderboard adds {len(lb_commands)}; "
              "LEADERBOARD_COMMANDS=false leaves them out)")

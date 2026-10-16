@@ -14,6 +14,10 @@ wants to talk to them (the Discord bot, scripts), so no server needs to know abo
 * GET /v1/actions lists the actions and their inputs (so a dialog can be built from it),
   GET /v1/servers the servers with players and map, GET /v1/status the status cards (status.py's message,
   for the bot), GET /v1/health is for checks.
+* Teams (app/teams.py, /shared/teams.db, the bridge is its only writer; /shared must be writable for it):
+  GET /v1/servers/<n>/players (who is on, with their team tag), GET /v1/teams/tags, GET /v1/teams/profiles[?team=], GET /v1/teams/applications,
+  POST /v1/teams/act {"who": {"steam_id"|"discord", "name"}, "verb", "args"}, POST /v1/teams/decide
+  {"id", "accept", "by"}. Messages for players go to them in game (msg), else back to the caller.
 * GET /v1/servers/<n>/settings: per running slot, the settings the server started with (its env plus the
   settings files, see app/settings.py), without secrets: what the modules outside need (leaderboard ...).
 * A caller whose "by" starts with "module:" (the leaderboard, the announcer ...) acts as often as it needs:
@@ -27,6 +31,7 @@ import json
 import os
 import re
 import socket
+import sqlite3
 import sys
 import threading
 import time
@@ -38,6 +43,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 import rollover  # noqa: E402
 import status  # noqa: E402
 
+try:
+    import teams  # noqa: E402  (app/teams.py: teams, applications, Discord links; /shared/teams.db)
+except ImportError:
+    teams = None
 try:
     import settings  # noqa: E402  (app/settings.py: the settings files, with /shared mounted)
 except ImportError:
@@ -68,12 +77,15 @@ ACTIONS = {
     "log": {"label": "Last log lines", "info": True, "args": [("count", "How many lines (default 15)", 3)]},
 }
 
+online = {}              # (server, slot) -> {steam_id: name}: who is on, from the join and leave lines
+teams_db = None          # teams.Teams when the bridge keeps teams (the file's folder is writable)
 events = []              # {"id", "server", "slot", "time", "scopes", "text", "kind", "ping"}
 next_id = 1
 cond = threading.Condition()
 board = None
 seen = {}                # container id -> last time stamp read
 
+JOINED = re.compile(r"^(.+) joined \((\d+)(?:, admin)?\), \d+/\d+ players")
 CHAT = re.compile(r"^\[chat\] ")
 EVENT = re.compile(r"^\[event\] ([a-z-]+) (\{.*\})$")
 JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), \d+/\d+ players")
@@ -108,8 +120,70 @@ def message(text):
     return m.group(1), str(data.get("text") or ""), bool(data.get("ping"))
 
 
+def track(server, slot, text):
+    """Keep who is on each server (and tell the teams about every name seen)."""
+    m = rollover.LINE.match(text)
+    body = m.group(1) if m else text
+    key = (server, slot)
+    if j := JOINED.match(body):
+        online.setdefault(key, {})[j.group(2)] = j.group(1)
+        if teams_db:
+            try:
+                teams_db.seen(j.group(2), j.group(1))
+            except Exception as e:
+                say(f"bridge: teams: {e!r}")
+    elif status.UP.match(body):
+        online.pop(key, None)
+    elif left := LEAVE.match(body):
+        people = online.get(key, {})
+        for steam_id in [i for i, n in people.items() if n == left.group(1)][:1]:
+            del people[steam_id]
+
+
+def players_of(number):
+    """[{name, steam_id, slot, team}] on a server now (only its running slots)."""
+    tags = teams_db.tags() if teams_db else {}
+    out = []
+    for info in running(number):
+        slot = slot_of(number, info)
+        for steam_id, name in sorted(online.get((number, slot), {}).items(), key=lambda x: x[1].lower()):
+            out.append({"name": name, "steam_id": steam_id, "slot": slot, "team": tags.get(steam_id, "")})
+    return out
+
+
+def team_act(who, verb, args):
+    """Run a team command; its notifications go to the player in game (else back to the caller for Discord)."""
+    if not teams_db:
+        raise RuntimeError("teams are off: /shared is not writable here")
+    return deliver(teams_db.act(who, verb, args))
+
+
+def deliver(result):
+    for note in result.get("notify") or []:
+        note["delivered"] = send_to_player(note["steam_id"], note["text"])
+        note["discord"] = teams_db.discord_of(note["steam_id"])
+    return result
+
+
+def send_to_player(steam_id, text):
+    """Private message to a player who is on a server; False when they are not."""
+    sent = False
+    for (number, slot), people in list(online.items()):
+        if steam_id not in people:
+            continue
+        for info in running(number, slot):
+            try:
+                type_into(info, f"msg {steam_id} {text[:190]}")
+                sent = True
+            except (OSError, RuntimeError, KeyError):
+                pass
+    return sent
+
+
 def push(server, stamp, text, scopes=None, kind="console", ping=False, slot=None):
     global next_id
+    if kind == "console":
+        track(server, slot, text)
     with cond:
         events.append({"id": next_id, "server": server, "slot": slot, "time": stamp, "scopes": scopes or scopes_of(text),
                        "text": text, "kind": kind, "ping": ping})
@@ -324,6 +398,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, server_list())
             if url.path == "/v1/status":
                 return self.reply(200, board.message())
+            if m := re.fullmatch(r"/v1/servers/([^/]+)/players", url.path):
+                if m.group(1) not in board.cfg["servers"]:
+                    raise ValueError("unknown server")
+                return self.reply(200, players_of(m.group(1)))
+            if url.path == "/v1/teams/tags":
+                return self.reply(200, teams_db.tags() if teams_db else {})
+            if url.path == "/v1/teams/profiles":
+                if not teams_db:
+                    raise RuntimeError("teams are off")
+                found = teams_db.profile(q["team"]) if q.get("team") else None
+                return self.reply(200, ([found] if found else []) if q.get("team") else teams_db.profiles())
+            if url.path == "/v1/teams/applications":
+                if not teams_db:
+                    raise RuntimeError("teams are off")
+                return self.reply(200, teams_db.applications(q.get("status", "pending")))
             if m := re.fullmatch(r"/v1/servers/([^/]+)/settings", url.path):
                 return self.reply(200, server_settings(m.group(1)))
             if url.path == "/v1/events":
@@ -345,11 +434,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.authorized():
             return
-        m = re.fullmatch(r"/v1/servers/([^/]+)/do", urlparse(self.path).path)
-        if not m:
+        path = urlparse(self.path).path
+        m = re.fullmatch(r"/v1/servers/([^/]+)/do", path)
+        if not m and not path.startswith("/v1/teams/"):
             return self.reply(404, {"error": "not found"})
         try:
             body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 16384)) or b"{}")
+            if path.startswith("/v1/teams/"):
+                return self.reply(200, team_post(path, body))
             text = do(m.group(1), body.get("action"), body.get("args"), str(body.get("by") or "")[:64],
                       body.get("slot"))
         except (ValueError, TypeError) as e:
@@ -359,12 +451,41 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200, {"ok": True, "text": text})
 
 
+def team_post(path, body):
+    """POST /v1/teams/act, /v1/teams/decide, /v1/teams/applications/<id>/posted."""
+    if not teams_db:
+        raise RuntimeError("teams are off: /shared is not writable here")
+    try:
+        return team_call(path, body)
+    except sqlite3.Error as e:
+        raise RuntimeError(f"teams.db: {e}") from None
+
+
+def team_call(path, body):
+    if path == "/v1/teams/act":
+        who = {k: str(v)[:64] for k, v in (body.get("who") or {}).items()}
+        return team_act(who, str(body.get("verb") or ""), body.get("args") or {})
+    if path == "/v1/teams/decide":
+        result = teams_db.decide(int(body.get("id") or 0), bool(body.get("accept")), str(body.get("by") or "admin"))
+        return deliver(result)
+    if m := re.fullmatch(r"/v1/teams/applications/(\d+)/posted", path):
+        teams_db.posted(int(m.group(1)), str(body.get("message") or ""))
+        return {"ok": True}
+    raise ValueError("not found")
+
+
 def main():
-    global board
+    global board, teams_db
     if not TOKEN:
         sys.exit("bridge: BRIDGE_TOKEN is not set; refusing to start without a token")
     with open(rollover.CONFIG, encoding="utf-8") as f:
         board = status.Board(json.load(f))
+    if teams is not None:
+        try:
+            teams_db = teams.Teams().setup()
+            say(f"bridge: teams in {teams_db.path}")
+        except Exception as e:
+            say(f"bridge: no teams ({e!r}); /shared must be writable for the bridge (teams.db)")
     threading.Thread(target=follow, daemon=True).start()
     say(f"bridge: listening on {BIND}:{PORT}")
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()

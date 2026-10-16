@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir "discord.py>=2.4,<3" \
 # The helpers, flat in /app; the image's server-side code they share in /app/lib
 COPY modules/*.py bot/*.py rollover/rollover.py rollover/status.py rollover/bridge.py \
      stack/dbbackup.py stack/split_settings.py /app/
-COPY app/leaderboard.py app/settings.py app/handover.py app/notifier.py app/updater.py app/announcer.py /app/lib/
+COPY app/leaderboard.py app/teams.py app/settings.py app/handover.py app/notifier.py app/updater.py app/announcer.py /app/lib/
 COPY rollover/servers.example.json /config/servers.json
 COPY bot/bot.example.json /config/bot.example.json
 ENV PYTHONUNBUFFERED=1 RESKATE_TOOLS_REVISION=$REVISION

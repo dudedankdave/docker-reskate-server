@@ -16,6 +16,7 @@ import discord
 
 import leaderboard as lb
 import rollover
+import team_cmds
 
 CHECK = max(30, int(os.environ.get("LEADERBOARD_CHECK", "300")))    # seconds between two looks at the database
 RELEASE_CHECK = 600
@@ -57,6 +58,11 @@ async def channel_of(bot, key):
     return bot.get_channel(int(cid)) or await bot.fetch_channel(int(cid))
 
 
+def tagged(boards, tags):
+    """The boards with each player's team tag in front of the name."""
+    return [(board_id, name, [dict(r, name=team_cmds.with_tag(r, tags)) for r in rows]) for board_id, name, rows in boards or []]
+
+
 async def run_leaderboards(bot, read_db):
     await bot.wait_until_ready()
     shown = {}            # board id -> what was last posted
@@ -65,10 +71,11 @@ async def run_leaderboards(bot, read_db):
             channel = await channel_of(bot, "leaderboards_channel")
             ids = bot.state.setdefault("boards", {})
             work = []
+            tags = await asyncio.to_thread(team_cmds.team_tags)
             for league in LEAGUES:
                 got = await asyncio.to_thread(current_boards, lambda fn, league=league: read_db(fn, league))
                 # the Ranked boards keep their old message ids (plain board id); Unranked ones get a prefix
-                work += [(board_id if league == "ranked" else f"unranked:{board_id}", name, rows, league) for board_id, name, rows in got or []]
+                work += [(board_id if league == "ranked" else f"unranked:{board_id}", name, rows, league) for board_id, name, rows in tagged(got, tags)]
             for board_id, name, rows, league in work:
                 signature = json.dumps([name, rows], sort_keys=True)
                 if shown.get(board_id) == signature:

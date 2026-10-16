@@ -62,6 +62,9 @@ var lbCommands = []map[string]any{
 	{"name": "lb", "admin": true, "reply": lbRule},
 }
 
+// lbTeamCommand is added with TEAMS=true: the leaderboard module answers it through the bridge (teams).
+var lbTeamCommand = map[string]any{"name": "team", "reply": lbRule}
+
 // lbOldReplies are the replies of the same commands in earlier builds: a command with one of them is ours, to be replaced.
 var lbOldReplies = map[string]bool{"Leaderboard (/top week, /top event, /boards):": true,
 	"Leaderboard (/top week, /top skate, /top week jam, /boards):": true, "Your rank (/rank week, /rank event):": true,
