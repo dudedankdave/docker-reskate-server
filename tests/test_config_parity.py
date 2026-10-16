@@ -22,7 +22,7 @@ FULL = {
     "WORLD_LAYER_SYNC": "true", "LAYERS": "rain=on,fog=off", "BOOSTS": "false", "NO_BAIL": "true",
     "NOCLIP": "false", "PARTIES": "true", "PARTY_SIZE": "4", "VOICE_CHAT": "true", "VOICE_RANGE": "300",
     "OBJECT_PLACEMENT": "admins", "OBJECT_LIMIT": "200", "ANNOUNCE_THROWDOWNS": "false",
-    "AFK_KICK_MINUTES": "20", "KICK_MINUTES": "30", "WORD_WARNINGS": "2", "OBJECT_SCALING": "false", "SYNC_EFFECTS": "false",
+    "AFK_KICK_MINUTES": "20", "KICK_MINUTES": "30", "WORD_WARNINGS": "2", "OBJECT_SCALING": "false", "SYNC_EFFECTS": "false", "SYNC_DRONES": "false",
     "GLOBAL_WORD_FILTER": "false", "SPEED_CHECK": "kick", "SCORE_CHECK": "kick", "BOARD_CHECK": "kick",
     "ENFORCE_TUNING": "true", "BONE_SCALE_LIMIT": "2", "BONE_REACH_LIMIT": "1.5",
     "USE_STEAM_RELAY": "false", "SEND_RATE": "900", "CROWD_BUDGET": "600", "PACK_MS": "10", "THREADS": "4",

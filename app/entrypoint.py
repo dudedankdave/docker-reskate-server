@@ -319,6 +319,7 @@ SIMPLE = {
     "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
     "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
     "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
+    "SYNC_DRONES": ("players", "sync_drones", as_bool),
     "GLOBAL_WORD_FILTER": ("players", "use_global_word_filter", as_bool),
     "SPEED_CHECK": ("anti_cheat", "speed_hack", choice("off", "warn", "kick")),
     "SCORE_CHECK": ("anti_cheat", "modified_scoring", choice("off", "warn", "kick")),

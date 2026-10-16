@@ -26,6 +26,10 @@ on:
         description: "Push to Docker Hub (off = test build only)"
         type: boolean
         default: true
+      pre_tag:
+        description: "Pre-release test build: the upstream release tag, e.g. v2.1.0-pre. Pushes only <ver>-pre and <ver>-pre-slim (never latest, <major>.<minor> or a revision) and skips the tools image and the Hub README"
+        type: string
+        default: ""
   pull_request:
   # A merge to main that changes the image builds it again for the current ReSkate release, as a new
   # revision: <version>-r<n> (n = commits on main) besides the moving tags.
@@ -70,7 +74,11 @@ jobs:
         id: release
         run: |
           set -euo pipefail
-          curl -fsSL -m 30 "https://github.com/$UPSTREAM/releases/latest/download/launcher.json" -o launcher.json
+          if [ -n "$PRE_TAG" ]; then
+            curl -fsSL -m 30 "https://github.com/$UPSTREAM/releases/download/$PRE_TAG/launcher.json" -o launcher.json
+          else
+            curl -fsSL -m 30 "https://github.com/$UPSTREAM/releases/latest/download/launcher.json" -o launcher.json
+          fi
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os, re
           info = json.load(open("launcher.json", encoding="utf-8-sig"))["server_linux"]
@@ -78,15 +86,18 @@ jobs:
           assert re.fullmatch(r"\d+(\.\d+)+", v), v
           url = info["url"]
           if url.startswith("asset:"):
-              url = f"https://github.com/{os.environ['UPSTREAM']}/releases/download/v{v}/{url[6:]}"
+              url = f"https://github.com/{os.environ['UPSTREAM']}/releases/download/{os.environ['PRE_TAG'] or 'v' + v}/{url[6:]}"
           assert url.startswith("https://"), url
           print(f"version={v}")
           print(f"minor={'.'.join(v.split('.')[:2])}")
           print(f"url={url}")
           print(f"sha256={info['sha256'].lower()}")
           print(f"exe_sha256={info.get('exe_sha256', '').lower()}")
+          print(f"pre={'true' if os.environ['PRE_TAG'] else 'false'}")
           PY
           rm launcher.json
+        env:
+          PRE_TAG: ${{ inputs.pre_tag }}
 
       - name: Already on Docker Hub?
         id: hub
@@ -109,7 +120,7 @@ jobs:
               *) echo "::error::Docker Hub answered $code for $IMAGE:$1" >&2; return 1 ;;
             esac
           }
-          if [ "${{ github.event_name }}" = pull_request ] || [ "${{ github.event_name }}" = push ] || [ "${{ inputs.force }}" = true ]; then
+          if [ "${{ github.event_name }}" = pull_request ] || [ "${{ github.event_name }}" = push ] || [ "${{ inputs.force }}" = true ] || [ "${{ steps.release.outputs.pre }}" = true ]; then
             default=true slim=true
           else
             default=$(missing "$v")
@@ -123,6 +134,23 @@ jobs:
             echo "nothing to do"
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # A pre-release test build gets one tag per image and nothing that moves (no latest, no revision).
+      - name: Image tags
+        id: tags
+        run: |
+          set -euo pipefail
+          v=${{ steps.release.outputs.version }}
+          if [ "${{ steps.release.outputs.pre }}" = true ]; then
+            default="$IMAGE:$v-pre"
+            slim="$IMAGE:$v-pre-slim"
+          else
+            r=${{ steps.rev.outputs.revision }}
+            default="$IMAGE:$v,$IMAGE:$v-$r,$IMAGE:${{ steps.release.outputs.minor }},$IMAGE:latest"
+            slim="$IMAGE:$v-slim,$IMAGE:$v-$r-slim,$IMAGE:slim"
+          fi
+          echo "default=$default" >> "$GITHUB_OUTPUT"
+          echo "slim=$slim" >> "$GITHUB_OUTPUT"
 
       - name: Download the server
         if: steps.hub.outputs.build == 'true'
@@ -159,11 +187,7 @@ jobs:
             VERSION=${{ steps.release.outputs.version }}
             REVISION=${{ steps.rev.outputs.revision }}
           push: ${{ steps.hub.outputs.push == 'true' }}
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}
-            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-${{ steps.rev.outputs.revision }}
-            ${{ env.IMAGE }}:${{ steps.release.outputs.minor }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ steps.tags.outputs.default }}
 
       - name: Build (and push) the slim image
         if: steps.hub.outputs.slim == 'true'
@@ -175,14 +199,11 @@ jobs:
             VERSION=${{ steps.release.outputs.version }}
             REVISION=${{ steps.rev.outputs.revision }}
           push: ${{ steps.hub.outputs.push == 'true' }}
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-slim
-            ${{ env.IMAGE }}:${{ steps.release.outputs.version }}-${{ steps.rev.outputs.revision }}-slim
-            ${{ env.IMAGE }}:slim
+          tags: ${{ steps.tags.outputs.slim }}
 
       # The tools image (bridge, rollover, bot, modules) follows main, not the ReSkate releases.
       - uses: docker/setup-buildx-action@v3
-        if: github.event_name != 'schedule' && steps.hub.outputs.build != 'true'
+        if: github.event_name != 'schedule' && steps.hub.outputs.build != 'true' && steps.release.outputs.pre != 'true'
 
       - name: Log in to Docker Hub (tools)
         if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push)) && !(steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true')
@@ -192,7 +213,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build (and push) the tools image
-        if: github.event_name != 'schedule'
+        if: github.event_name != 'schedule' && steps.release.outputs.pre != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -205,7 +226,7 @@ jobs:
 
       - name: Docker Hub README
         continue-on-error: true
-        if: steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true'
+        if: steps.hub.outputs.build == 'true' && steps.hub.outputs.push == 'true' && steps.release.outputs.pre != 'true'
         run: |
           python3 tools/hub-readme.py > hub-readme.md
           token=$(curl -fsS -X POST https://hub.docker.com/v2/users/login -H 'Content-Type: application/json' \

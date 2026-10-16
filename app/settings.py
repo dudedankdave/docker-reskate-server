@@ -170,7 +170,7 @@ LIVE = {
     "SERVER_NAME": _plain("name"), "SERVER_PASSWORD": _clearable("password"), "WELCOME_MESSAGE": _clearable("welcome"),
     "LISTED": _onoff("listed"), "VOICE_CHAT": _onoff("voice"), "VOICE_RANGE": _plain("voice-range"),
     "OBJECT_PLACEMENT": _plain("placement"), "OBJECT_LIMIT": _plain("objects", True),
-    "OBJECT_SCALING": _onoff("object-scaling"), "SYNC_EFFECTS": _onoff("effects"), "NOCLIP": _onoff("noclip"),
+    "OBJECT_SCALING": _onoff("object-scaling"), "SYNC_EFFECTS": _onoff("effects"), "SYNC_DRONES": _onoff("drones"), "NOCLIP": _onoff("noclip"),
     "NO_BAIL": _onoff("nobail"), "BOOSTS": _onoff("boosts"), "ENFORCE_TUNING": _onoff("tuning"),
     "MAP_POOL": _list("map-pool clear", "map-pool add"), "MAP_ROTATION_MINUTES": _plain("rotation", True),
     "MAP_ROTATION_VOTE": _onoff("rotation vote"), "MAP_ROTATION_EXTEND_MINUTES": _plain("rotation stay", True),
