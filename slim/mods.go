@@ -176,7 +176,7 @@ func pendingModUpdates(spec string) []modUpdate {
 			mlog("%s: update check failed: %v", token, err)
 			continue
 		}
-		have := manifestVersion(filepath.Join(modsDir, p[2]))
+		have := manifestVersion(modDir(p[1], p[2]))
 		if have != "" && cmpVersion(m.Version, have) > 0 {
 			out = append(out, modUpdate{p[1], p[2], m.Version, have})
 		}
@@ -335,8 +335,25 @@ func installLocal(target, owner, name, version, url string) error {
 	return nil
 }
 
+// modDir is /data/Mods/<Owner>-<Name>: the server offers players a Thunderstore download of a map
+// only when its folder is named like the package. A folder an earlier image named just <Name> (a
+// link or a folder this installer made) is renamed on the way.
+func modDir(owner, name string) string {
+	target := filepath.Join(modsDir, owner+"-"+name)
+	legacy := filepath.Join(modsDir, name)
+	if _, err := os.Lstat(target); err != nil {
+		if _, err := os.Lstat(legacy); err == nil {
+			var mk map[string]string
+			if readJSON(filepath.Join(legacy, modsMarker), &mk) && mk["owner"] == owner && mk["name"] == name {
+				_ = os.Rename(legacy, target)
+			}
+		}
+	}
+	return target
+}
+
 func installMod(owner, name, version, url, old string) error {
-	target := filepath.Join(modsDir, name)
+	target := modDir(owner, name)
 	if storeShared() {
 		final, err := fillStore(owner, name, version, url, "")
 		if err != nil {
@@ -382,7 +399,7 @@ func ensureMod(owner, name, version string, update, dependency bool, seen map[st
 		return err
 	}
 	want := m.Version
-	target := filepath.Join(modsDir, name)
+	target := modDir(owner, name)
 	st, statErr := os.Stat(target)
 	exists := statErr == nil && st.IsDir()
 	have := ""
