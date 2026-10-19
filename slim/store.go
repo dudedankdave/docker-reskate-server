@@ -3,7 +3,7 @@ package main
 // Shared map/mod store, same as mods.py in the default image. MODS_STORE is `shared` (default: the
 // volume mounted at /mods) or a path for a store of this server's own. Every package version is
 // downloaded once into <store>/packages/<Owner>-<Name>-<version>
-// and each server only gets a symlink /data/Mods/<Name> to the version it wants. A version is
+// and each server only gets a symlink /data/Mods/<Owner>-<Name> to the version it wants. A version is
 // never changed after it is written, so a server still running (or draining players) on an older
 // map keeps its files while another one already moved on, and a lock per version makes servers
 // starting together wait for one download instead of repeating it.

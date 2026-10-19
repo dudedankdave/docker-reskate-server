@@ -135,7 +135,7 @@ With `docker run`: `-v reskate-mods:/mods`. Both images support it.
 | `shared` (default) | The shared volume at `/mods`. With nothing mounted there the log says so and the server keeps its own copies in `/data/Mods`. |
 | A path, e.g. `/data/maps` | A store of this server's own at that path, whether or not `/mods` is mounted. Keep it on a volume (inside `/data` is fine), not inside `/data/Mods`. |
 
-- **Layout:** each version is stored once as `<store>/packages/<Owner>-<Name>-<version>`, and `/data/Mods/<Name>` becomes a symlink to the version that server wants.
+- **Layout:** each version is stored once as `<store>/packages/<Owner>-<Name>-<version>`, and `/data/Mods/<Owner>-<Name>` becomes a symlink to the version that server wants.
 - **Servers can be on different versions:** a stored version is never changed, so a server still on an older map keeps its files while another moves on (the [rollover](rollover/README.md) relies on this).
 - **Starting together:** servers needing the same version at once share one download.
 - **Switching an existing server over:** add the mount and recreate the container. Folders the installer put into `/data/Mods` earlier move into the store on that start, without a new download; hand-copied folders stay.
@@ -177,7 +177,7 @@ For a map that isn't on Thunderstore:
 2. Set `MAP` to the `displayName` from the mod's `reskate-levels.json`, e.g. `MAP=Skate2Map`.
 3. Restart the server: `docker compose restart reskate-1`
 
-Hand-copied maps are not shared through the store: copy the folder into every server that should use it.
+Hand-copied maps are not shared through the store: copy the folder into every server that should use it. Name the folder `Owner-Name` (as on Thunderstore): the server only offers players the in-game download of a map whose folder is named like its package.
 
 <br/>
 

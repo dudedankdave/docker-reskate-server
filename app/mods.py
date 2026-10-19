@@ -15,7 +15,7 @@ out to curl and unzip.
 Shared store (MODS_STORE, default `shared` = the volume mounted at /mods, or a path for a store
 of this server's own): every package version is downloaded once into
 <store>/packages/<Owner>-<Name>-<version> and each server only gets a symlink
-/data/Mods/<Name> to the version it wants. A version is never changed after it is written, so a
+/data/Mods/<Owner>-<Name> to the version it wants. A version is never changed after it is written, so a
 server still running (or draining players) on an older map keeps its files while another one
 already moved on, and a lock per version makes servers starting together wait for one download
 instead of repeating it. `python3 /app/mods.py gc [days]` removes versions no server has
@@ -279,8 +279,21 @@ def link(target, final):
     touch(final)
 
 
+def mod_dir(owner, name):
+    """/data/Mods/<Owner>-<Name>: the server offers players a Thunderstore download of a map only
+    when its folder is named like the package. A folder an earlier image named just <Name> (a
+    link or a folder this installer made) is renamed on the way."""
+    target = os.path.join(MODS_DIR, f"{owner}-{name}")
+    legacy = os.path.join(MODS_DIR, name)
+    if not os.path.lexists(target) and os.path.lexists(legacy):
+        m = read_marker(legacy)
+        if m and (m.get("owner"), m.get("name")) == (owner, name):
+            os.rename(legacy, target)
+    return target
+
+
 def install(owner, name, version, url, old=None):
-    target = os.path.join(MODS_DIR, name)
+    target = mod_dir(owner, name)
     if shared():
         link(target, fill_store(owner, name, version, url))
     else:
@@ -314,7 +327,7 @@ def ensure(owner, name, version, update, dependency=False, seen=None):
     label = f"{owner}-{name}"
     m = meta(owner, name, version)
     want = m["version_number"]
-    target = os.path.join(MODS_DIR, name)
+    target = mod_dir(owner, name)
     have = read_manifest(target).get("version_number") if os.path.isdir(target) else None
     marker = read_marker(target) if os.path.isdir(target) else None
     if have == want:
@@ -356,7 +369,7 @@ def pending_updates(spec):
         except Exception as e:
             log(f"{token}: update check failed: {e}")
             continue
-        have = read_manifest(os.path.join(MODS_DIR, p[1])).get("version_number")
+        have = read_manifest(mod_dir(p[0], p[1])).get("version_number")
         if have and version_key(latest) > version_key(have):
             out.append((p[0], p[1], latest, have))
     return out
