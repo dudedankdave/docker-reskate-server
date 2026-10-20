@@ -71,7 +71,7 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | `2.0.8`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
 | `2.0.8-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
-| `2.0.8-r123`, `2.0.8-r123-slim` | One build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`); the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
+| `2.0.8-r123`, `2.0.8-r123-slim` | The newest build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`) and the older revision tags of that release are deleted; the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
 
 The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) of the server inside and has to match the players' game. Older tags stay available. Most releases change the multiplayer protocol, and then servers and players on different versions can't join each other: 2.0.3, 2.0.6, 2.0.7 and 2.0.8 each did. 2.0.4 and 2.0.5 ship the same server as 2.0.3.
 
