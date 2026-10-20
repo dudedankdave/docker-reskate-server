@@ -15,11 +15,16 @@ rollover, the bridge and the bots. Stage 1 starts and stops nothing; the only wr
   bridge's console action (the only thing the dashboard writes); DASHBOARD_SAY=false makes the chat read-only.
   A send needs the session cookie plus the X-Requested-With header the page sets, and is logged by the bridge
   as an audit event ("dashboard").
+* Moderator: search players over all servers (bridge GET /v1/servers/<n>/players), then kick, ban, private message,
+  teleport (only when DASHBOARD_TP_COMMAND is set), and per server say, announce, poll. Everything goes through
+  the bridge's console actions, so the bridge logs each one as an audit event ("dashboard"); restarts and stops
+  stay refused there. DASHBOARD_MOD=false turns the whole section (and the chat box) read-only.
 * It listens on DASHBOARD_BIND:DASHBOARD_PORT (127.0.0.1:8790) in plain HTTP; put a reverse proxy with
   HTTPS in front of it for the subdomain.
 
 Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOARD_PORT, DASHBOARD_CUTOFF,
-DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true). Standard library only."""
+DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
+(console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import hashlib
 import hmac
 import http.client
@@ -43,6 +48,8 @@ PORT = int(os.environ.get("DASHBOARD_PORT", "8790"))
 CUTOFF = int(os.environ.get("DASHBOARD_CUTOFF", "3"))
 DOCKER = os.environ.get("DASHBOARD_DOCKER", "").strip()
 SAY = os.environ.get("DASHBOARD_SAY", "true").strip().lower() not in ("false", "0", "off", "no")
+MOD = os.environ.get("DASHBOARD_MOD", "true").strip().lower() not in ("false", "0", "off", "no")
+TP = os.environ.get("DASHBOARD_TP_COMMAND", "").strip()
 SESSION = int(float(os.environ.get("DASHBOARD_SESSION_HOURS", "12")) * 3600)
 KEY = secrets.token_bytes(32)
 COOKIE = "reskate_dash"
@@ -74,22 +81,69 @@ def valid(token):
         return False
 
 
-def bridge(path):
-    req = urllib.request.Request(BRIDGE_URL + path, headers={"Authorization": f"Bearer {BRIDGE_TOKEN}"})
+def bridge(path, body=None):
+    """GET on the bridge, or a POST of `body` (a dict) when given."""
+    headers = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
+    data = None
+    if body is not None:
+        data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
+    req = urllib.request.Request(BRIDGE_URL + path, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
 
 
-def bridge_say(server, text):
-    """Type `say <text>` into the chat of one server through the bridge (one line, at most 200 characters)."""
-    text = " ".join(str(text).split())[:200]
-    if not text or not str(server).isalnum():
-        raise ValueError("a server and a text are needed")
-    body = json.dumps({"action": "say", "args": {"text": text}, "by": "dashboard"}).encode()
-    req = urllib.request.Request(f"{BRIDGE_URL}/v1/servers/{server}/do", data=body, method="POST", headers={
-        "Authorization": f"Bearer {BRIDGE_TOKEN}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+def line(value, limit):
+    value = " ".join(str(value or "").split())[:limit]
+    if not value:
+        raise ValueError("a text is missing")
+    return value
+
+
+def moderate(body):
+    """One moderator action through the bridge: {server, slot?, action, player?, steam_id?, text?, target?}."""
+    server, action = str(body.get("server", "")), str(body.get("action", ""))
+    if not server.isalnum():
+        raise ValueError("a server is needed")
+    slot = str(body.get("slot") or "")[:2] or None
+    if action in ("say", "announce"):
+        todo = {"action": action, "args": {"text": line(body.get("text"), 200)}}
+    elif action == "msg":
+        todo = {"action": "msg", "args": {"player": line(body.get("player"), 64), "text": line(body.get("text"), 190)}}
+    elif action == "kick":
+        todo = {"action": "kick", "args": {"player": line(body.get("player"), 64)}}
+    elif action == "ban":
+        steam_id = str(body.get("steam_id", ""))
+        if not (steam_id.isdigit() and len(steam_id) == 17):
+            raise ValueError("a ban needs the 17-digit Steam ID")
+        reason = " ".join(str(body.get("text") or "").split())[:100]
+        todo = {"action": "console", "args": {"command": f"ban {steam_id} {reason}".strip()}}
+    elif action == "poll":
+        todo = {"action": "poll", "args": {"question": line(body.get("text"), 120), "answers": line(body.get("answers"), 280)}}
+    elif action == "tp":
+        if not TP:
+            raise ValueError("teleport is not set up (DASHBOARD_TP_COMMAND)")
+        player, target = line(body.get("player"), 64), line(body.get("target"), 64)
+        todo = {"action": "console", "args": {"command": TP.format(player=player, target=target)}}
+    else:
+        raise ValueError(f"unknown action {action!r}")
+    if slot:
+        todo["slot"] = slot
+    todo["by"] = "dashboard"
+    return bridge(f"/v1/servers/{server}/do", todo)
+
+
+def players():
+    """Everybody who is on, from every running server: [{name, steam_id, team, server, slot, role}]."""
+    out = []
+    for r in bridge("/v1/servers"):
+        if not r.get("running"):
+            continue
+        try:
+            for p in bridge(f"/v1/servers/{r['server']}/players"):
+                out.append(dict(p, server=r["server"], role=r.get("role", "")))
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+    return out
 
 
 class Unix(http.client.HTTPConnection):
@@ -153,7 +207,7 @@ def servers():
         r["rule"] = restart_rule(r.get("players")) if r.get("running") else "empty"
         for s in r.get("slots", {}).values():
             s["rule"] = restart_rule(s.get("players")) if s.get("running") else "empty"
-    return {"cutoff": CUTOFF, "say": SAY, "servers": rows}
+    return {"cutoff": CUTOFF, "say": SAY and MOD, "mod": MOD, "tp": bool(TP), "servers": rows}
 
 
 PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -168,6 +222,10 @@ main{padding:16px;max-width:1100px;margin:auto;display:grid;gap:16px}section h2{
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}th{color:var(--mut);font-weight:500}
+td .act{display:flex;gap:6px;flex-wrap:wrap}td button{padding:3px 8px;font-size:13px}button.arm{border-color:var(--bad);color:var(--bad)}
+#find,#srvtools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}#srvtools{margin:8px 0 0}#find input,#srvtools input{flex:1;min-width:140px;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
 #sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 10px}button{cursor:pointer}
@@ -180,6 +238,12 @@ form{max-width:320px;margin:20vh auto;padding:0 16px;display:grid;gap:10px}
 <section><h2>Tools &amp; Container</h2><div class="grid" id="containers"></div></section>
 <section><h2>Chat</h2><div class="tabs" id="tabs"></div><pre id="chat">-</pre>
 <form id="sayform" autocomplete="off"><input id="saytext" maxlength="200" placeholder="Nachricht an den Server-Chat"><button>Senden</button></form></section>
+<section id="modsec"><h2>Moderator</h2>
+<form id="find" autocomplete="off"><input id="q" placeholder="Spieler suchen (Name, Steam-ID, Team)"><input id="mtext" maxlength="200" placeholder="Text / Grund (Nachricht, Ban) oder Ziel-Spieler (Teleport)"></form>
+<div class="tablewrap"><table id="plist"><thead><tr><th>Spieler</th><th>Server</th><th>Aktionen</th></tr></thead><tbody></tbody></table></div>
+<form id="srvtools" autocomplete="off"><select id="msrv"></select><input id="stext" maxlength="200" placeholder="Text an alle auf diesem Server">
+<button type="button" data-a="say">Say</button><button type="button" data-a="announce">Announce</button></form>
+<div class="mut" id="mres"></div></section>
 <section><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -191,7 +255,7 @@ async function api(p){const r=await fetch(p);if(r.status==401){location.reload()
 async function servers(){
  const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
- tabs(d);
+ tabs(d);mod(d);
  for(const s of d.servers){
   const c=el('div','card'),h=el('h3',0,'Server '+s.server+(s.role?' · '+s.role:''));c.append(h);
   const [t,k]=RULE[s.rule]||[s.rule,'mut'];
@@ -210,6 +274,29 @@ async function containers(){
  for(const c of d.containers){const e=el('div','card'),run=c.state=='running';
   e.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state),el('div','mut',c.image+' · '+c.status));box.append(e)}
 }
+let people=[],modOn=true,tpOn=false;
+function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;const m=$('msrv');
+ if(!m.options.length)d.servers.forEach(s=>m.add(new Option(s.server+' '+s.role,s.server)))}
+async function who(){if(!modOn)return;people=await api('/api/players');draw()}
+function say_(m){$('mres').textContent=m}
+async function act(body,b){
+ if(b&&!b.classList.contains('arm')&&/^(kick|ban)$/.test(body.action)){b.classList.add('arm');const t=b.textContent;b.textContent='Sicher?';setTimeout(()=>{b.classList.remove('arm');b.textContent=t},3000);return}
+ const r=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify(body)});
+ const d=await r.json();say_(r.ok?'Gesendet: '+body.action+(body.player?' '+body.player:''):'Fehler: '+(d.error||r.status));if(r.ok)setTimeout(who,1500)}
+function draw(){const q=$('q').value.trim().toLowerCase(),tb=document.querySelector('#plist tbody');tb.replaceChildren();
+ const rows=people.filter(p=>!q||(p.name+' '+p.steam_id+' '+(p.team||'')).toLowerCase().includes(q));
+ if(!rows.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=3;tr.append(td);tb.append(tr);return}
+ for(const p of rows){const tr=el('tr'),n=el('td'),s=el('td','mut'),a=el('td'),w=el('div','act');
+  n.append(el('div',0,(p.team?'['+p.team+'] ':'')+p.name),el('div','mut',p.steam_id));s.textContent=p.server+(p.slot||'')+' '+p.role;
+  const base={server:p.server,slot:p.slot,player:p.name,steam_id:p.steam_id};
+  const add=(l,f)=>{const b=el('button',0,l);b.onclick=()=>f(b);w.append(b)};
+  add('Nachricht',()=>act({...base,action:'msg',text:$('mtext').value}));
+  add('Kick',b=>act({...base,action:'kick'},b));
+  add('Ban',b=>act({...base,action:'ban',text:$('mtext').value},b));
+  if(tpOn)add('Teleport',()=>act({...base,action:'tp',target:$('mtext').value}));
+  a.append(w);tr.append(n,s,a);tb.append(tr)}}
+$('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
+for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
 let chatSrv='',chatLast=0,chatLines=[],canSay=true;
 function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
  if(!chatSrv&&d.servers.length)chatSrv=d.servers[0].server;
@@ -237,7 +324,7 @@ for(const id of['sel','scope'])$(id).onchange=()=>{last=0;lines.length=0;$('even
 async function toollog(){const n=$('tool').value;if(n)$('toollog').textContent=(await api('/api/toollog?name='+n)).log}
 $('tool').onchange=toollog;
 async function tick(){
- for(const f of[servers,chat,containers,events,toollog])try{await f()}catch(e){if(e)console.warn(e)}
+ for(const f of[servers,who,chat,containers,events,toollog])try{await f()}catch(e){if(e)console.warn(e)}
  $('upd').textContent='aktualisiert '+new Date().toLocaleTimeString()}
 tick();setInterval(tick,5000);
 </script></body></html>"""
@@ -297,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, PAGE)
             if url.path == "/api/servers":
                 return self.json(200, servers())
+            if url.path == "/api/players":
+                return self.json(200, players() if MOD else [])
             if url.path == "/api/containers":
                 return self.json(200, containers())
             if url.path == "/api/toollog":
@@ -313,11 +402,11 @@ class Handler(BaseHTTPRequestHandler):
     def say(self):
         if not self.logged_in():
             return self.json(401, {"error": "login"})
-        if not SAY or self.headers.get("X-Requested-With") != "dashboard":
-            return self.json(403, {"error": "sending is off" if not SAY else "forbidden"})
+        if not (SAY and MOD) or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "sending is off" if not (SAY and MOD) else "forbidden"})
         try:
             body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)) or b"{}")
-            bridge_say(body.get("server", ""), body.get("text", ""))
+            moderate({"server": body.get("server", ""), "action": "say", "text": body.get("text", "")})
         except (ValueError, TypeError) as e:
             return self.json(400, {"error": str(e)})
         except urllib.error.HTTPError as e:
@@ -327,12 +416,31 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: chat sent to server {body.get('server')}")
         self.json(200, {"ok": True})
 
+    def mod(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)) or b"{}")
+            moderate(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except urllib.error.HTTPError as e:
+            return self.json(502, {"error": f"bridge: {e.code} {e.read()[:200].decode(errors='replace')}"})
+        except (urllib.error.URLError, OSError) as e:
+            return self.json(502, {"error": f"bridge not reachable: {e}"})
+        say(f"dashboard: {body.get('action')} on server {body.get('server')}")
+        self.json(200, {"ok": True})
+
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/logout":
             return self.send(200, "ok", headers=[self.cookie("", 0)])
         if path == "/api/say":
             return self.say()
+        if path == "/api/mod":
+            return self.mod()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()

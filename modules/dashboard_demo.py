@@ -31,7 +31,17 @@ CONTAINERS += [{"name": "reskate-server-1-2.1.1", "image": "dudedankdave/reskate
 sent = [0]
 
 
-def bridge(path):
+PEOPLE = {"1": [{"name": "Bob", "steam_id": "76561198000000001", "slot": "A", "team": "CRW"},
+                {"name": "Alice", "steam_id": "76561198000000002", "slot": "A", "team": ""}],
+          "2": [{"name": "Carl", "steam_id": "76561198000000003", "slot": "A", "team": "SK8"}]}
+
+
+def bridge(path, body=None):
+    if body is not None:
+        print("demo: would send", path, body)     # nothing is sent anywhere
+        return {"ok": True}
+    if path.endswith("/players"):
+        return PEOPLE.get(path.split("/")[3], [])
     if path.startswith("/v1/servers"):
         return [dict(s, slots={k: dict(v) for k, v in s["slots"].items()}) for s in SERVERS]
     sent[0] += 1

@@ -9,6 +9,8 @@ Each server card says whether the project rule would allow a restart (at most `D
 or only a rollover copy; an unknown player count counts as busy. Later stages that restart anything reuse that
 check on the server side.
 
+**Moderator section:** search players over all servers, then kick, ban (needs the Steam ID, shown in the list), private message, and per server say and announce. Kick and ban ask for a second click. Everything goes through the bridge's console actions and shows up there as an audit event ("dashboard"); `quit`/`stop`/`restart` stay refused by the bridge. Teleport buttons appear only when `DASHBOARD_TP_COMMAND` is set to the server's console line (e.g. `tp {player} {target}`, the target being typed in the text box); the exact command is not known to the repository yet, so check `help` on the test server first. `DASHBOARD_MOD=false` makes the whole page read-only.
+
 ```sh
 cd stack
 DASHBOARD_PASSWORD=... BRIDGE_TOKEN=... docker compose -p tools -f docker-compose.yml -f dashboard.yml up -d dashboard
