@@ -19,6 +19,12 @@ rollover, the bridge and the bots. Stage 1 starts and stops nothing; the only wr
   teleport (only when DASHBOARD_TP_COMMAND is set), and per server say, announce, poll. Everything goes through
   the bridge's console actions, so the bridge logs each one as an audit event ("dashboard"); restarts and stops
   stay refused there. DASHBOARD_MOD=false turns the whole section (and the chat box) read-only.
+* Server commands: a catalog of every console command of the ReSkate server (map, map-pool, rotation, votes, polls,
+  parties, anti-cheat, reserved slots, announcements ...) with a free command line, the last log lines as the reply,
+  and map shortcuts (switch map, pool add/remove/clear, rotation). Adding a new map package writes `MODS+=` (and
+  `MAP_POOL+=`) into /shared/settings/server-<n>.env or common.env (DASHBOARD_SHARED, default /shared, writable); the
+  rollover then restarts the servers concerned once they are empty, so no busy server goes down because of it.
+  `quit`, `stop`, `exit`, `update` and `restart` are refused (here and in the bridge).
 * It listens on DASHBOARD_BIND:DASHBOARD_PORT (127.0.0.1:8790) in plain HTTP; put a reverse proxy with
   HTTPS in front of it for the subdomain.
 
@@ -26,6 +32,7 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import hashlib
+import re
 import hmac
 import http.client
 import json
@@ -49,6 +56,10 @@ CUTOFF = int(os.environ.get("DASHBOARD_CUTOFF", "3"))
 DOCKER = os.environ.get("DASHBOARD_DOCKER", "").strip()
 SAY = os.environ.get("DASHBOARD_SAY", "true").strip().lower() not in ("false", "0", "off", "no")
 MOD = os.environ.get("DASHBOARD_MOD", "true").strip().lower() not in ("false", "0", "off", "no")
+SHARED = os.environ.get("DASHBOARD_SHARED", "/shared").rstrip("/")
+BLOCKED = {"quit", "exit", "stop", "update", "restart", "shutdown"}
+PACKAGE = re.compile(r"^[A-Za-z0-9_]+-[A-Za-z0-9_]+(?:-\d+\.\d+\.\d+)?$")
+MAPNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _'.-]{0,63}$")
 TP = os.environ.get("DASHBOARD_TP_COMMAND", "").strip()
 SESSION = int(float(os.environ.get("DASHBOARD_SESSION_HOURS", "12")) * 3600)
 KEY = secrets.token_bytes(32)
@@ -119,6 +130,13 @@ def moderate(body):
         todo = {"action": "console", "args": {"command": f"ban {steam_id} {reason}".strip()}}
     elif action == "poll":
         todo = {"action": "poll", "args": {"question": line(body.get("text"), 120), "answers": line(body.get("answers"), 280)}}
+    elif action == "console":
+        command = line(body.get("text"), 300)
+        if command.split(None, 1)[0].lower().lstrip("/") in BLOCKED:
+            raise ValueError("that command stops or restarts the server; restarts are the rollover's job")
+        todo = {"action": "console", "args": {"command": command}}
+    elif action == "log":
+        todo = {"action": "log", "args": {"count": str(min(max(int(body.get("count") or 12), 1), 50))}}
     elif action == "tp":
         if not TP:
             raise ValueError("teleport is not set up (DASHBOARD_TP_COMMAND)")
@@ -130,6 +148,40 @@ def moderate(body):
         todo["slot"] = slot
     todo["by"] = "dashboard"
     return bridge(f"/v1/servers/{server}/do", todo)
+
+
+def add_map(body):
+    """Write a new map package (and pool names) into the settings files; the rollover restarts the servers
+    concerned once they are empty. {server: "<n>" or "*", package: "Owner-Name[-1.2.3]", pool: "Map name, Other"}."""
+    server, package = str(body.get("server", "")), str(body.get("package", "")).strip()
+    if not (server == "*" or server.isalnum()):
+        raise ValueError("a server (or all) is needed")
+    if not PACKAGE.match(package):
+        raise ValueError("the package looks like Owner-Name or Owner-Name-1.2.3")
+    pool = [p.strip() for p in str(body.get("pool", "")).split(",") if p.strip()]
+    for name in pool:
+        if not MAPNAME.match(name):
+            raise ValueError(f"map name {name!r} has characters the pool does not take")
+    folder = f"{SHARED}/settings"
+    if not os.path.isdir(folder):
+        raise ValueError(f"{folder} is not mounted into the dashboard (DASHBOARD_SHARED)")
+    path = f"{folder}/{'common' if server == '*' else 'server-' + server}.env"
+    old = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
+    have = {x.strip() for x in old.splitlines()}
+    new = [f"MODS+={package}"] + [f'MAP_POOL+="{n}"' if " " in n else f"MAP_POOL+={n}" for n in pool]
+    new = [x for x in new if x not in have]
+    if not new:
+        return "already in the settings"
+    text = old + ("" if not old or old.endswith("\n") else "\n") + "# added by the dashboard\n" + "\n".join(new) + "\n"
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        f.write(text)
+    st = os.stat(folder)
+    try:
+        os.chown(path + ".tmp", st.st_uid, st.st_gid)
+    except OSError:
+        pass
+    os.replace(path + ".tmp", path)
+    return f"written to {os.path.basename(path)}: " + ", ".join(new)
 
 
 def players():
@@ -226,6 +278,7 @@ main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(saf
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}th{color:var(--mut);font-weight:500}
 td .act{display:flex;gap:6px;flex-wrap:wrap}td button{padding:3px 8px;font-size:13px}button.arm{border-color:var(--bad);color:var(--bad)}
 #find,#srvtools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}#srvtools{margin:8px 0 0}#find input,#srvtools input{flex:1;min-width:140px;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}.bar input,.bar select{flex:1 1 160px;min-width:0;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
 #sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 10px}button{cursor:pointer}
@@ -242,6 +295,16 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <form id="srvtools" autocomplete="off"><select id="msrv"></select><input id="stext" maxlength="200" placeholder="Text an alle auf diesem Server">
 <button type="button" data-a="say">Say</button><button type="button" data-a="announce">Announce</button></form>
 <div class="mut" id="mres"></div></section>
+<section id="cmdsec"><h2>Server-Befehle</h2>
+<div class="bar"><select id="csrv"></select><select id="cat"></select><input id="cmd" maxlength="300" placeholder="Befehl, z. B. status oder map grom"><button id="csend">Senden</button></div>
+<div class="bar"><input id="mapname" list="maps" maxlength="64" placeholder="Map-Name (z. B. San Vansterdam)"><datalist id="maps"></datalist>
+<button data-c="map {m}">Map wechseln</button><button data-c="map-pool add {m}">Pool +</button><button data-c="map-pool remove {m}">Pool −</button><button data-c="map-pool clear">Alle Maps</button></div>
+<div class="bar"><input id="rot" type="number" min="1" max="1440" placeholder="Rotation (Minuten)"><button data-c="rotation {r}">Rotation setzen</button><button data-c="rotation off">Rotation aus</button>
+<button data-c="maps">Maps zeigen</button><button data-c="map-pool">Pool zeigen</button><button data-c="status">Status</button><button data-c="players">Spieler</button></div>
+<pre id="cout">Antwort des Servers erscheint hier (letzte Log-Zeilen).</pre>
+<h2 style="margin-top:14px">Neue Map hinzufügen</h2>
+<div class="bar"><input id="pkg" maxlength="80" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><button id="addmap">Hinzufügen</button></div>
+<div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. Der Rollover startet betroffene Server erst neu, wenn sie leer sind (kein belegter Server geht runter); danach ggf. Map mit Wechseln/Pool + aktivieren.</div></section>
 <section><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -272,9 +335,27 @@ async function containers(){
   const hd=el('div','head');hd.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state));
   e.append(hd,el('div','mut',c.image+' · '+c.status));box.append(e)}
 }
+const CATALOG={
+ 'Karte':[['map <name>','Map wechseln'],['maps','Bekannte Maps'],['map-pool','Pool anzeigen'],['map-pool add <map>','Map in den Pool'],['map-pool remove <map>','Map aus dem Pool'],['map-pool clear','Alle Maps erlauben'],['rotation <minutes>','Rotation (Minuten)'],['rotation off','Rotation aus'],['park <construction|historic|financial> <layout>','Park-Layout'],['park random','Parks zufällig'],['layer-sync on','Layer-Sync an'],['layer-sync off','Layer-Sync aus'],['tod <default|morning|noon|afternoon|evening|night>','Tageszeit']],
+ 'Votes & Umfragen':[['votes','Vote-Einstellungen'],['votes map on','Map-Vote an'],['votes map off','Map-Vote aus'],['votes kick on','Kick-Vote an'],['votes kick off','Kick-Vote aus'],['votes tod on','Tageszeit-Vote an'],['votes seconds <n>','Vote-Dauer'],['votes cooldown <n>','Vote-Pause'],['vote-cancel','Vote abbrechen'],['vote map <map>','Map-Vote starten'],['vote tod <time>','Tageszeit-Vote starten'],['poll <frage> | <antwort> | <antwort>','Umfrage'],['poll end','Umfrage beenden'],['votes polls <off|admins|everyone>','Wer darf Umfragen']],
+ 'Spieler':[['players','Spieler & Steam-IDs'],['kick <player>','Kick (bis Neustart)'],['ban <player or id> [name]','Ban'],['unban <id>','Unban'],['bans','Ban-Liste'],['msg <player> <text>','Private Nachricht'],['msg-admins <text>','An alle Admins'],['reserved','Reservierte Slots'],['reserved add <id>','Slot reservieren'],['reserved remove <id>','Slot freigeben'],['admins','Admin-Liste'],['admin add <id>','Admin hinzufügen'],['admin remove <id>','Admin entfernen'],['tpall [player]','Alle zu mir/Spieler'],['tphere <player>','Spieler zu mir'],['parties','Parties'],['parties off','Parties beenden'],['afk-kick <minutes>','AFK-Kick (Minuten)'],['afk-kick off','AFK-Kick aus']],
+ 'Nachrichten':[['say <text>','Chat als Server'],['announce <text>','Ansage an alle'],['announce-to <player> <text>','Ansage an Spieler'],['announcements list','Timer-Ansagen'],['announcements add <text>','Timer-Ansage +'],['announcements remove <n>','Timer-Ansage −'],['announcements interval <minutes>','Ansage-Intervall'],['announcements clear','Alle Timer-Ansagen löschen']],
+ 'Server':[['help','Befehlsliste'],['status','Name, Map, Spieler, Code'],['net','Netzwerk'],['name <text>','Servername'],['password <text|off>','Passwort'],['welcome <text|off>','Willkommen-Text'],['listed on','Gelistet'],['listed off','Versteckt'],['chat-color <#badge> [<#text>]','Chat-Farbe'],['activity-log on','Aktivitäts-Log an'],['activity-log off','Aktivitäts-Log aus']],
+ 'Regeln & Anti-Cheat':[['noclip on','Noclip an'],['noclip off','Noclip aus'],['nobail on','No Bail an'],['nobail off','No Bail aus'],['boosts on','Boosts an'],['boosts off','Boosts aus'],['tuning on','Physik erzwingen'],['tuning off','Physik frei'],['placement <everyone|admins|nobody>','Objekte platzieren'],['objects <number|off>','Objekt-Limit'],['clear-objects','Alle Objekte löschen'],['object-scaling on','Skalieren an'],['object-scaling off','Skalieren aus'],['effects on','Effekte an'],['effects off','Effekte aus'],['speed-check <off|warn|kick>','Speed-Check'],['score-check','Score-Check: Ergebnis'],['score-check <off|warn|kick>','Score-Check setzen'],['score-allow','Erlaubte Score-Mods'],['voice on','Voice an'],['voice off','Voice aus'],['voice-range <m>','Voice-Reichweite']],
+ 'Netzwerk-Tuning':[['rate <KB/s>','Sendrate'],['crowd <n|off>','Crowd-Budget'],['distances <full> <half> <half-return> <low>','Distanzen'],['bone-scale <1-8|off>','Bone-Scale'],['bone-reach <0.5-20|off>','Bone-Reichweite'],['throwdown-locks on','Throwdown-Sperren an'],['throwdown-locks off','Throwdown-Sperren aus']]};
 let people=[],modOn=true,tpOn=false;
-function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;const m=$('msrv');
- if(!m.options.length)d.servers.forEach(s=>m.add(new Option(s.server+' '+s.role,s.server)))}
+function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;$('cmdsec').hidden=!d.mod;const m=$('msrv');
+ if(!m.options.length){for(const id of['msrv','csrv'])d.servers.forEach(s=>$(id).add(new Option(s.server+' '+s.role,s.server)));
+  $('pscope').add(new Option('nur diesen Server (Auswahl links)','one'));$('pscope').add(new Option('alle Server','*'));
+  const c=$('cat');c.add(new Option('Befehlskatalog …',''));for(const [g,l] of Object.entries(CATALOG)){const o=document.createElement('optgroup');o.label=g;for(const [cmd,txt] of l)o.append(new Option(txt+' · '+cmd,cmd));c.append(o)}}}
+async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textContent='Sende: '+c+' …';
+ const r=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('csrv').value,action:'console',text:c})});
+ const d=await r.json();if(!r.ok){o.textContent='Fehler: '+(d.error||r.status);return}
+ await new Promise(x=>setTimeout(x,1500));
+ const l=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('csrv').value,action:'log',count:14})});
+ const t=await l.json();o.textContent='> '+c+'\\n'+(t.text||'(keine Log-Zeilen)');o.scrollTop=o.scrollHeight}
+function fill(c){const m=$('mapname').value.trim(),r=$('rot').value.trim();return c.replace(' {m}',m?' '+m:'').replace(' {r}',r?' '+r:'')}
+document.addEventListener('DOMContentLoaded',()=>{});
 async function who(){if(!modOn)return;people=await api('/api/players');draw()}
 function say_(m){$('mres').textContent=m}
 async function act(body,b){
@@ -295,6 +376,12 @@ function draw(){const q=$('q').value.trim().toLowerCase(),tb=document.querySelec
   a.append(w);tr.append(n,s,a);tb.append(tr)}}
 $('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
+$('cat').onchange=()=>{const v=$('cat').value;if(!v)return;$('cmd').value=v;$('cmd').focus();const i=v.search(/[<\\[]/);if(i>0)$('cmd').setSelectionRange(i,v.length);$('cat').value=''};
+$('csend').onclick=()=>sendCmd($('cmd').value);$('cmd').onkeydown=e=>{if(e.key=='Enter')sendCmd($('cmd').value)};
+for(const b of document.querySelectorAll('[data-c]'))b.onclick=()=>{const c=fill(b.dataset.c);if(c.includes('{'))return;if(/^(map|map-pool (add|remove)|rotation)$/.test(c.trim()))return $('cout').textContent='Bitte zuerst Map-Name bzw. Minuten eintragen.';$('cmd').value=c;sendCmd(c)};
+$('addmap').onclick=async()=>{const o=$('cout'),pk=$('pkg').value.trim();if(!pk)return;
+ const r=await fetch('/api/addmap',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('pscope').value=='*'?'*':$('csrv').value,package:pk,pool:$('poolnames').value})});
+ const d=await r.json();o.textContent=r.ok?'Map-Paket: '+d.text:'Fehler: '+(d.error||r.status);if(r.ok){$('pkg').value='';$('poolnames').value=''}};
 let chatSrv='*',chatLast=0,chatLines=[],canSay=true;
 function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
  const all=el('button',0,'Alle Chats');all.dataset.s='*';all.onclick=()=>pick('*');t.append(all);
@@ -423,7 +510,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
         try:
             body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)) or b"{}")
-            moderate(body)
+            result = moderate(body)
         except (ValueError, TypeError, AttributeError) as e:
             return self.json(400, {"error": str(e)})
         except urllib.error.HTTPError as e:
@@ -431,7 +518,22 @@ class Handler(BaseHTTPRequestHandler):
         except (urllib.error.URLError, OSError) as e:
             return self.json(502, {"error": f"bridge not reachable: {e}"})
         say(f"dashboard: {body.get('action')} on server {body.get('server')}")
-        self.json(200, {"ok": True})
+        self.json(200, {"ok": True, "text": (result or {}).get("text", "")})
+
+    def addmap(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)) or b"{}")
+            text = add_map(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except OSError as e:
+            return self.json(500, {"error": f"could not write the settings: {e}"})
+        say(f"dashboard: map package {body.get('package')} for server {body.get('server')}: {text}")
+        self.json(200, {"ok": True, "text": text})
 
     def do_POST(self):
         path = urlparse(self.path).path
@@ -441,6 +543,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.say()
         if path == "/api/mod":
             return self.mod()
+        if path == "/api/addmap":
+            return self.addmap()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()
