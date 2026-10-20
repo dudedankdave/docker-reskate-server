@@ -24,6 +24,7 @@ import (
 
 const (
 	versionFile = ".version"
+	pulledFile  = ".pulled" // the pulled release /data/server went back from
 	launcherURL = "https://github.com/" + repo + "/releases/latest/download/launcher.json"
 )
 
@@ -36,7 +37,7 @@ var (
 
 var (
 	ours = map[string]bool{"entrypoint.py": true, "healthcheck.py": true, "notifier.py": true, "mods.py": true,
-		"updater.py": true, "supervisor.py": true, "reskate": true, "__pycache__": true, versionFile: true}
+		"updater.py": true, "supervisor.py": true, "reskate": true, "__pycache__": true, versionFile: true, pulledFile: true}
 	keep = map[string]bool{"ReSkateServer.json": true, "ReSkateServer.log": true, "Mods": true, "world-layers.json": true}
 )
 
@@ -50,6 +51,11 @@ type release struct {
 
 func versionOf(dir string) string {
 	raw, _ := os.ReadFile(filepath.Join(dir, versionFile))
+	return strings.TrimSpace(string(raw))
+}
+
+func pulledFrom(dir string) string {
+	raw, _ := os.ReadFile(filepath.Join(dir, pulledFile))
 	return strings.TrimSpace(string(raw))
 }
 
@@ -154,6 +160,10 @@ func prepareServer(imageVersion string) (string, error) {
 	if _, err := os.Stat(filepath.Join(serverDir, "ReSkateServer")); err == nil {
 		have = versionOf(serverDir)
 	}
+	if pulled := pulledFrom(serverDir); have != "" && pulled != "" && cmpVersion(imageVersion, pulled) <= 0 {
+		fmt.Printf("[update] running ReSkate %s from %s: the image has %s, and ReSkate pulled %s\n", have, serverDir, imageVersion, pulled)
+		return serverDir, nil
+	}
 	if have != "" && cmpVersion(have, imageVersion) >= 0 {
 		if cmpVersion(have, imageVersion) > 0 {
 			fmt.Printf("[update] running ReSkate %s from %s (installed by the updater; the image has %s)\n", have, serverDir, imageVersion)
@@ -228,8 +238,10 @@ func latestRelease() (release, error) {
 }
 
 // stageRelease downloads, verifies and unpacks a release into /data/server.new (a copy of
-// /data/server with the release unpacked over it).
-func stageRelease(r release) (dir string, err error) {
+// /data/server with the release unpacked over it). Going back from a pulled release starts from
+// the image's copy instead, so nothing of the pulled one stays behind, and notes the pulled version
+// so the next start keeps this one over an image that is not newer.
+func stageRelease(r release, pulled string) (dir string, err error) {
 	url := r.URL
 	if name, ok := strings.CutPrefix(url, "asset:"); ok {
 		url = fmt.Sprintf("https://github.com/%s/releases/download/v%s/%s", repo, r.Version, name)
@@ -259,7 +271,11 @@ func stageRelease(r release) (dir string, err error) {
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != strings.ToLower(r.SHA256) {
 		return "", fmt.Errorf("download does not match its SHA-256 in launcher.json")
 	}
-	if err := copyTree(serverDir, stagingDir); err != nil {
+	base := serverDir
+	if pulled != "" {
+		base = imageDir
+	}
+	if err := copyTree(base, stagingDir); err != nil {
 		return "", err
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(data))
@@ -314,6 +330,11 @@ func stageRelease(r release) (dir string, err error) {
 	}
 	if err := writeVersion(stagingDir, r.Version); err != nil {
 		return "", err
+	}
+	if pulled != "" {
+		if err := os.WriteFile(filepath.Join(stagingDir, pulledFile), []byte(pulled+"\n"), 0o644); err != nil {
+			return "", err
+		}
 	}
 	return stagingDir, nil
 }

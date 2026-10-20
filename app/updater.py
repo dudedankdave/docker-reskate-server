@@ -3,7 +3,8 @@
 UPDATE_MODE=pinned runs the server baked into the image (/app): the image tag is the version.
 UPDATE_MODE=auto runs it from /data/server instead, so a release installed here survives the
 container being recreated. /data/server is filled from the image on first start and again
-whenever the image holds a newer version than the one there.
+whenever the image holds a newer version than the one there. If ReSkate pulls a release again
+(its latest goes back to an older version), the notifier installs that older one the same way.
 
 New releases are read from the release's launcher.json (the file ReSkate's own updater uses):
 the Linux tarball is downloaded, checked against its SHA-256, unpacked next to /data/server and
@@ -21,6 +22,7 @@ DIR = "/data/server"
 STAGING = "/data/server.new"
 OLD = "/data/server.old"
 VERSION_FILE = ".version"
+PULLED_FILE = ".pulled"        # the pulled release /data/server went back from
 REPO = "Dingo-Shenanigans/ReSkate"
 LAUNCHER = f"https://github.com/{REPO}/releases/latest/download/launcher.json"
 OURS = {"entrypoint.py", "healthcheck.py", "notifier.py", "mods.py", "updater.py", "supervisor.py",
@@ -35,6 +37,14 @@ def numbers(version):
 def version_of(path):
     try:
         with open(os.path.join(path, VERSION_FILE), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def pulled_from(path):
+    try:
+        with open(os.path.join(path, PULLED_FILE), encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return ""
@@ -61,7 +71,7 @@ def rmtree(path):
 def copy_tree(src, dst):
     os.makedirs(dst, exist_ok=True)
     for entry in os.listdir(src):
-        if entry in OURS or entry == VERSION_FILE:
+        if entry in OURS or entry in (VERSION_FILE, PULLED_FILE):
             continue
         s, d = os.path.join(src, entry), os.path.join(dst, entry)
         if os.path.islink(s):
@@ -77,6 +87,10 @@ def copy_tree(src, dst):
 def prepare(image_version, say):
     """Make sure /data/server holds a runnable server; returns the folder to run it from."""
     have = version_of(DIR) if os.path.exists(os.path.join(DIR, "ReSkateServer")) else ""
+    pulled = pulled_from(DIR)
+    if have and pulled and numbers(image_version) <= numbers(pulled):
+        say(f"[update] running ReSkate {have} from {DIR}: the image has {image_version}, and ReSkate pulled {pulled}")
+        return DIR
     if have and numbers(have) >= numbers(image_version):
         if numbers(have) > numbers(image_version):
             say(f"[update] running ReSkate {have} from {DIR} (installed by the updater; the image has {image_version})")
@@ -133,9 +147,11 @@ def asset_url(info):
     return url
 
 
-def stage(info):
+def stage(info, pulled=""):
     """Download, verify and unpack a release into /data/server.new (a copy of /data/server with
-    the release unpacked over it). Raises with a readable message on any problem."""
+    the release unpacked over it). Going back from a pulled release starts from the image's copy
+    instead, so nothing of the pulled one stays behind, and notes the pulled version so the next
+    start keeps this one over an image that is not newer. Raises with a readable message on any problem."""
     tgz = DIR + ".download.tar.gz"
     rmtree(STAGING)
     try:
@@ -144,7 +160,7 @@ def stage(info):
             raise RuntimeError(f"download is {os.path.getsize(tgz)} bytes, launcher.json says {info['size']}")
         if sha256(tgz) != info["sha256"].lower():
             raise RuntimeError("download does not match its SHA-256 in launcher.json")
-        copy_tree(DIR, STAGING)
+        copy_tree(IMAGE if pulled else DIR, STAGING)
         unpacked = STAGING + ".unpack"                        # tarfile is not in python3-minimal either
         rmtree(unpacked)
         os.makedirs(unpacked)
@@ -175,6 +191,9 @@ def stage(info):
         if info.get("exe_sha256") and sha256(exe) != info["exe_sha256"].lower():
             raise RuntimeError("unpacked ReSkateServer does not match exe_sha256 in launcher.json")
         write_version(STAGING, info["version"])
+        if pulled:
+            with open(os.path.join(STAGING, PULLED_FILE), "w", encoding="utf-8") as f:
+                f.write(pulled + "\n")
     except Exception:
         rmtree(STAGING)
         rmtree(STAGING + ".unpack")
