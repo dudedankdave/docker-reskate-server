@@ -2,7 +2,7 @@ package main
 
 // Runs the ReSkate server as a child process instead of exec'ing it (as supervisor.py), so an
 // update can restart it without the container restarting. Console input is passed through,
-// except a bare `update` (install a waiting release now, UPDATE_MODE=auto). A server that dies
+// except a bare `update` (install a waiting release now, UPDATE_MODE=auto) and `mods add|sync`. A server that dies
 // within rollbackWindow of an update is rolled back. SIGTERM/SIGINT go to the server; when it
 // exits on its own, so does the container.
 
@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -127,6 +128,9 @@ func (s *supervisor) relay() {
 			if string(bytes.ToLower(bytes.TrimSpace(line))) == "update" && s.onUpdate != nil {
 				fmt.Println("[update] checking for a new ReSkate release now")
 				s.onUpdate()
+			} else if w := strings.Fields(string(line)); len(w) >= 2 && strings.EqualFold(w[0], "mods") &&
+				(strings.EqualFold(w[1], "add") || strings.EqualFold(w[1], "sync")) {
+				go s.installMods(strings.ToLower(w[1]), w[2:])
 			} else {
 				s.mu.Lock()
 				s.lastCmd, s.lastAt = string(bytes.TrimSpace(line)), time.Now()
@@ -138,6 +142,23 @@ func (s *supervisor) relay() {
 			return // keep the server's stdin open after our own closes
 		}
 	}
+}
+
+// installMods is the console `mods add <package>...` (those packages) or `mods sync` (the MODS list):
+// install what is missing, keep installed versions (a map in play must not change under the players),
+// then `maps reload` so the server picks the new maps up. Nothing restarts.
+func (s *supervisor) installMods(action string, packages []string) {
+	spec := strings.Join(packages, " ")
+	if action == "sync" {
+		spec = os.Getenv("MODS")
+	}
+	if strings.TrimSpace(spec) == "" {
+		mlog("usage: mods add <Owner-Name | Owner-Name-1.2.3 | package URL>... | mods sync")
+		return
+	}
+	installMods(spec, false)
+	s.write([]byte("maps reload\n"))
+	mlog("done, maps reloaded")
 }
 
 func (s *supervisor) run() {
