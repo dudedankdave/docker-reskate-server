@@ -218,7 +218,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.card h3{margin:0 0 4px;font-size:15px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -255,10 +255,9 @@ async function servers(){
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
  tabs(d);mod(d);
  for(const s of d.servers){
-  const c=el('div','card'),h=el('h3',0,'Server '+s.server+(s.role?' · '+s.role:''));c.append(h);
-  const [t,k]=RULE[s.rule]||[s.rule,'mut'];
+  const c=el('div','card'),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
+  h.append(el('h3',0,'Server '+s.server+(s.role?' · '+s.role:'')),Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));c.append(h);
   c.append(el('div',0,s.running?(s.players==null?'Spieler unbekannt':s.players+'/'+(s.max||'?')+' Spieler')+' · '+(s.map||'?'):'offline'));
-  c.append(Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
   for(const [l,x] of Object.entries(s.slots||{})){
    const [st,sk]=RULE[x.rule]||['','mut'];
    c.append(el('div','mut','Slot '+l+': '+(x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus')));
@@ -270,7 +269,8 @@ async function containers(){
  if(!d.docker){box.append(el('div','mut','Docker-Socket nicht eingebunden (DASHBOARD_DOCKER).'));return}
  const t=$('tool');if(!t.options.length)d.containers.filter(c=>c.tool).forEach(c=>t.add(new Option(c.name)));
  for(const c of d.containers){const e=el('div','card'),run=c.state=='running';
-  e.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state),el('div','mut',c.image+' · '+c.status));box.append(e)}
+  const hd=el('div','head');hd.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state));
+  e.append(hd,el('div','mut',c.image+' · '+c.status));box.append(e)}
 }
 let people=[],modOn=true,tpOn=false;
 function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;const m=$('msrv');
