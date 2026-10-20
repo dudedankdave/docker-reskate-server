@@ -240,6 +240,16 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 
 Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderboard in ENVIRONMENT.md](docs/ENVIRONMENT.md#leaderboard).
 
+### Teams
+Players apply for a team, the admins accept or deny in Discord, members join, leave and configure the team in game or in Discord. A team's tag shows in the bot's `/players` list, in the bot's boards (`/top`, `/rank`, the leaderboard channel) and in the in-game `/top`, `/team who` and Discord board posts of the leaderboard module. It needs the server stack (bridge, bot, leaderboard module): the bridge keeps the teams in `/shared/teams.db` and is its only writer. The game server itself is not touched, so it works with the vanilla ReSkate server.
+
+- **Switch on:** `TEAMS=true` on the servers adds the chat command `/team` (needs `LEADERBOARD` and `LEADERBOARD_COMMANDS`, 32 commands in all), and `"teams_channel"` in `bot.json` is where the bot posts applications with **Accept**/**Deny** buttons (members with an `admin_roles` role).
+- **In game:** `/team apply TAG Team Name`, `/team info [team]`, `/team list`, `/team who` (teams online), `/team join <team>`, `/team leave`, `/team cancel`. Leaders: `/team invite|kick <player>`, `/team set open|motto|description|logo|league|category <value>`. Owner: `/team leader|owner <player>`, `/team set tag <TAG>`, `/team disband yes`.
+- **In Discord:** the same as `/team apply|info|list|join|leave|cancel|invite|kick|owner|set|disband`, after `/team link <code>` once: `/team link` in game shows a 15-minute code that ties the Discord account to the player.
+- **Team profile** (`/team profile [team]` in Discord): a card with the team's logo, description, motto, league (ranked, unranked or both), category (free text such as Casual, Competitive, Street, Park), leaders, members and stats (All Time points, wins, throwdowns played, scoring members, top scorer and the team's ranking among teams, per league from the members' leaderboard rows). Set with `/team set description|logo|league|category|motto|open` (logo is the link of a picture). Leaders (made by the owner with `/team leader <player>`) can set all of that and invite or kick members; only the owner changes the tag, hands over the team or disbands it.
+- **Rules:** a team is created when an admin accepts the application (the applicant becomes its owner); tags are 2-5 letters or numbers, names 3-24 characters, both unique; a team is invite only unless its owner sets `open yes`; no limit on members (`TEAMS_MAX_MEMBERS` on the bridge sets one). Players hear about decisions and invites in game (private message), else by Discord DM when linked.
+
+
 <br/>
 
 ---

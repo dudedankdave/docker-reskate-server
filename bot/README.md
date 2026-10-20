@@ -58,6 +58,9 @@ Settings: `BOT_GUILD` (commands appear at once in that server), `BOT_STATUS_CHAN
 The server list comes from `/config/servers.json`, like the rollover. The `/shared` mount (the `reskate-mods` volume) is read-write
 only because SQLite's WAL mode needs to open its `-shm` file; the bot opens the database read-only.
 
+## /team
+`/team apply|profile|info|list|join|leave|cancel|invite|kick|owner|leader|set|disband|link` (needs the bridge). `/team profile` shows the team's card: logo, description, league, category, leaders, members and stats. The `/team` commands belong to the `stats` bot (Coach Frank); the `admin` bot (Meat Man) posts applications into `teams_channel` with Accept/Deny buttons for `admin_roles` members; the decision goes to the bridge, which tells the applicant in game (else a Discord DM). `/team link <code>` ties a Discord account to a player (the code comes from `/team link` in game). `/players` shows who is on with their `[TAG]`, `/top`, `/rank` and the leaderboard channel show tags. See [Teams in the README](../README.md#teams).
+
 ## /schedule-add, /schedule-remove, /schedule-list
 Admins only. Repeating announcements with an interval per line, kept in `/shared/announcements.json` and sent by the
 announcer module (docs/ENVIRONMENT.md, "Scheduled announcements"): `/schedule-add server text every [offset] [chat]`

@@ -27,7 +27,7 @@ services:
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - reskate-shared:/shared:ro   # the settings files, for /v1/servers/<n>/settings
+      - reskate-shared:/shared      # the settings files (/v1/servers/<n>/settings) and teams.db, which only the bridge writes
       # - ./servers.json:/config/servers.json:ro
 
   rollover:
