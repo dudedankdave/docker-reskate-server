@@ -3,8 +3,8 @@
 A password-protected web page for the servers, the rollover, the bridge and the bots
 (`RESKATE_MODE=dashboard`, [`modules/dashboard.py`](../modules/dashboard.py), standard library only).
 
-**Stage 1 (this one) is read-only:** server cards (players, map, version, slots A/B), container state, the live
-log from the bridge's events, and the last lines of each tool's log. Nothing can be started, stopped or typed.
+**Stage 1 (this one) starts and stops nothing:** server cards (players, map, version, slots A/B), container state, the live
+log from the bridge's events, the last lines of each tool's log, and a chat section with one tab per server. Typing in the chat box sends a `say` through the bridge (audit event "dashboard"); `DASHBOARD_SAY=false` makes the chat read-only.
 Each server card says whether the project rule would allow a restart (at most `DASHBOARD_CUTOFF` players, default 3)
 or only a rollover copy; an unknown player count counts as busy. Later stages that restart anything reuse that
 check on the server side.

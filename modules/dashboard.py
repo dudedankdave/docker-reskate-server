@@ -1,5 +1,5 @@
 """The dashboard (RESKATE_MODE=dashboard): a small password-protected web page to watch the servers, the
-rollover, the bridge and the bots. Stage 1 is read-only: nothing here starts, stops or types into anything.
+rollover, the bridge and the bots. Stage 1 starts and stops nothing; the only write is a chat line (see Chat).
 
 * Servers, slots, players and map come from the bridge (GET /v1/servers), the live log from its events
   (GET /v1/events). Per server the page says whether a restart would be allowed (at most DASHBOARD_CUTOFF
@@ -11,11 +11,15 @@ rollover, the bridge and the bots. Stage 1 is read-only: nothing here starts, st
   signed, HttpOnly, SameSite=Strict session cookie (Secure behind HTTPS, i.e. when the reverse proxy sends
   X-Forwarded-Proto: https); sessions end after DASHBOARD_SESSION_HOURS (default 12) or a restart. Five wrong
   passwords from one address lock it out for five minutes.
+* Chat: one tab per server with the chat from the bridge (scope chat). Typing in the box sends a `say` through the
+  bridge's console action (the only thing the dashboard writes); DASHBOARD_SAY=false makes the chat read-only.
+  A send needs the session cookie plus the X-Requested-With header the page sets, and is logged by the bridge
+  as an audit event ("dashboard").
 * It listens on DASHBOARD_BIND:DASHBOARD_PORT (127.0.0.1:8790) in plain HTTP; put a reverse proxy with
   HTTPS in front of it for the subdomain.
 
 Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOARD_PORT, DASHBOARD_CUTOFF,
-DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS. Standard library only."""
+DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true). Standard library only."""
 import hashlib
 import hmac
 import http.client
@@ -38,6 +42,7 @@ BIND = os.environ.get("DASHBOARD_BIND", "127.0.0.1")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8790"))
 CUTOFF = int(os.environ.get("DASHBOARD_CUTOFF", "3"))
 DOCKER = os.environ.get("DASHBOARD_DOCKER", "").strip()
+SAY = os.environ.get("DASHBOARD_SAY", "true").strip().lower() not in ("false", "0", "off", "no")
 SESSION = int(float(os.environ.get("DASHBOARD_SESSION_HOURS", "12")) * 3600)
 KEY = secrets.token_bytes(32)
 COOKIE = "reskate_dash"
@@ -71,6 +76,18 @@ def valid(token):
 
 def bridge(path):
     req = urllib.request.Request(BRIDGE_URL + path, headers={"Authorization": f"Bearer {BRIDGE_TOKEN}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+
+
+def bridge_say(server, text):
+    """Type `say <text>` into the chat of one server through the bridge (one line, at most 200 characters)."""
+    text = " ".join(str(text).split())[:200]
+    if not text or not str(server).isalnum():
+        raise ValueError("a server and a text are needed")
+    body = json.dumps({"action": "say", "args": {"text": text}, "by": "dashboard"}).encode()
+    req = urllib.request.Request(f"{BRIDGE_URL}/v1/servers/{server}/do", data=body, method="POST", headers={
+        "Authorization": f"Bearer {BRIDGE_TOKEN}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
 
@@ -136,7 +153,7 @@ def servers():
         r["rule"] = restart_rule(r.get("players")) if r.get("running") else "empty"
         for s in r.get("slots", {}).values():
             s["rule"] = restart_rule(s.get("players")) if s.get("running") else "empty"
-    return {"cutoff": CUTOFF, "servers": rows}
+    return {"cutoff": CUTOFF, "say": SAY, "servers": rows}
 
 
 PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -151,12 +168,18 @@ main{padding:16px;max-width:1100px;margin:auto;display:grid;gap:16px}section h2{
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
+#sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 10px}button{cursor:pointer}
+input{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);width:100%}
+form{max-width:320px;margin:20vh auto;padding:0 16px;display:grid;gap:10px}
 </style></head><body>
 <header><h1>ReSkate Dashboard</h1><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
 <main>
 <section><h2>Server</h2><div class="grid" id="servers"></div></section>
 <section><h2>Tools &amp; Container</h2><div class="grid" id="containers"></div></section>
+<section><h2>Chat</h2><div class="tabs" id="tabs"></div><pre id="chat">-</pre>
+<form id="sayform" autocomplete="off"><input id="saytext" maxlength="200" placeholder="Nachricht an den Server-Chat"><button>Senden</button></form></section>
 <section><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -168,12 +191,14 @@ async function api(p){const r=await fetch(p);if(r.status==401){location.reload()
 async function servers(){
  const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
+ tabs(d);
  for(const s of d.servers){
   const c=el('div','card'),h=el('h3',0,'Server '+s.server+(s.role?' · '+s.role:''));c.append(h);
   const [t,k]=RULE[s.rule]||[s.rule,'mut'];
   c.append(el('div',0,s.running?(s.players==null?'Spieler unbekannt':s.players+'/'+(s.max||'?')+' Spieler')+' · '+(s.map||'?'):'offline'));
   c.append(Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
   for(const [l,x] of Object.entries(s.slots||{})){
+   const [st,sk]=RULE[x.rule]||['','mut'];
    c.append(el('div','mut','Slot '+l+': '+(x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus')));
   }
   box.append(c)}
@@ -185,6 +210,21 @@ async function containers(){
  for(const c of d.containers){const e=el('div','card'),run=c.state=='running';
   e.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state),el('div','mut',c.image+' · '+c.status));box.append(e)}
 }
+let chatSrv='',chatLast=0,chatLines=[],canSay=true;
+function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
+ if(!chatSrv&&d.servers.length)chatSrv=d.servers[0].server;
+ for(const s of d.servers){const b=el('button',0,s.server+(s.role?' '+s.role:''));b.dataset.s=s.server;
+  b.onclick=()=>{chatSrv=s.server;chatLast=0;chatLines=[];$('chat').textContent='-';mark();chat()};t.append(b)}mark()}
+function mark(){for(const b of $('tabs').children)b.classList.toggle('on',b.dataset.s==chatSrv)}
+async function chat(){if(!chatSrv)return;const srv=chatSrv;
+ const d=await api('/api/events?'+new URLSearchParams({after:chatLast,server:srv,scope:'chat'}));
+ if(srv!=chatSrv)return;chatLast=d.last;
+ for(const e of d.events)chatLines.push((e.time||'').slice(11,19)+' '+e.text.replace(/^(\\[[^\\]]*\\]\\s*)?\\[chat\\]\\s*/,''));
+ chatLines.splice(0,Math.max(0,chatLines.length-300));const p=$('chat'),b=p.scrollTop+p.clientHeight>=p.scrollHeight-20;
+ if(d.events.length||p.textContent=='-'){p.textContent=chatLines.join('\\n')||'(noch keine Chat-Nachrichten)';if(b)p.scrollTop=p.scrollHeight}}
+$('sayform').onsubmit=async ev=>{ev.preventDefault();const t=$('saytext').value.trim();if(!t||!chatSrv)return;
+ const r=await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:chatSrv,text:t})});
+ if(r.ok){$('saytext').value='';chat()}else $('saytext').placeholder=(await r.json()).error||'Fehler'};
 let last=0;const lines=[];
 async function events(){
  const q=new URLSearchParams({after:last,server:$('sel').value,scope:$('scope').value});
@@ -197,7 +237,7 @@ for(const id of['sel','scope'])$(id).onchange=()=>{last=0;lines.length=0;$('even
 async function toollog(){const n=$('tool').value;if(n)$('toollog').textContent=(await api('/api/toollog?name='+n)).log}
 $('tool').onchange=toollog;
 async function tick(){
- for(const f of[servers,containers,events,toollog])try{await f()}catch(e){if(e)console.warn(e)}
+ for(const f of[servers,chat,containers,events,toollog])try{await f()}catch(e){if(e)console.warn(e)}
  $('upd').textContent='aktualisiert '+new Date().toLocaleTimeString()}
 tick();setInterval(tick,5000);
 </script></body></html>"""
@@ -270,10 +310,29 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(502, {"error": f"bridge or docker not reachable: {e}"})
         self.json(404, {"error": "not found"})
 
+    def say(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not SAY or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "sending is off" if not SAY else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)) or b"{}")
+            bridge_say(body.get("server", ""), body.get("text", ""))
+        except (ValueError, TypeError) as e:
+            return self.json(400, {"error": str(e)})
+        except urllib.error.HTTPError as e:
+            return self.json(502, {"error": f"bridge: {e.code} {e.read()[:200].decode(errors='replace')}"})
+        except (urllib.error.URLError, OSError) as e:
+            return self.json(502, {"error": f"bridge not reachable: {e}"})
+        say(f"dashboard: chat sent to server {body.get('server')}")
+        self.json(200, {"ok": True})
+
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/logout":
             return self.send(200, "ok", headers=[self.cookie("", 0)])
+        if path == "/api/say":
+            return self.say()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()
