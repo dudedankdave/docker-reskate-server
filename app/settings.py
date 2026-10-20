@@ -181,7 +181,7 @@ LIVE = {
     "VOTE_STARTER_YES": _onoff("votes starter-yes"),
     "ANNOUNCEMENTS": _list("announcements clear", "announcements add", "|"),
     "ANNOUNCEMENT_INTERVAL_MINUTES": _plain("announcements interval", True),
-    "ANNOUNCE_THROWDOWNS": _onoff("announce-throwdowns"), "ACTIVITY_LOG": _onoff("activity-log"),
+    "ANNOUNCE_THROWDOWNS": _onoff("announce-throwdowns"), "THROWDOWN_LOCKS": _onoff("throwdown-locks"), "ACTIVITY_LOG": _onoff("activity-log"),
     "PARTIES": _onoff("parties"), "PARTY_SIZE": _plain("party-size"), "AFK_KICK_MINUTES": _plain("afk-kick", True),
     "KICK_MINUTES": _kick_time("kick-time"), "VOTE_KICK_MINUTES": _kick_time("votes kick-minutes"),
     "SPEED_CHECK": _plain("speed-check"), "BOARD_CHECK": _plain("board-check"), "SCORE_CHECK": _plain("score-check"),
