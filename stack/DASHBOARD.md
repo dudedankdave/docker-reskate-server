@@ -9,6 +9,8 @@ Each server card says whether the project rule would allow a restart (at most `D
 or only a rollover copy; an unknown player count counts as busy. Later stages that restart anything reuse that
 check on the server side.
 
+**Pages:** tabs for Übersicht, Chat, Moderator, Befehle & Maps and Logs (the address carries the page, e.g. `#moderator`), every section can be folded (remembered in the browser), the player list sorts by name, team or server (click a column header), and the page is dark (#1a1a1a).
+
 **Map pictures:** each server card shows its map's picture. Custom maps take it from the shared map store (`reskate-mods` mounted read-only at `/mods`: the picture a level entry points at, else the package's `icon.png`). Built-in maps (San Vansterdam, Isle of Grom, ...) have no picture in the repository: drop `<map name>.png` (or .jpg/.webp) into `/shared/mapimages/` to give any map one; that wins over the package's. Without a picture the card just has none.
 
 **Server commands:** a catalog of every console command of the ReSkate server (checked against the server's own `README.txt`: map, map-pool, rotation, votes and polls, parties, anti-cheat, reserved slots, announcements, `tpall`/`tphere` ...), a free command line, and shortcuts for switching the map, the map pool and the rotation. The reply is the last lines of the server's log, shown after a moment. `quit`, `stop`, `exit`, `update` and `restart` are refused here and in the bridge.
