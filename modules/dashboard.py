@@ -215,13 +215,13 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 :root{--bg:#f5f6f8;--fg:#1c2230;--card:#fff;--line:#d9dde5;--mut:#667085;--ok:#1a7f4b;--warn:#b25e09;--bad:#b42318;--acc:#3b5bdb}
 @media(prefers-color-scheme:dark){:root{--bg:#12151c;--fg:#e6e9ef;--card:#1b2029;--line:#2c3340;--mut:#9aa3b2;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1}
-main{padding:16px;max-width:1100px;margin:auto;display:grid;gap:16px}section h2{font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
+main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.card h3{margin:0 0 4px;font-size:15px}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
-pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
+#chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}th{color:var(--mut);font-weight:500}
 td .act{display:flex;gap:6px;flex-wrap:wrap}td button{padding:3px 8px;font-size:13px}button.arm{border-color:var(--bad);color:var(--bad)}
@@ -229,8 +229,6 @@ td .act{display:flex;gap:6px;flex-wrap:wrap}td button{padding:3px 8px;font-size:
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
 #sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 10px}button{cursor:pointer}
-input{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);width:100%}
-form{max-width:320px;margin:20vh auto;padding:0 16px;display:grid;gap:10px}
 </style></head><body>
 <header><h1>ReSkate Dashboard</h1><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
 <main>
