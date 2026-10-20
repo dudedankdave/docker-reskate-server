@@ -282,7 +282,7 @@ var layout = []struct {
 		{"allow_parties", "parties"}, {"party_size", "party_size"},
 		{"allow_voice_chat", "voice_chat"}, {"voice_range", "voice_range"},
 		{"object_placement", "object_placement"}, {"object_limit", "object_limit"},
-		{"announce_throwdowns", "announce_throwdowns"}}},
+		{"announce_throwdowns", "announce_throwdowns"}, {"throwdown_locks", "throwdown_locks"}}},
 	{"anti_cheat", [][2]string{{"speed_hack", "speed_check"}, {"modified_scoring", "score_check"},
 		{"allowed_scoring_mods", "score_allow"}, {"enforce_tuning", "enforce_tuning"},
 		{"bone_scale_limit", "bone_scale_limit"}}},
@@ -449,11 +449,13 @@ func entrypointMain(serverArgs []string) {
 		{"OBJECT_PLACEMENT", "players", "object_placement", choice("everyone", "admins", "nobody")},
 		{"OBJECT_LIMIT", "players", "object_limit", intRange(0, 1024)},
 		{"ANNOUNCE_THROWDOWNS", "players", "announce_throwdowns", boolConv},
+		{"THROWDOWN_LOCKS", "players", "throwdown_locks", boolConv},
 		{"AFK_KICK_MINUTES", "players", "afk_kick_minutes", intRange(0, 1440)},
 		{"KICK_MINUTES", "players", "kick_minutes", kickTime},
 		{"WORD_WARNINGS", "players", "word_warnings", intRange(0, 10)},
 		{"OBJECT_SCALING", "players", "allow_object_scaling", boolConv},
 		{"SYNC_EFFECTS", "players", "sync_effects", boolConv},
+		{"SYNC_DRONES", "players", "sync_drones", boolConv},
 		{"GLOBAL_WORD_FILTER", "players", "use_global_word_filter", boolConv},
 		{"SPEED_CHECK", "anti_cheat", "speed_hack", choice("off", "warn", "kick")},
 		{"SCORE_CHECK", "anti_cheat", "modified_scoring", choice("off", "warn", "kick")},
@@ -623,7 +625,7 @@ func entrypointMain(serverArgs []string) {
 		}
 		ours := func(c any) bool {
 			m, _ := c.(map[string]any)
-			for _, lc := range lbCommands {
+			for _, lc := range append(append([]map[string]any{}, lbCommands...), lbTeamCommand) {
 				if reflect.DeepEqual(map[string]any(lc), m) {
 					return true
 				}
@@ -644,8 +646,16 @@ func entrypointMain(serverArgs []string) {
 				}
 			}
 		}
+		teamsOn := false
+		if v, ok := env("TEAMS"); ok {
+			teamsOn = asBool("TEAMS", v)
+		}
 		if on {
-			for _, lc := range lbCommands {
+			all := append([]map[string]any{}, lbCommands...)
+			if teamsOn {
+				all = append(all, lbTeamCommand)
+			}
+			for _, lc := range all {
 				if !taken[lc["name"].(string)] {
 					commands = append(commands, map[string]any(lc))
 				}

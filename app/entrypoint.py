@@ -217,7 +217,7 @@ LAYOUT = {
                 ("allow_parties", "parties"), ("party_size", "party_size"),
                 ("allow_voice_chat", "voice_chat"), ("voice_range", "voice_range"),
                 ("object_placement", "object_placement"), ("object_limit", "object_limit"),
-                ("announce_throwdowns", "announce_throwdowns")],
+                ("announce_throwdowns", "announce_throwdowns"), ("throwdown_locks", "throwdown_locks")],
     "anti_cheat": [("speed_hack", "speed_check"), ("modified_scoring", "score_check"),
                    ("allowed_scoring_mods", "score_allow"), ("enforce_tuning", "enforce_tuning"),
                    ("bone_scale_limit", "bone_scale_limit")],
@@ -314,11 +314,13 @@ SIMPLE = {
     "OBJECT_PLACEMENT": ("players", "object_placement", choice("everyone", "admins", "nobody")),
     "OBJECT_LIMIT": ("players", "object_limit", int_range(0, 1024)),
     "ANNOUNCE_THROWDOWNS": ("players", "announce_throwdowns", as_bool),
+    "THROWDOWN_LOCKS": ("players", "throwdown_locks", as_bool),
     "AFK_KICK_MINUTES": ("players", "afk_kick_minutes", int_range(0, 1440)),
     "KICK_MINUTES": ("players", "kick_minutes", kick_time),
     "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
     "OBJECT_SCALING": ("players", "allow_object_scaling", as_bool),
     "SYNC_EFFECTS": ("players", "sync_effects", as_bool),
+    "SYNC_DRONES": ("players", "sync_drones", as_bool),
     "GLOBAL_WORD_FILTER": ("players", "use_global_word_filter", as_bool),
     "SPEED_CHECK": ("anti_cheat", "speed_hack", choice("off", "warn", "kick")),
     "SCORE_CHECK": ("anti_cheat", "modified_scoring", choice("off", "warn", "kick")),
@@ -449,7 +451,7 @@ if (value := env("COMMANDS")) is not None:
 # The leaderboard's chat commands (/top, /rank, /boards, admin-only /lb) are added to "commands"
 # when LEADERBOARD is on (LEADERBOARD_COMMANDS=false: not). Earlier copies of them are replaced;
 # a command of the same name that you defined yourself stays and ours is skipped.
-lb_commands = {c["name"]: c for c in leaderboard.COMMANDS}
+lb_commands = {c["name"]: c for c in leaderboard.COMMANDS + [leaderboard.TEAM_COMMAND]}
 lb_on = (value := env("LEADERBOARD")) is not None and as_bool("LEADERBOARD", value)
 lb_commands_on = lb_on and as_bool("LEADERBOARD_COMMANDS", env("LEADERBOARD_COMMANDS") or "true")
 commands = [c for c in cfg.get("commands") or []
@@ -457,7 +459,8 @@ commands = [c for c in cfg.get("commands") or []
                                              or c.get("name") in lb_commands and c.get("reply") in leaderboard.OLD_REPLIES))]
 if lb_commands_on:
     taken = {c.get("name") for c in commands if isinstance(c, dict)}
-    commands += [c for name, c in lb_commands.items() if name not in taken]
+    teams_on = as_bool("TEAMS", env("TEAMS") or "false")    # /team: answered by the leaderboard module (bridge teams)
+    commands += [c for name, c in lb_commands.items() if name not in taken and (name != "team" or teams_on)]
 if len(commands) > 32:
     sys.exit(f"COMMANDS: the server allows 32 chat commands, got {len(commands)} (the leaderboard adds {len(lb_commands)}; "
              "LEADERBOARD_COMMANDS=false leaves them out)")

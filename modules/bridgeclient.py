@@ -48,6 +48,39 @@ def do(number, action, args=None, by="", slot=None):
     return call("POST", f"/v1/servers/{number}/do", body)
 
 
+def players(number):
+    """[{name, steam_id, slot, team}] on a server now."""
+    return call("GET", f"/v1/servers/{number}/players")
+
+
+def team_tags():
+    """{steam_id: tag} of every team member (empty when the bridge keeps no teams)."""
+    return call("GET", "/v1/teams/tags")
+
+
+def team_profiles(team=""):
+    """Team profiles (one when `team` is given): name, tag, motto, description, logo, league, category, members."""
+    from urllib.parse import quote
+    return call("GET", "/v1/teams/profiles" + (f"?team={quote(team)}" if team else ""))
+
+
+def team_act(who, verb, args=None):
+    """Run a /team command; {"ok", "lines", "notify", "application"}."""
+    return call("POST", "/v1/teams/act", {"who": who, "verb": verb, "args": args or {}})
+
+
+def team_applications(status="pending"):
+    return call("GET", f"/v1/teams/applications?status={status}")
+
+
+def team_decide(application, accept, by):
+    return call("POST", "/v1/teams/decide", {"id": application, "accept": accept, "by": by})
+
+
+def team_posted(application, message):
+    return call("POST", f"/v1/teams/applications/{application}/posted", {"message": str(message)})
+
+
 def console(number, line, by, slot=None):
     """Type one console line (say, msg, announce ...) into a server; False when it did not get there."""
     try:

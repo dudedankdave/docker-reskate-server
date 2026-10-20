@@ -71,7 +71,7 @@ Without `STEAM_TOKEN` every restart gives the server a new Steam ID and **join c
 | `2.0.8`, `2.0` | That ReSkate release, pinned (`2.0` follows the newest `2.0.x`; `1.1` stays on 1.1.8) | 172 MB (64 MB) |
 | `slim` | Newest ReSkate release, [slim (distroless) image](#slim-image) | 87 MB (34 MB) |
 | `2.0.8-slim` | That ReSkate release, pinned, slim | 87 MB (34 MB) |
-| `2.0.8-r123`, `2.0.8-r123-slim` | One build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`); the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
+| `2.0.8-r123`, `2.0.8-r123-slim` | The newest build of this repository for that release, never moves. A change to the image is built again for the current release as a new revision (`r` + commits on `main`) and the older revision tags of that release are deleted; the container's `RESKATE_IMAGE_REVISION` says which one runs. | |
 
 The version in a tag is the [ReSkate release](https://github.com/Dingo-Shenanigans/ReSkate/releases) of the server inside and has to match the players' game. Older tags stay available. Most releases change the multiplayer protocol, and then servers and players on different versions can't join each other: 2.0.3, 2.0.6, 2.0.7 and 2.0.8 each did. 2.0.4 and 2.0.5 ship the same server as 2.0.3.
 
@@ -152,6 +152,7 @@ With `docker run`: `-v reskate-mods:/mods`. Both images support it.
 
 - **On start only.** Nothing is installed while the server runs. A newer version of an unpinned entry is installed on the next start; `MODS_UPDATE=false` keeps the installed versions (missing packages and pinned entries are still installed).
 - **Discord:** the admin feed announces each new version of an unpinned entry (checked hourly) and what the installer did at start, see [Discord webhook](#discord-webhook). The [rollover](rollover/README.md) can restart servers onto a new map version for you.
+- **Install while the server runs (console or bot):** type `mods add Owner-Name [Owner-Name-1.2.3 ...]` (or `mods sync` for the `MODS` list) in the console. Missing packages are downloaded and linked, installed versions are kept, and `maps reload` follows, so the new maps can be switched to at once (ReSkate 2.0.7+). Nothing restarts. Both images.
 - **Install now without a restart:** `docker exec reskate-server-1 python3 /app/mods.py` (default image) or `docker exec reskate-server-1 /app/reskate mods` (slim image). Restart afterwards so a changed map loads. On ReSkate 2.0.7+, `maps reload` (in the console via `docker attach`, or `/maps reload` as an admin) picks up a newly added map mod without a restart.
 - **Newest version for players (ReSkate 2.0.7+):** `MAP_LATEST_VERSIONS=true` makes the server ask Thunderstore for the newest version of each of its custom maps at start and every `MAP_LATEST_CHECK_MINUTES` (default `60`) and hold players to it. The check downloads nothing and only changes the version players are asked for, so keep `MODS_UPDATE` on or update the entry yourself. The map being played is left alone until nobody is on it. If a new version adds, removes or renames levels, copy its new `reskate-levels.json` to the server. Off by default.
 - **Never backwards:** an unpinned entry is never replaced by an older version, even if Thunderstore's "latest" lags behind.
@@ -239,6 +240,16 @@ Any number of webhooks, each set with a pair `WEBHOOK_URL_<n>` / `WEBHOOK_SCOPE_
 - **Posting:** every `LEADERBOARD_INTERVAL` minutes the top 3 are announced on screen and the top `LEADERBOARD_SIZE` of All Time, the current week and the open events posted in chat (only while players are on), and the boards chosen with `LEADERBOARD_DISCORD` (default all, game boards included) go to the `leaderboard` webhooks (else `public`, see [Discord webhook](#discord-webhook)) when one changed since the last post.
 
 Settings (`LEADERBOARD_*`, shared board across servers, DM texts): see [Leaderboard in ENVIRONMENT.md](docs/ENVIRONMENT.md#leaderboard).
+
+### Teams
+Players apply for a team, the admins accept or deny in Discord, members join, leave and configure the team in game or in Discord. A team's tag shows in the bot's `/players` list, in the bot's boards (`/top`, `/rank`, the leaderboard channel) and in the in-game `/top`, `/team who` and Discord board posts of the leaderboard module. It needs the server stack (bridge, bot, leaderboard module): the bridge keeps the teams in `/shared/teams.db` and is its only writer. The game server itself is not touched, so it works with the vanilla ReSkate server.
+
+- **Switch on:** `TEAMS=true` on the servers adds the chat command `/team` (needs `LEADERBOARD` and `LEADERBOARD_COMMANDS`, 32 commands in all), and `"teams_channel"` in `bot.json` is where the bot posts applications with **Accept**/**Deny** buttons (members with an `admin_roles` role).
+- **In game:** `/team apply TAG Team Name`, `/team info [team]`, `/team list`, `/team who` (teams online), `/team join <team>`, `/team leave`, `/team cancel`. Leaders: `/team invite|kick <player>`, `/team set open|motto|description|logo|league|category <value>`. Owner: `/team leader|owner <player>`, `/team set tag <TAG>`, `/team disband yes`.
+- **In Discord:** the same as `/team apply|info|list|join|leave|cancel|invite|kick|owner|set|disband`, after `/team link <code>` once: `/team link` in game shows a 15-minute code that ties the Discord account to the player.
+- **Team profile** (`/team profile [team]` in Discord): a card with the team's logo, description, motto, league (ranked, unranked or both), category (free text such as Casual, Competitive, Street, Park), leaders, members and stats (All Time points, wins, throwdowns played, scoring members, top scorer and the team's ranking among teams, per league from the members' leaderboard rows). Set with `/team set description|logo|league|category|motto|open` (logo is the link of a picture). Leaders (made by the owner with `/team leader <player>`) can set all of that and invite or kick members; only the owner changes the tag, hands over the team or disbands it.
+- **Rules:** a team is created when an admin accepts the application (the applicant becomes its owner); tags are 2-5 letters or numbers, names 3-24 characters, both unique; a team is invite only unless its owner sets `open yes`; no limit on members (`TEAMS_MAX_MEMBERS` on the bridge sets one). Players hear about decisions and invites in game (private message), else by Discord DM when linked.
+
 
 <br/>
 

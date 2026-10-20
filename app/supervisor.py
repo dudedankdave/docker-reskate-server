@@ -2,7 +2,9 @@
 install a ReSkate update and restart the server without the container restarting.
 
 * Everything typed into the console (docker attach) is passed through to the server, except a
-  bare `update`: with UPDATE_MODE=auto that installs a waiting release now (see notifier.py).
+  bare `update`: with UPDATE_MODE=auto that installs a waiting release now (see notifier.py), and
+  `mods add <package>...` / `mods sync`: install Thunderstore maps while the server runs, then
+  `maps reload` (ReSkate 2.0.7+) makes them available without a restart.
 * notifier.py talks to the server through send() (`announce` countdowns) and install().
 * A server that dies within ROLLBACK_WINDOW of an update is rolled back to the previous version.
 * SIGTERM/SIGINT go to the server; when it exits on its own, so does the container, as before.
@@ -77,6 +79,10 @@ class Supervisor:
                 print("[update] checking for a new ReSkate release now", flush=True)
                 threading.Thread(target=self.on_update, daemon=True).start()
                 continue
+            words = raw.decode("utf-8", "replace").split()
+            if len(words) >= 2 and words[0].lower() == "mods" and words[1].lower() in ("add", "sync"):
+                threading.Thread(target=self.install_mods, args=(words[1].lower(), words[2:]), daemon=True).start()
+                continue
             self.last_command = (raw.decode("utf-8", "replace").strip(), time.time())
             with self.lock:
                 try:
@@ -84,6 +90,23 @@ class Supervisor:
                     self.proc.stdin.flush()
                 except (OSError, ValueError):
                     pass
+
+    def install_mods(self, action, packages):
+        """Console `mods add <package>...` (those packages) or `mods sync` (the MODS list): install what is
+        missing, keep installed versions (a map in play must not change under the players), then
+        `maps reload` so the server picks the new maps up. Nothing restarts."""
+        import mods
+        spec = " ".join(packages) if action == "add" else os.environ.get("MODS", "")
+        if not spec.strip():
+            print("[mods] usage: mods add <Owner-Name | Owner-Name-1.2.3 | package URL>... | mods sync", flush=True)
+            return
+        try:
+            mods.install_all(spec, False)
+        except Exception as e:  # a failed install must never take the server down
+            print(f"[mods] {e}", flush=True)
+            return
+        if self.send("maps reload"):
+            print("[mods] done, maps reloaded", flush=True)
 
     def stop(self, sig, _frame):
         self.stopping = True

@@ -254,7 +254,7 @@ var liveKeys = map[string]bool{
 	"OBJECT_SCALING": true, "PARK_CONSTRUCTION": true, "PARK_FINANCIAL": true, "PARK_HISTORIC": true,
 	"PARTIES": true, "PARTY_SIZE": true, "POLLS": true, "POLL_SECONDS": true, "RESERVED": true,
 	"SCORE_ALLOW": true, "SCORE_CHECK": true, "SEND_RATE": true, "SERVER_NAME": true, "SERVER_PASSWORD": true,
-	"SPEED_CHECK": true, "SYNC_EFFECTS": true, "VOICE_CHAT": true, "VOICE_RANGE": true,
+	"SPEED_CHECK": true, "SYNC_DRONES": true, "SYNC_EFFECTS": true, "THROWDOWN_LOCKS": true, "VOICE_CHAT": true, "VOICE_RANGE": true,
 	"VOTE_COOLDOWN_SECONDS": true, "VOTE_KICK_COOLDOWN_SECONDS": true, "VOTE_KICK_ENABLED": true,
 	"VOTE_KICK_MINUTES": true, "VOTE_KICK_MIN_PLAYERS": true, "VOTE_KICK_PERCENT": true, "VOTE_KICK_SECONDS": true,
 	"VOTE_MAP_COOLDOWN_SECONDS": true, "VOTE_MAP_ENABLED": true, "VOTE_MAP_MIN_PLAYERS": true,

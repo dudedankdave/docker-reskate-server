@@ -6,6 +6,7 @@
   "player_cutoff": 3,
   "leaderboards_channel": "CHANNEL_ID",
   "updates_channel": "CHANNEL_ID",
+  "teams_channel": "CHANNEL_ID_WHERE_ADMINS_REVIEW_TEAM_APPLICATIONS",
   "servers": {
     "1": {"public": "", "chat": "", "admin": "", "log": "", "console": ""}
   }

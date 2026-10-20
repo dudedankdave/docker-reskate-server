@@ -66,6 +66,7 @@ class Feeds:
     def __init__(self, bot):
         self.bot = bot
         self.servers = bot.cfg.get("servers") or {}
+        self.scopes = getattr(bot, "jobs", {}).get("scopes", ("public", "chat", "admin", "log"))   # the bot's role, see roles.py
 
     def collect(self):
         """{(server, scope): [text, ...]} of what came in since the last call (console lines, and through the
@@ -73,17 +74,17 @@ class Feeds:
         posts = {}
         for number, _slot, kind, scopes, text, ping in self.bot.backend.lines():
             cfg = self.servers.get(number) or {}
-            if not any(cfg.get(s) for s in ("public", "chat", "admin", "log")):
+            if not any(cfg.get(s) for s in self.scopes):
                 continue
             if kind == "message":
                 scope = {"admin": "admin", "updates-admin": "admin", "public": "public"}.get((scopes or [""])[0])
-                if scope and cfg.get(scope):
+                if scope in self.scopes and cfg.get(scope):
                     posts.setdefault((number, scope), []).append(RAW + text)   # the image's own Markdown
                 continue
             if kind != "console":
                 continue
             for scope in classify(text):
-                if cfg.get(scope):
+                if scope in self.scopes and cfg.get(scope):
                     posts.setdefault((number, scope), []).append(show(text, scope))
         return posts
 
