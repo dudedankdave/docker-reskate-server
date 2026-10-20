@@ -25,12 +25,18 @@ rollover, the bridge and the bots. Stage 1 starts and stops nothing; the only wr
   `MAP_POOL+=`) into /shared/settings/server-<n>.env or common.env (DASHBOARD_SHARED, default /shared, writable); the
   rollover then restarts the servers concerned once they are empty, so no busy server goes down because of it.
   `quit`, `stop`, `exit`, `update` and `restart` are refused (here and in the bridge).
+* Map pictures: each server card shows the map's preview. Custom maps come from the shared map store
+  (DASHBOARD_MODS, default /mods, read-only): a map's package folder in /mods/packages with a reskate-levels.json
+  naming it gives its picture (an image the level entry points at, else the package's icon.png). Any map, built-in
+  ones included, can also be given a picture by dropping <map name>.png/.jpg/.webp into /shared/mapimages/ (this
+  one wins). No picture: the card simply has none.
 * It listens on DASHBOARD_BIND:DASHBOARD_PORT (127.0.0.1:8790) in plain HTTP; put a reverse proxy with
   HTTPS in front of it for the subdomain.
 
 Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOARD_PORT, DASHBOARD_CUTOFF,
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
+import glob
 import hashlib
 import re
 import hmac
@@ -60,6 +66,9 @@ SHARED = os.environ.get("DASHBOARD_SHARED", "/shared").rstrip("/")
 BLOCKED = {"quit", "exit", "stop", "update", "restart", "shutdown"}
 PACKAGE = re.compile(r"^[A-Za-z0-9_]+-[A-Za-z0-9_]+(?:-\d+\.\d+\.\d+)?$")
 MAPNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _'.-]{0,63}$")
+MODS_STORE = os.environ.get("DASHBOARD_MODS", "/mods").rstrip("/")
+IMAGES = {}          # lower-case map name -> file, rebuilt every minute
+IMAGES_AT = [0.0]
 TP = os.environ.get("DASHBOARD_TP_COMMAND", "").strip()
 SESSION = int(float(os.environ.get("DASHBOARD_SESSION_HOURS", "12")) * 3600)
 KEY = secrets.token_bytes(32)
@@ -184,6 +193,53 @@ def add_map(body):
     return f"written to {os.path.basename(path)}: " + ", ".join(new)
 
 
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
+def inside(path, base):
+    path, base = os.path.realpath(path), os.path.realpath(base)
+    return path == base or path.startswith(base + os.sep)
+
+
+def scan_images():
+    """Map name (lower case) -> picture file: the store's packages first, then /shared/mapimages overrides."""
+    found = {}
+    for pack in sorted(glob.glob(f"{MODS_STORE}/packages/*/")):
+        try:
+            with open(f"{pack}reskate-levels.json", encoding="utf-8-sig") as f:
+                levels = json.load(f).get("levels", [])
+        except (OSError, ValueError, AttributeError):
+            continue
+        for level in levels:
+            name = level.get("displayName") if isinstance(level, dict) else None
+            if not name:
+                continue
+            picks = [v for v in level.values() if isinstance(v, str) and os.path.splitext(v)[1].lower() in IMAGE_TYPES]
+            for rel in picks + ["icon.png"]:
+                path = os.path.join(pack, rel)
+                if inside(path, pack) and os.path.isfile(path):
+                    found[name.lower()] = path
+                    break
+    for path in glob.glob(f"{SHARED}/mapimages/*"):
+        base, ext = os.path.splitext(os.path.basename(path))
+        if ext.lower() in IMAGE_TYPES and os.path.isfile(path):
+            found[base.lower()] = path
+    return found
+
+
+def map_image(name):
+    """(content type, bytes) of a map's picture, or None."""
+    if time.time() - IMAGES_AT[0] > 60:
+        IMAGES.clear()
+        IMAGES.update(scan_images())
+        IMAGES_AT[0] = time.time()
+    path = IMAGES.get(str(name).strip().lower())
+    if not path or os.path.getsize(path) > 2_000_000:
+        return None
+    with open(path, "rb") as f:
+        return IMAGE_TYPES[os.path.splitext(path)[1].lower()], f.read()
+
+
 def players():
     """Everybody who is on, from every running server: [{name, steam_id, team, server, slot, role}]."""
     out = []
@@ -270,7 +326,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.mapimg{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:7px;margin-bottom:8px;background:var(--line)}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -303,8 +359,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <button data-c="maps">Maps zeigen</button><button data-c="map-pool">Pool zeigen</button><button data-c="status">Status</button><button data-c="players">Spieler</button></div>
 <pre id="cout">Antwort des Servers erscheint hier (letzte Log-Zeilen).</pre>
 <h2 style="margin-top:14px">Neue Map hinzufügen</h2>
-<div class="bar"><input id="pkg" maxlength="80" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><button id="addmap">Hinzufügen</button></div>
-<div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. Der Rollover startet betroffene Server erst neu, wenn sie leer sind (kein belegter Server geht runter); danach ggf. Map mit Wechseln/Pool + aktivieren.</div></section>
+<div class="bar"><input id="pkg" maxlength="80" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="live" checked style="flex:none;min-width:0">sofort laden</label><button id="addmap">Hinzufügen</button></div>
+<div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. "Sofort laden" schickt zusätzlich mods add und map-pool add an die laufenden Server (ohne Neustart, nur mit neuem Image). Die Settings-Datei sorgt dafür, dass es nach einem Neustart bleibt; der Rollover startet Server dafür nur, wenn sie leer sind.</div></section>
 <section><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -319,6 +375,7 @@ async function servers(){
  tabs(d);mod(d);
  for(const s of d.servers){
   const c=el('div','card'),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
+  if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(s.map);c.append(im)}
   h.append(el('h3',0,'Server '+s.server+(s.role?' · '+s.role:'')),Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));c.append(h);
   c.append(el('div',0,s.running?(s.players==null?'Spieler unbekannt':s.players+'/'+(s.max||'?')+' Spieler')+' · '+(s.map||'?'):'offline'));
   for(const [l,x] of Object.entries(s.slots||{})){
@@ -381,7 +438,14 @@ $('csend').onclick=()=>sendCmd($('cmd').value);$('cmd').onkeydown=e=>{if(e.key==
 for(const b of document.querySelectorAll('[data-c]'))b.onclick=()=>{const c=fill(b.dataset.c);if(c.includes('{'))return;if(/^(map|map-pool (add|remove)|rotation)$/.test(c.trim()))return $('cout').textContent='Bitte zuerst Map-Name bzw. Minuten eintragen.';$('cmd').value=c;sendCmd(c)};
 $('addmap').onclick=async()=>{const o=$('cout'),pk=$('pkg').value.trim();if(!pk)return;
  const r=await fetch('/api/addmap',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('pscope').value=='*'?'*':$('csrv').value,package:pk,pool:$('poolnames').value})});
- const d=await r.json();o.textContent=r.ok?'Map-Paket: '+d.text:'Fehler: '+(d.error||r.status);if(r.ok){$('pkg').value='';$('poolnames').value=''}};
+ const d=await r.json();o.textContent=r.ok?'Map-Paket: '+d.text:'Fehler: '+(d.error||r.status);if(!r.ok||!$('live').checked)return;
+ const srvs=$('pscope').value=='*'?[...$('csrv').options].map(x=>x.value):[$('csrv').value],names=$('poolnames').value.split(',').map(x=>x.trim()).filter(Boolean);
+ $('pkg').value='';$('poolnames').value='';
+ for(const sv of srvs){const send=c=>fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:sv,action:'console',text:c})});
+  await send('mods add '+pk);o.textContent+='\\nServer '+sv+': mods add '+pk+' gesendet, lädt ohne Neustart …'}
+ await new Promise(x=>setTimeout(x,6000));
+ for(const sv of srvs)for(const n of names)await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:sv,action:'console',text:'map-pool add '+n})});
+ o.textContent+='\\nPool-Eintraege gesendet. Ergebnis im Live-Log; Server ohne `mods add` (altes Image) kennen den Befehl noch nicht.'};
 let chatSrv='*',chatLast=0,chatLines=[],canSay=true;
 function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
  const all=el('button',0,'Alle Chats');all.dataset.s='*';all.onclick=()=>pick('*');t.append(all);
@@ -437,7 +501,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        if not any(k == "Cache-Control" for k, _ in headers):
+            self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
@@ -471,6 +536,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, PAGE)
             if url.path == "/api/servers":
                 return self.json(200, servers())
+            if url.path == "/api/mapimg":
+                found = map_image(q.get("name", ""))
+                if not found:
+                    return self.json(404, {"error": "no picture"})
+                return self.send(200, found[1], found[0], headers=[("Cache-Control", "private, max-age=3600")])
             if url.path == "/api/players":
                 return self.json(200, players() if MOD else [])
             if url.path == "/api/containers":

@@ -9,6 +9,8 @@ Each server card says whether the project rule would allow a restart (at most `D
 or only a rollover copy; an unknown player count counts as busy. Later stages that restart anything reuse that
 check on the server side.
 
+**Map pictures:** each server card shows its map's picture. Custom maps take it from the shared map store (`reskate-mods` mounted read-only at `/mods`: the picture a level entry points at, else the package's `icon.png`). Built-in maps (San Vansterdam, Isle of Grom, ...) have no picture in the repository: drop `<map name>.png` (or .jpg/.webp) into `/shared/mapimages/` to give any map one; that wins over the package's. Without a picture the card just has none.
+
 **Server commands:** a catalog of every console command of the ReSkate server (checked against the server's own `README.txt`: map, map-pool, rotation, votes and polls, parties, anti-cheat, reserved slots, announcements, `tpall`/`tphere` ...), a free command line, and shortcuts for switching the map, the map pool and the rotation. The reply is the last lines of the server's log, shown after a moment. `quit`, `stop`, `exit`, `update` and `restart` are refused here and in the bridge.
 
 **New map:** "Neue Map hinzufügen" takes a Thunderstore package (`Owner-Name`) and optional pool names and appends `MODS+=` / `MAP_POOL+=` to `/shared/settings/server-<n>.env` (or `common.env` for all servers). The tools' rollover restarts the servers concerned once they are empty (a busy server is never taken down for it); afterwards switch to the map or add it to the pool. This needs `/shared` mounted writable (see `dashboard.yml`). A pool change typed on the console is not kept across a restart when `MAP_POOL` is set in the env or settings files.

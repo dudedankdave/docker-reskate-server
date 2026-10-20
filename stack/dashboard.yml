@@ -16,10 +16,14 @@ services:
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD (8+ characters)}
       DASHBOARD_DOCKER: /var/run/docker.sock
       DASHBOARD_SHARED: /shared  # settings files: "Neue Map hinzufügen" writes MODS+= / MAP_POOL+= there
+      DASHBOARD_MODS: /mods      # the shared map store, read-only: map preview pictures
       DASHBOARD_CUTOFF: "3"      # at most this many players: restart allowed, else rollover only
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - reskate-mods:/mods:ro
       - reskate-shared:/shared      # writable: only /shared/settings/*.env is written, and only by "Neue Map hinzufügen"
 volumes:
   reskate-shared:
+    external: true
+  reskate-mods:
     external: true
