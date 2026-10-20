@@ -295,19 +295,21 @@ function draw(){const q=$('q').value.trim().toLowerCase(),tb=document.querySelec
   a.append(w);tr.append(n,s,a);tb.append(tr)}}
 $('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
-let chatSrv='',chatLast=0,chatLines=[],canSay=true;
+let chatSrv='*',chatLast=0,chatLines=[],canSay=true;
 function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
- if(!chatSrv&&d.servers.length)chatSrv=d.servers[0].server;
+ const all=el('button',0,'Alle Chats');all.dataset.s='*';all.onclick=()=>pick('*');t.append(all);
  for(const s of d.servers){const b=el('button',0,s.server+(s.role?' '+s.role:''));b.dataset.s=s.server;
-  b.onclick=()=>{chatSrv=s.server;chatLast=0;chatLines=[];$('chat').textContent='-';mark();chat()};t.append(b)}mark()}
-function mark(){for(const b of $('tabs').children)b.classList.toggle('on',b.dataset.s==chatSrv)}
+  b.onclick=()=>pick(s.server);t.append(b)}mark()}
+function pick(v){chatSrv=v;chatLast=0;chatLines=[];$('chat').textContent='-';mark();chat()}
+function mark(){for(const b of $('tabs').children)b.classList.toggle('on',b.dataset.s==chatSrv);
+ const i=$('saytext');i.disabled=chatSrv=='*';i.placeholder=chatSrv=='*'?'Server-Tab wählen, um zu schreiben':'Nachricht an den Server-Chat'}
 async function chat(){if(!chatSrv)return;const srv=chatSrv;
- const d=await api('/api/events?'+new URLSearchParams({after:chatLast,server:srv,scope:'chat'}));
+ const d=await api('/api/events?'+new URLSearchParams({after:chatLast,server:srv=='*'?'':srv,scope:'chat'}));
  if(srv!=chatSrv)return;chatLast=d.last;
- for(const e of d.events)chatLines.push((e.time||'').slice(11,19)+' '+e.text.replace(/^(\\[[^\\]]*\\]\\s*)?\\[chat\\]\\s*/,''));
+ for(const e of d.events)chatLines.push((e.time||'').slice(11,19)+(srv=='*'?' ['+e.server+']':'')+' '+e.text.replace(/^(\\[[^\\]]*\\]\\s*)?\\[chat\\]\\s*/,''));
  chatLines.splice(0,Math.max(0,chatLines.length-300));const p=$('chat'),b=p.scrollTop+p.clientHeight>=p.scrollHeight-20;
  if(d.events.length||p.textContent=='-'){p.textContent=chatLines.join('\\n')||'(noch keine Chat-Nachrichten)';if(b)p.scrollTop=p.scrollHeight}}
-$('sayform').onsubmit=async ev=>{ev.preventDefault();const t=$('saytext').value.trim();if(!t||!chatSrv)return;
+$('sayform').onsubmit=async ev=>{ev.preventDefault();const t=$('saytext').value.trim();if(!t||chatSrv=='*')return;
  const r=await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:chatSrv,text:t})});
  if(r.ok){$('saytext').value='';chat()}else $('saytext').placeholder=(await r.json()).error||'Fehler'};
 let last=0;const lines=[];
