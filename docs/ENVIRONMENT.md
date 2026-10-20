@@ -75,6 +75,7 @@ For both:
 | `PARTIES` | `true` / `false` | Let players form parties. Default `true`. |
 | `PARTY_SIZE` | 2-8 | Most players in one party. Default `8`. |
 | `ANNOUNCE_THROWDOWNS` | `true` / `false` | Tell everyone in chat when a throwdown drop is placed. Default `true`. |
+| `THROWDOWN_LOCKS` | `true` / `false` | ReSkate 2.1.0 and later. While a throwdown runs, its players lose noclip, teleporting, No Bail, boosts and physics tuning (console: `throwdown-locks`). Changing it mid-throwdown only affects the tools that differ. Not set = the server's own default. |
 | `WORD_WARNINGS` | 0-10 | Chat messages with a word from the ReSkate team's list are never passed on and their player is warned; after this many warnings the next one gets them kicked (they can rejoin). Warnings last until the server restarts. Default `3`, `0` = never warn or kick. |
 | `AFK_KICK_MINUTES` | 0-1440 | Remove a player who has been away (not moving, speaking, chatting or editing objects) this many minutes, after a warning a minute before. Default `0` = never; admins are never removed. |
 | `KICK_MINUTES` | 1-1440, `restart` | ReSkate 2.0.8 and later. How long a player kicked by an admin is kept out; they are told how long. `restart` (or `0`, the default) = until the server restarts. One kick can get its own time: `kick <player> 30` or `kick <player> restart`. A kick keeps the time it was given; bans are still for good. Console: `kick-time <minutes>\|restart`. |
