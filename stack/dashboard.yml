@@ -1,0 +1,20 @@
+# The dashboard (stage 1: read-only) as an add-on to the tools stack, so nothing else in it is touched:
+#   DASHBOARD_PASSWORD=... BRIDGE_TOKEN=... docker compose -p tools -f docker-compose.yml -f dashboard.yml up -d dashboard
+# It listens on 127.0.0.1:8790 (plain HTTP); the reverse proxy for the subdomain terminates HTTPS and passes
+# X-Forwarded-Proto / X-Forwarded-For. Docs: modules/dashboard.py.
+services:
+  dashboard:
+    image: dudedankdave/reskate-tools:${TOOLS_TAG:-latest}
+    container_name: reskate-dashboard
+    restart: unless-stopped
+    network_mode: host
+    user: root               # reads the Docker socket (GET only) for container state and tool logs
+    environment:
+      RESKATE_MODE: dashboard
+      BRIDGE_URL: http://127.0.0.1:8780
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD (8+ characters)}
+      DASHBOARD_DOCKER: /var/run/docker.sock
+      DASHBOARD_CUTOFF: "3"      # at most this many players: restart allowed, else rollover only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
