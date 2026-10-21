@@ -127,6 +127,16 @@ class MapNameTest(unittest.TestCase):
             self.assertEqual(next(g for g in mod.MAP.match(line).groups() if g), name)
 
 
+class StatusLeftTest(unittest.TestCase):
+    def test_leaving_while_downloading_the_map_counts_as_left(self):
+        import re
+        src = (HERE / "rollover" / "status.py").read_text()
+        left = re.compile(eval(re.search(r"^LEFT = re\.compile\((r?\".*\")\)$", src, re.M).group(1)))
+        self.assertTrue(left.match("[join] 76561199291693933 left without the map (Disconnected.)"))
+        self.assertTrue(left.match("Bob left (Disconnected.)"))
+        self.assertFalse(left.match("[map] 76561199291693933 is downloading the map"))
+
+
 class LiveMapsTest(unittest.TestCase):
     def test_pool_and_mods_from_the_running_server(self):
         import io
