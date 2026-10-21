@@ -180,3 +180,15 @@ class BrandingTest(unittest.TestCase):
         self.assertTrue(d.LOGO_SVG.startswith("<svg"))
         self.assertTrue(d.FAVICON_PNG.startswith(b"\x89PNG"))
         self.assertIn("/logo.svg", d.LOGIN % "")
+
+
+class CreatedSortTest(unittest.TestCase):
+    def test_sort_by_created_newest_first(self):
+        d = load()
+        rows = [{"package": "a-A", "name": "A", "description": "", "categories": ["maps"], "downloads": 5, "rating": 1,
+                 "updated": "2026-01-01", "created": "2025-01-01"},
+                {"package": "b-B", "name": "B", "description": "", "categories": ["maps"], "downloads": 1, "rating": 0,
+                 "updated": "2026-02-01", "created": "2026-02-01"}]
+        with mock.patch.object(d, "ts_packages", return_value=rows):
+            self.assertEqual([r["package"] for r in d.ts_search("", sort="created")["results"]], ["b-B", "a-A"])
+            self.assertEqual([r["package"] for r in d.ts_search("", sort="created", asc=True)["results"]], ["a-A", "b-B"])
