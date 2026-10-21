@@ -1825,7 +1825,6 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div id="copts2"></div>
 <div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
-<div class="crow"><label class="chk"><input type="checkbox" id="persist"> Dauerhaft speichern (überlebt den Neustart des Servers)</label></div>
 <div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
 <div class="mut" id="opthint"></div>
 <div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
@@ -2053,9 +2052,7 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
 put(real,[...box.childNodes]);drawOpts(sv,fl)}
-const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:$('persist').checked},b));
-let persistOn=true;try{persistOn=localStorage.getItem('persist')!='0'}catch(e){}
-$('persist').checked=persistOn;$('persist').onchange=()=>{try{localStorage.setItem('persist',$('persist').checked?'1':'0')}catch(e){}};
+const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:true},b));
 function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div');
  for(const [k,label,tip,body] of [['locked','Gesperrt (Passwort aktiv)','Ein: das gemerkte Passwort wird wieder gesetzt. Aus: Passwort wird entfernt und gemerkt.',on=>({action:on?'lock':'unlock'})],
    ['ranked','Ranked-Modus','Ein: Physik erzwungen, Score-Check und Speed-Check auf kick. Aus: Score-Check und Speed-Check auf warn.',on=>({action:'ranked',on})]]){
