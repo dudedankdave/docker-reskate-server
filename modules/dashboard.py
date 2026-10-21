@@ -747,7 +747,7 @@ async function servers(){
   const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
   const cnt=s.running?(s.online!=null?s.online:s.players):null;
   row('Spieler',s.running?(cnt==null?'?':cnt)+' / '+(s.max||'?'):'offline');if(s.running&&s.online!=null&&s.players!=null&&s.players!=s.online)dl.lastChild.title='Beigetreten: '+s.online+'. Der Status zählt '+s.players+' (Verbindungen, die gerade laden oder noch nicht beigetreten sind).';
-  if(s.running&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,s.players?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
+  if(s.running&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,cnt?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
   row('Karte',s.running?(mapName||'?'):'–');
   for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+((x.online!=null?x.online:x.players)==null?'?':(x.online!=null?x.online:x.players))+' Spieler':'aus');
   c.append(dl);
