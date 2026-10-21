@@ -93,7 +93,10 @@ jobs:
           url = info["url"]
           if url.startswith("asset:"):
               url = f"https://github.com/{os.environ['UPSTREAM']}/releases/download/{os.environ['PRE_TAG'] or 'v' + v}/{url[6:]}"
-          assert url.startswith("https://"), url
+          # Everything below lands in $GITHUB_OUTPUT and in later scripts: only plain characters get through.
+          assert re.fullmatch(r"https://[A-Za-z0-9.-]+/[A-Za-z0-9._~%/+-]+", url), url
+          assert re.fullmatch(r"[0-9a-f]{64}", info["sha256"].lower()), "sha256"
+          assert re.fullmatch(r"([0-9a-f]{64})?", info.get("exe_sha256", "").lower()), "exe_sha256"
           print(f"version={v}")
           print(f"minor={'.'.join(v.split('.')[:2])}")
           print(f"url={url}")
@@ -172,18 +175,21 @@ jobs:
 
       - name: Download the server
         if: steps.hub.outputs.build == 'true'
+        env:
+          URL: ${{ steps.release.outputs.url }}
+          SHA: ${{ steps.release.outputs.sha256 }}
+          EXE: ${{ steps.release.outputs.exe_sha256 }}
         run: |
           set -euo pipefail
-          curl -fsSL -m 600 "${{ steps.release.outputs.url }}" -o server.tar.gz
-          echo "${{ steps.release.outputs.sha256 }}  server.tar.gz" | sha256sum -c -
+          curl -fsSL -m 600 "$URL" -o server.tar.gz
+          echo "$SHA  server.tar.gz" | sha256sum -c -
           mkdir unpacked Server
           tar -xzf server.tar.gz -C unpacked --no-same-owner
           top=$(find unpacked -mindepth 1 -maxdepth 1 -type d)
           for f in ReSkateServer libsteam_api.so libtier0_s.so libvstdlib_s.so steamclient.so; do
             cp "$top/$f" Server/
           done
-          exe=${{ steps.release.outputs.exe_sha256 }}
-          if [ -n "$exe" ]; then echo "$exe  Server/ReSkateServer" | sha256sum -c -; fi
+          if [ -n "$EXE" ]; then echo "$EXE  Server/ReSkateServer" | sha256sum -c -; fi
           rm -rf unpacked server.tar.gz
 
       - uses: docker/setup-buildx-action@v3
