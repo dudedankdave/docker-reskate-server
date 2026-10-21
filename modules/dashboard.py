@@ -248,6 +248,27 @@ TS_SORTS = {"created": lambda r: r["created"], "downloads": lambda r: r["downloa
             "name": lambda r: r["name"].lower()}
 
 
+def ts_state(results):
+    """Add `stored` ("current" = this version is in the shared store, "old" = another version, "" = not downloaded) and
+    `on` (servers that have it linked) to Thunderstore results."""
+    try:
+        have = set(os.listdir(f"{SHARED}/packages"))
+    except OSError:
+        have = set()
+    linked = {}
+    try:
+        for number, item in server_maps().items():
+            for m in item.get("mods", []):
+                linked.setdefault(m.rsplit("-", 1)[0], set()).add(number)
+    except (RuntimeError, OSError, ValueError, KeyError):
+        pass
+    out = []
+    for r in results:
+        kind = "current" if f"{r['package']}-{r['version']}" in have else "old" if any(x.startswith(r["package"] + "-") for x in have) else ""
+        out.append(dict(r, stored=kind, on=sorted(linked.get(r["package"], ()), key=lambda n: (len(n), n))))
+    return out
+
+
 def ts_search(query, maps_only=True, sort="downloads", asc=False):
     terms = [t for t in str(query).lower().split() if t][:6]
     out = []
@@ -1114,7 +1135,7 @@ main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px))
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:clamp(10px,1.2vw,16px)}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cmdstack{display:grid;gap:clamp(12px,1.6vw,24px);margin-top:clamp(10px,1.4vw,18px)}.toprow{display:grid;grid-template-columns:clamp(240px,24vw,340px) minmax(0,1fr);gap:clamp(10px,1.2vw,16px);align-items:stretch}.toprow .pic{aspect-ratio:16/10}.twocol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(10px,1.2vw,16px);align-items:start}.col{display:grid;gap:clamp(10px,1.2vw,16px);align-content:start;min-width:0}@media(max-width:900px){.toprow,.twocol{grid-template-columns:minmax(0,1fr)}}.term{background:var(--bg);border:1px solid var(--line);border-radius:6px;margin:8px 0;font:12px/1.45 ui-monospace,monospace}.term pre{background:transparent;border:0;height:220px;max-height:none;margin:0;border-radius:6px 6px 0 0}.prompt{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line)}.prompt span{color:var(--ok);font-weight:700}.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:inherit;font:inherit;padding:0}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
 .card.open{display:grid;grid-template-columns:clamp(200px,24vw,300px) minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
-.tsrow{display:grid;grid-template-columns:64px minmax(0,1fr) 150px auto;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:6px}.tspic{position:relative;width:64px;height:48px;border-radius:4px;background:var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.tsmain{min-width:0;overflow-wrap:anywhere}.tsmain .mut{font-size:12px}.tsname a{font-weight:600}.tsstat{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-size:13px}.tsrow .act{display:flex;gap:6px}@media(max-width:700px){.tsrow{grid-template-columns:64px minmax(0,1fr)}.tsstat{text-align:left;grid-column:2}.tsrow .act{grid-column:1/-1}}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:var(--line);border:1px solid var(--mut);vertical-align:middle}.dot.current{background:var(--ok);border-color:var(--ok);box-shadow:0 0 6px var(--ok)}.dot.old{background:var(--warn);border-color:var(--warn)}.tsrow{display:grid;grid-template-columns:64px minmax(0,1fr) 150px auto;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:6px}.tspic{position:relative;width:64px;height:48px;border-radius:4px;background:var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.tsmain{min-width:0;overflow-wrap:anywhere}.tsmain .mut{font-size:12px}.tsname a{font-weight:600}.tsstat{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-size:13px}.tsrow .act{display:flex;gap:6px}@media(max-width:700px){.tsrow{grid-template-columns:64px minmax(0,1fr)}.tsstat{text-align:left;grid-column:2}.tsrow .act{grid-column:1/-1}}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -1405,16 +1426,18 @@ async function tsAdd(r,pool,note,btns){
    for(const sv of srvs){const cur=POOLS&&POOLS.assign[sv];if(!cur||cur=='Alle Maps'||seen.has(cur))continue;seen.add(cur);
     for(const n of names)await post('/api/pools',{action:'set',server:sv,name:cur,map:n,on:true})}
    done=seen.size?'Im Pool '+[...seen].join(', ')+': '+names.join(', ')+'.':'Geladen. Die Server mit „Alle Maps" haben die Map automatisch im Pool.'}
+  r.stored='current';r.on=[...new Set([...(r.on||[]),...srvs])];if(r.dot){r.dot.className='dot current';r.dot.title=dotTip(r)}
   note.textContent=done}
  catch(e){note.textContent='Fehler: '+e.message}
  btns.forEach(b=>b.disabled=false);for(const k of Object.keys(mapsCache))delete mapsCache[k];await loadPools();mapsAt=0;cmdMaps(true).catch(()=>{})}
+const dotTip=r=>(r.stored=='current'?'Heruntergeladen (diese Version liegt im Store)':r.stored=='old'?'Eine andere Version liegt im Store':'Nicht heruntergeladen')+(r.on&&r.on.length?' · verlinkt auf Server '+r.on.join(', '):'');
 const tsRun=async()=>{const real=$('tsres'),box=document.createElement('div'),info=$('tsinfo');info.textContent='Suche …';
  let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+'&sort='+$('tssort').value+'&dir='+$('tsdir').value+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
  info.textContent=($('tsq').value.trim()?d.total+' Treffer':d.total+' Maps auf Thunderstore')+(d.total>d.results.length?' (die ersten '+d.results.length+' nach Sortierung)':'');
  for(const r of d.results){const row=el('div','tsrow'),pic=el('div','tspic');pic.append(el('span',0,r.name.slice(0,2)));
   if(r.icon){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/tsimg?u='+encodeURIComponent(r.icon);pic.append(im)}
   const main=el('div','tsmain'),a=el('a',0,r.name);a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';
-  const t=el('div','tsname');t.append(a,el('span','mut',' '+r.owner+' · v'+r.version));
+  const t=el('div','tsname'),dot=el('span','dot '+(r.stored||'none'));dot.title=dotTip(r);r.dot=dot;t.append(dot,a,el('span','mut',' '+r.owner+' · v'+r.version));
   const note=el('div','mut');main.append(t,el('div','mut',r.description),note);
   const st=el('div','tsstat');st.append(el('div',0,r.downloads.toLocaleString('de-DE')+' ↓'),el('div','mut','★ '+r.rating),el('div','mut','neu '+(r.created||'?')),el('div','mut','Update '+r.updated));
   const w=el('div','act'),b1=el('button',0,'Auf Server'),b2=el('button',0,'In den Pool');w.append(b1,b2);
@@ -1598,7 +1621,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, found[1], found[0], headers=[("Cache-Control", "private, max-age=3600")])
             if url.path == "/api/ts":
                 try:
-                    return self.json(200, ts_search(q.get("q", ""), q.get("all") != "1", q.get("sort", "downloads"), q.get("dir") == "asc"))
+                    found = ts_search(q.get("q", ""), q.get("all") != "1", q.get("sort", "downloads"), q.get("dir") == "asc")
+                    found["results"] = ts_state(found["results"])
+                    return self.json(200, found)
                 except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as e:
                     return self.json(502, {"error": f"Thunderstore: {type(e).__name__}: {e}"})
             if url.path == "/api/tsimg":
