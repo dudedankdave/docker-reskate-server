@@ -1535,6 +1535,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 #sayform{display:flex;gap:8px;margin-top:8px}#pwnew,#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
+.sv{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.sv.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.svleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.svpic{border-radius:0;margin:0;padding:0}.svtop{position:absolute;left:0;right:0;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:8px 10px 16px;background:linear-gradient(rgba(0,0,0,.78),transparent);color:#fff;text-align:left}.svtop h3{flex:1;color:#fff}.svmapname{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:18px 10px 8px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:#fff;font-size:13px;font-weight:600;text-align:left}.sv.offline .svpic{filter:grayscale(1);opacity:.6}.svbody{padding:0 12px;display:grid;gap:10px}.svstat{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}.svstat .pill{margin:0 0 0 auto}.svcount{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.svpills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.svpills .pill{margin:0}.pill.acc{color:var(--acc)}.svact{display:flex;gap:8px;flex-wrap:wrap}.svact button{flex:1 1 auto;margin:0}.svright{padding:12px 14px 14px 2px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-content:start}.svsec{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}.svsec h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.svsec .kv{margin:0}.svright .wide{grid-column:1/-1}.svcode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.svcode code,.svsec code{font:12px ui-monospace,monospace;word-break:break-all}.svrun{margin-bottom:8px}.svrun b{font-size:15px}.svraw summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:8px}@media(max-width:700px){.sv.open{display:flex}.svright{padding:0 12px 12px}}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -1601,32 +1602,71 @@ const RULE={restart:["Neustart ok · ≤ 3 Spieler","ok"],rollover:["Nur Rollove
 async function api(p){const r=await fetch(p);if(r.status==401){location.reload();throw 0}if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
 const openCards=new Set(),infoCache={},infoAt={},shown={};
 let drawTimer=0;const drawn=()=>{clearTimeout(drawTimer);drawTimer=setTimeout(()=>servers().catch(()=>{}),50)};
-const GROUPS=[['Spieler',/^(MAX_PLAYERS|PART|VOICE|NOCLIP|NO_BAIL|BOOSTS|OBJECT|ADMINS|BANS|AFK|KICK_)/],['Votes',/^VOTE_/],['Anti-Cheat',/^(SCORE_|SPEED_|ENFORCE_|BONE_|DISTANCE_)/],
- ['Maps',/^(MAP|PARK_|LAYER|WORLD_LAYER|ROTATION)/],['Ansagen & Chat',/^(ANNOUNCE|WELCOME|DISCORD|CHAT|COMMANDS)/],['Rangliste & Teams',/^(LEADERBOARD|TEAMS|RANKED|UNRANKED)/],
- ['Betrieb',/^(UPDATE_|LISTED|PORT|QUERY_PORT|ACTIVITY|SERVER_NAME|RESKATE_)/]];
-function block(title,rows){const b=el('div','dblock');b.append(el('h4',0,title));const dl=el('dl','kv');for(const [k,v] of rows){dl.append(el('dt',0,k));const d=el('dd',0,v);dl.append(d)}b.append(dl);return b}
-function detail(s){const p=el('div','detail'),i=infoCache[s.server];
- if(!i){p.textContent='Lade …';return p}
- if(i.error){p.textContent='Keine Details: '+i.error;return p}
- const grid=el('div','dgrid'),gen=el('div','dblock');gen.append(el('h4',0,'Allgemein'));
- const g1=el('dl','kv'),row=(dl,a,b)=>{dl.append(el('dt',0,a));const d=el('dd',0,b);dl.append(d);return d};
- row(g1,'Servername',i.name||'–');
- for(const c of i.containers){const lab=c.slot?' (Slot '+c.slot+')':'',d=row(g1,'Join-Code'+lab,c.code||'unbekannt');
-  if(c.code){const b=el('button',0,'Kopieren');b.style.marginLeft='8px';b.onclick=()=>{navigator.clipboard.writeText(c.code).then(()=>{b.textContent='Kopiert'},()=>{b.textContent='Markieren & Strg+C'})};d.append(b)}}
- gen.append(g1);grid.append(gen);
- const ops=[];for(const c of i.containers){const lab=c.slot?' ('+c.slot+')':'';
-  ops.push(['Version'+lab,(c.version||'?')+(c.revision?' · '+c.revision:'')],['Port'+lab,c.port||'?'],['Zustand'+lab,c.health||'?'],['Gestartet'+lab,c.started?new Date(c.started).toLocaleString():'?'])}
- grid.append(block('Betrieb',ops));
- const mx=mapsCache[s.server];
- if(mx){const cur=(s.map||mx.map||'').replace(/[.]$/,''),b=el('div','dblock');b.append(el('h4',0,'Maps'),el('div','mut','Aktuell: '+(cur||'?')),
-   el('div','mut','Map-Pool ('+(mx.pool.length||'alle')+')'),mx.pool.length?chipRow(mx.pool,cur,false):el('div','mut','Kein Pool gesetzt: alle Maps erlaubt'),
-   el('div','mut','Map-Pakete ('+mx.mods.length+')'),mx.mods.length?chipRow(mx.mods,'',true):el('div','mut','Keine Mods'));
-  if(!mx.live)b.append(el('div','mut','Stand vom Containerstart (Live-Daten nicht lesbar)'));grid.append(b)}
- const buckets=GROUPS.map(g=>[g[0],g[1],[]]),rest=[];
- for(const [k,v] of Object.entries(i.env)){if(['MODS','MAP_POOL','MAP','SERVER_NAME'].includes(k))continue;const t=buckets.find(x=>x[1].test(k));(t?t[2]:rest).push([k,v||'(leer)'])}
- for(const [t,,rows] of buckets)if(rows.length&&t!='Betrieb')grid.append(block(t,rows));else if(rows.length){const o=grid.querySelector('.dblock:nth-child(2) dl');for(const [k,v] of rows){o.append(el('dt',0,k));o.append(el('dd',0,v))}}
- if(rest.length)grid.append(block('Sonstiges',rest));
- p.append(grid,el('div','mut','Einstellungen aus der Umgebung des Containers (ohne Tokens und Webhooks).'));return p}
+const ago=iso=>{const t=Date.parse(iso);if(!t)return '?';let m=Math.max(0,Math.round((Date.now()-t)/60000));const d=Math.floor(m/1440),h=Math.floor(m%1440/60);m%=60;return (d?d+' T ':'')+(d||h?h+' Std ':'')+m+' Min'};
+const pill=(t,c,tip)=>{const p=el('span','pill '+(c||'mut'),t);if(tip)p.title=tip;return p};
+const lvl=v=>({kick:['kick','bad'],warn:['warn','warn'],off:['aus','mut']}[v]||[v||'?','mut']);
+const sec=(title,...kids)=>{const b=el('div','svsec'+(kids.wide?' wide':''));b.append(el('h4',0,title),...kids);return b};
+const kvl=rows=>{const dl=el('dl','kv');for(const [k,v] of rows){dl.append(el('dt',0,k));const d=el('dd');if(v instanceof Node)d.append(v);else d.textContent=v;dl.append(d)}return dl};
+const rowOf=(...n)=>{const r=el('div','svpills');r.append(...n);return r};
+async function revealPw(s,btn){try{const r=await fetch('/api/secret?server='+s.server,{headers:{'X-Requested-With':'dashboard'}}),d=await r.json();if(!r.ok)throw new Error(d.error||r.status);shown[s.server]={pw:d.password,until:Date.now()+15000};servers()}catch(x){if(btn)btn.title='Fehler: '+x.message}}
+function detail(s){const p=el('div','svright'),i=infoCache[s.server];
+ if(!i){p.append(el('div','mut','Lade …'));return p}
+ if(i.error){p.append(el('div','mut','Keine Details: '+i.error));return p}
+ const mx=mapsCache[s.server]||{},fl=mx.flags||{},env=i.env||{};
+ // Zugang
+ const code=el('span'),codes=i.containers.filter(c=>c.code);
+ if(codes.length){for(const c of codes){const r=el('div','svcode');r.append(el('code',0,c.code));const b=el('button',0,'Kopieren');b.onclick=()=>{navigator.clipboard.writeText(c.code).then(()=>{b.textContent='Kopiert'},()=>{b.textContent='Markieren & Strg+C'})};r.append(b);if(i.containers.length>1)r.append(el('span','mut','Slot '+c.slot));code.append(r)}}else code.textContent='noch nicht bekannt';
+ const sh=shown[s.server],on=sh&&sh.until>Date.now(),pw=el('span');
+ if(i.locked){pw.append(pill('gesperrt','warn'));if(on)pw.append(' ',el('code',0,sh.pw));else{const b=el('button',0,'Anzeigen');b.style.marginLeft='8px';b.onclick=()=>revealPw(s,b);pw.append(b)}}else pw.append(pill('offen','ok'));
+ const ports=i.containers.map(c=>c.port).filter(Boolean).join(' / ')+(env.QUERY_PORT?' · Query '+env.QUERY_PORT:'');
+ p.append(sec('Zugang',kvl([['Servername',i.name||'–'],['Join-Code',code],['Passwort',pw],['Port',ports||'?'],['Max. Spieler',env.MAX_PLAYERS||(s.max||'?')]])));
+ // Betrieb
+ const run=el('div');
+ for(const c of i.containers){const r=el('div','svrun');r.append(el('b',0,c.version||'?'),c.revision?el('span','mut',' '+c.revision):'',' ',pill(c.health||'?',c.health=='healthy'?'ok':c.health?'warn':'mut'),el('div','mut',(c.slot?'Slot '+c.slot+' · ':'')+'läuft seit '+ago(c.started)));r.title=c.name+' · gestartet '+(c.started?new Date(c.started).toLocaleString():'?');run.append(r)}
+ p.append(sec('Betrieb',run,kvl([['Container',i.containers.map(c=>c.name).join(', ')],['Updates',env.UPDATE_MODE||'?']])));
+ // Regeln
+ const [sc,sk]=lvl(fl.score_check),[sp,sq]=lvl(fl.speed_check),[bd,bk]=lvl(fl.board_check);
+ const votes=rowOf(pill('Map-Vote',fl.vote_map?'ok':'mut'),pill('Kick-Vote',fl.vote_kick?'ok':'mut'),pill('Zeit-Vote',fl.vote_tod?'ok':'mut'));
+ p.append(sec('Regeln & Rangliste',kvl([['Liga',mx.league?mx.league.charAt(0).toUpperCase()+mx.league.slice(1):'?'],['Ranked-Modus',pill(fl.ranked?'an':'aus',fl.ranked?'ok':'mut')],['Physik',pill(fl.enforce_tuning===false?'frei':'erzwungen',fl.enforce_tuning===false?'warn':'ok')],
+  ['Score-Check',pill(sc,sk)],['Speed-Check',pill(sp,sq)],['Board-Check',pill(bd,bk)],['Votes',votes],['Rotation',fl.rotation>0?fl.rotation+' Min':'aus']])));
+ // Maps
+ const cur=(s.map||mx.map||'').replace(/[.]$/,''),pool=mx.pool||[],mods=mx.mods||[],mb=el('div');
+ mb.append(kvl([['Aktuell',cur||'?']]),el('div','mut','Map-Pool ('+(pool.length||'alle')+')'),pool.length?chipRow(pool,cur,false):el('div','mut','Kein Pool: alle Maps erlaubt'),el('div','mut','Map-Pakete ('+mods.length+')'),mods.length?chipRow(mods,'',true):el('div','mut','Keine Mods'));
+ if(mx.live===false)mb.append(el('div','mut','Stand vom Containerstart (Live-Daten nicht lesbar)'));
+ const maps=sec('Maps',mb);maps.classList.add('wide');p.append(maps);
+ // Texte
+ const tx=[['Willkommen',env.WELCOME_MESSAGE||'–']];if(env.ANNOUNCEMENTS)tx.push(['Ansagen (Start)',env.ANNOUNCEMENTS.split('|').length+' Texte, siehe Reiter Ansagen']);
+ p.append(sec('Texte',kvl(tx)));
+ // alles andere
+ const raw=el('details','svraw'),ks=Object.keys(env).sort();raw.append(el('summary',0,'Alle Container-Einstellungen ('+ks.length+')'),kvl(ks.map(k=>[k,env[k]||'(leer)'])));
+ const rs=sec('Rohdaten',raw);rs.classList.add('wide');p.append(rs);
+ p.append(Object.assign(el('div','mut wide'),{textContent:'Einstellungen aus der Umgebung des Containers beim Start (ohne Tokens und Webhooks); Regeln, Liga und Maps zeigen den Stand des laufenden Servers.'}));
+ return p}
+function svCard(s,d){
+ const open=openCards.has(s.server),c=el('div','sv'+(open?' open':'')+(s.running?'':' offline')),[t,k]=RULE[s.rule]||[s.rule,'mut'],mx=mapsCache[s.server],fl=(mx&&mx.flags)||{};
+ const left=el('div','svleft'),mapName=(s.map||'').replace(/[.]$/,''),pic=el('div','pic svpic');pic.append(el('span',0,mapName||'Kein Bild'));
+ if(s.running&&s.map&&imgState[mapName]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[mapName]=='ok'?1:0;im.onload=()=>{imgState[mapName]='ok';im.style.opacity=1};im.onerror=()=>{imgState[mapName]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
+ const top=el('div','svtop');top.append(el('span','num','#'+s.server),el('h3',0,s.role||('Server '+s.server)));
+ if(s.locked){const sh=shown[s.server],on=sh&&sh.until>Date.now(),lk=el('button','lock',on?'🔓 '+sh.pw:'🔒');lk.title=on?'Passwort (verschwindet nach 15 s)':'Passwortgeschützt, Klick zeigt das Passwort';lk.onclick=e=>{e.stopPropagation();revealPw(s,lk)};top.append(lk)}
+ pic.append(top,Object.assign(el('div','svmapname'),{textContent:s.running?(mapName||'?'):'offline'}));
+ const body=el('div','svbody'),cnt=s.running?(s.online!=null?s.online:s.players):null,stat=el('div','svstat');
+ stat.append(el('span','svcount',s.running?(cnt==null?'?':cnt):'–'),el('span','mut','/ '+(s.running?(s.max||'?'):'?')+' Spieler'),pill(t,k,'Neustart direkt nur bis '+d.cutoff+' Spieler; mehr Spieler oder unbekannt: nur über den Rollover'));
+ if(s.running&&s.online!=null&&s.players!=null&&s.players!=s.online)stat.title='Beigetreten: '+s.online+'. Der Status zählt '+s.players+' (Verbindungen, die gerade laden oder noch nicht beigetreten sind).';
+ body.append(stat);
+ if(s.running&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,cnt?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';body.append(bar)}
+ const badges=el('div','svpills');
+ if(mx&&mx.league)badges.append(pill(mx.league=='ranked'?'Ranked-Liga':'Unranked-Liga','acc'));
+ if(fl.ranked)badges.append(pill('Ranked-Modus','ok'));
+ if(fl.enforce_tuning===false)badges.append(pill('Physik frei','warn'));
+ for(const [l,x] of Object.entries(s.slots||{}))if(x.running&&x.version)badges.append(pill((Object.keys(s.slots).length>1?l+' · ':'')+x.version,'mut',x.running?'Slot '+l:''));
+ if(badges.children.length)body.append(badges);
+ const act=el('div','svact'),more=el('button',0,open?'Details ▴':'Details ▾');
+ more.onclick=async()=>{if(openCards.has(s.server))openCards.delete(s.server);else{openCards.add(s.server);delete infoAt[s.server]}await servers()};act.append(more);
+ if(s.running&&d.mod){const rb=el('button','rst','Neu starten …');rb.title='Server neu starten, mit Spielerzahl und Bestätigung';rb.onclick=()=>restartDialog(s);act.append(rb)}
+ body.append(act);left.append(pic,body);c.append(left);
+ if(open){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
+ return c}
+let cardMapsAt=0;
 const imgState={};
 function put(real,nodes){const t=document.createElement('div');t.append(...nodes);const sig=t.innerHTML;if(real.dataset.sig===sig)return;real.dataset.sig=sig;const y=scrollY;real.replaceChildren(...t.childNodes);if(scrollY!=y)scrollTo(0,y)}
 function restartDialog(s0){
@@ -1659,28 +1699,8 @@ async function servers(){
  const d=await api('/api/servers'),real=$('servers'),box=document.createElement('div');
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
  tabs(d);mod(d);
- for(const s of d.servers){
-  const c=el('div','card srv'+(openCards.has(s.server)?' open':'')),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
-  h.append(el('span','num','#'+s.server),el('h3',0,s.role||('Server '+s.server)));
-  if(s.locked){const sh=shown[s.server],on=sh&&sh.until>Date.now(),lk=el('button','lock',on?'🔓 '+sh.pw:'🔒');lk.title=on?'Passwort (verschwindet nach 15 s)':'Passwortgeschützt, Klick zeigt das Passwort';
-   lk.onclick=async e=>{e.stopPropagation();try{const r=await fetch('/api/secret?server='+s.server,{headers:{'X-Requested-With':'dashboard'}}),d=await r.json();if(!r.ok)throw new Error(d.error||r.status);shown[s.server]={pw:d.password,until:Date.now()+15000};servers()}catch(x){lk.title='Fehler: '+x.message}};h.append(lk)}
-  c.append(h);
-  c.onclick=async e=>{if(e.target.closest('button,a,input,.detail'))return;
-   if(openCards.has(s.server))openCards.delete(s.server);else{openCards.add(s.server);delete infoAt[s.server]}
-   await servers()};
-  const mapName=(s.map||'').replace(/[.]$/,''),pic=el('div','pic');pic.append(el('span',0,mapName||'Kein Bild'));
-  if(s.running&&s.map&&imgState[mapName]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[mapName]=='ok'?1:0;im.onload=()=>{imgState[mapName]='ok';im.style.opacity=1};im.onerror=()=>{imgState[mapName]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
-  c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Neustart direkt nur bis '+d.cutoff+' Spieler; mehr Spieler oder unbekannt: nur über den Rollover'}));
-  const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
-  const cnt=s.running?(s.online!=null?s.online:s.players):null;
-  row('Spieler',s.running?(cnt==null?'?':cnt)+' / '+(s.max||'?'):'offline');if(s.running&&s.online!=null&&s.players!=null&&s.players!=s.online)dl.lastChild.title='Beigetreten: '+s.online+'. Der Status zählt '+s.players+' (Verbindungen, die gerade laden oder noch nicht beigetreten sind).';
-  if(s.running&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,cnt?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
-  row('Karte',s.running?(mapName||'?'):'–');
-  for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+((x.online!=null?x.online:x.players)==null?'?':(x.online!=null?x.online:x.players))+' Spieler':'aus');
-  c.append(dl);
-  if(s.running&&d.mod){const rb=el('button','rst','Neu starten …');rb.title='Server neu starten, mit Spielerzahl und Bestätigung';rb.onclick=()=>restartDialog(s);c.append(rb)}
-  if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
-  box.append(c)}
+ if(Date.now()-cardMapsAt>25000){cardMapsAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'))}catch(e){}}
+ for(const s of d.servers)box.append(svCard(s,d))
  put(real,[...box.childNodes])
 }
 function diskWarn(k){const w=$('diskwarn');if(!k){w.hidden=true;return}
