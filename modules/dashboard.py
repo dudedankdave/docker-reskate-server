@@ -797,6 +797,10 @@ def apply_pool(number, target, lib):
 def persist_pool(number, target, lib):
     """Save the pool for the server's next start (MAP_POOL), and a start map (MAP) that is in it: the environment of the
     container would otherwise bring the old pool and start map back at every restart. An empty pool = every map."""
+    live = (server_maps(True, number).get(number) or {})
+    if live.get("live"):                                  # only what the server really took: a name it refused
+        have = {x.lower() for x in live["pool"]}          # (two packages with it) must not stop it from starting
+        target = [n for n in target if not have or n.lower() in have]
     if any("," in n for n in target):
         return                                           # a comma list cannot carry that name
     every = not target or {x.lower() for x in lib} <= {x.lower() for x in target}

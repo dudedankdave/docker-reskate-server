@@ -284,7 +284,9 @@ class PersistPoolTest(unittest.TestCase):
     def test_pool_and_a_start_map_in_it_are_saved_for_the_next_start(self):
         lib = ["A", "B", "C"]
         rows = {"1": {"env": {"MAP": "C"}, "containers": []}}
-        with mock.patch.object(self.d, "server_details", return_value=rows):
+        live = {"1": {"live": True, "pool": ["A", "B", "C"]}}
+        with mock.patch.object(self.d, "server_details", return_value=rows), \
+                mock.patch.object(self.d, "server_maps", return_value=live):
             self.d.persist_pool("1", ["A", "B"], lib)
             self.assertEqual(self.saved(), {"MAP_POOL": "A,B", "MAP": "A"})
             self.d.persist_pool("1", ["B", "C"], lib)          # the saved start map A is outside again
@@ -293,8 +295,12 @@ class PersistPoolTest(unittest.TestCase):
             self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
             self.d.persist_pool("1", [], lib)                  # all maps: no start map needed
             self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            live["1"]["pool"] = ["A", "B,x"]
             self.d.persist_pool("1", ["A", "B,x"], lib)        # a comma cannot be carried in the list
             self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            live["1"]["pool"] = ["A", "C"]                     # the server refused B: it is not saved
+            self.d.persist_pool("1", ["A", "B", "C"], lib + ["D"])
+            self.assertEqual(self.saved(), {"MAP_POOL": "A,C"})   # the container start map C is in it
 
 
 class LayersFitTest(unittest.TestCase):
