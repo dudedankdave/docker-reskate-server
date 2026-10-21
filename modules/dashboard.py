@@ -2011,7 +2011,7 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const sig=JSON.stringify(groups);if(sel.dataset.sig===sig&&sel.options.length)return;sel.dataset.sig=sig;const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
- fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv);drawFlags(sv,x.flags);
+ fillSel($('cmap'),[['Im Pool',pool],['Installiert, nicht im Pool',rest]]);drawPool(sv);drawFlags(sv,x.flags);
  drawMapCard((x.map||'').replace(/[.]$/,''),pool.length,av.length)}
 function drawMapCard(name,np,na){const pic=$('mappic'),sig=name;
  if(pic.dataset.name!=sig){pic.dataset.name=sig;pic.replaceChildren(el('span',0,name||'?'));
