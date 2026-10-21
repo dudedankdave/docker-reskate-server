@@ -52,6 +52,7 @@ import json
 import os
 import secrets
 import socket
+import sqlite3
 import sys
 import tarfile
 import threading
@@ -882,6 +883,71 @@ def ann_action(body):
         return out
 
 
+LB_FILES = {"unranked": "leaderboard-unranked.db", "ranked": "leaderboard.db"}
+LB_KINDS = {"general": 0, "year": 1, "month": 2, "week": 3, "event": 4}
+
+
+def db_rows(path, sql, args=()):
+    """Rows of a read-only query on a SQLite file; [] when the file is missing or unreadable."""
+    if not os.path.exists(path):
+        return []
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=3)
+        try:
+            con.row_factory = sqlite3.Row
+            return [dict(r) for r in con.execute(sql, args)]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return []
+
+
+def lb_team_of():
+    """{steam_id: {"tag", "name"}} from the bridge's teams database."""
+    rows = db_rows(f"{SHARED}/teams.db", "SELECT m.steam_id, t.tag, t.name FROM members m JOIN teams t ON t.id = m.team")
+    return {r["steam_id"]: {"tag": r["tag"], "name": r["name"]} for r in rows}
+
+
+def lb_snapshot(league, board="general", limit=100):
+    """The leaderboard of one league (unranked = servers 1-5, ranked = server 6): the boards, the top
+    players of `board`, the team standing on it and the latest awards. Read-only."""
+    if league not in LB_FILES:
+        raise ValueError("unknown league")
+    path = f"{SHARED}/{LB_FILES[league]}"
+    limit = max(1, min(int(limit), 500))
+    boards = db_rows(path, "SELECT b.id, b.name, b.kind, b.created_at, b.closed_at, "
+                           "(SELECT COUNT(*) FROM scores s WHERE s.board = b.id AND s.points > 0) AS players FROM boards b")
+    for b in boards:
+        b["base"], _, b["mode"] = b["id"].partition(":")
+        if b["kind"] == "mode":
+            b["kind"] = b["base"].split("-")[0]
+    boards.sort(key=lambda b: (LB_KINDS.get(b["kind"], 9), -(b["created_at"] or 0), b["mode"]))
+    if board not in {b["id"] for b in boards}:
+        board = "general"
+    teams = lb_team_of()
+    rows = db_rows(path, "SELECT p.name, s.steam_id, s.points, s.wins, s.played FROM scores s JOIN players p USING (steam_id) "
+                         "WHERE s.board = ? AND s.points > 0 ORDER BY s.points DESC, s.wins DESC, p.name COLLATE NOCASE",
+                   (board,))
+    standing = {}
+    for r in rows:
+        team = teams.get(r["steam_id"])
+        r["tag"] = team["tag"] if team else ""
+        if team:
+            t = standing.setdefault(team["tag"], {"tag": team["tag"], "name": team["name"], "points": 0, "wins": 0, "members": 0})
+            t["points"] += r["points"]
+            t["wins"] += r["wins"]
+            t["members"] += 1
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+    recent = db_rows(path, "SELECT l.at, p.name, l.board, l.points, l.reason, l.server FROM ledger l "
+                           "LEFT JOIN players p USING (steam_id) ORDER BY l.id DESC LIMIT 25")
+    stats = (db_rows(path, "SELECT (SELECT COUNT(*) FROM players) AS players, (SELECT COUNT(*) FROM ledger) AS awards, "
+                           "(SELECT MAX(at) FROM ledger) AS last") or [{}])[0]
+    return {"league": league, "board": board, "boards": boards, "total": len(rows), "rows": rows[:limit],
+            "teams": sorted(standing.values(), key=lambda t: -t["points"]), "recent": recent, "stats": stats,
+            "exists": os.path.exists(path)}
+
+
 def demux(data):
     """Text of a Docker log stream (8-byte frame headers unless the container has a TTY)."""
     out, i = [], 0
@@ -1148,6 +1214,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}.bar input,.bar select{flex:1 1 160px;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
 #sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -1197,6 +1264,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <section data-v="befehle"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
+<section data-v="rangliste"><h2>Rangliste</h2><div class="tabs" id="lbleague"></div><div class="bar"><select id="lbboard" title="Zeitraum"></select><select id="lbmode" title="Spielmodus"></select><input id="lbfind" placeholder="Spieler oder Team suchen"><button id="lbre">Aktualisieren</button></div><div class="mut" id="lbstats"></div><div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="col"><div class="tablewrap"><table id="lbteams"></table></div><div class="tablewrap"><table id="lbrecent"></table></div></div></div></section>
 <section data-v="ansagen"><h2>Ansagen für alle Server</h2><div class="card"><div class="mut">Diese Ansagen laufen auf jedem Server, zusätzlich zu den eigenen. Das Spiel zeigt sie reihum im eingestellten Intervall.</div><div class="annlist" id="annglobal"></div><div class="crow"><input id="annnew-global" maxlength="220" placeholder="Neue Ansage für alle Server" style="flex:1;min-width:200px"><button id="annadd-global">Hinzufügen</button></div><div class="crow"><span class="mut">Standard-Intervall für alle Server</span><input id="anniv-all" type="number" min="1" max="1440" value="10" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-all">Setzen</button></div></div></section>
 <section data-v="ansagen"><h2>Ansagen pro Server <select id="annsrv"></select></h2><div class="card"><div class="mut" id="annstate"></div><div class="annlist" id="annserver"></div><div class="crow"><input id="annnew-server" maxlength="220" placeholder="Neue Ansage nur für diesen Server" style="flex:1;min-width:200px"><button id="annadd-server">Hinzufügen</button></div><div class="crow"><span class="mut">Standard-Intervall dieses Servers</span><input id="anniv-server" type="number" min="1" max="1440" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-server">Setzen</button><button id="annre">Neu anwenden</button></div><div class="mut" id="annlive"></div></div></section>
 </main>
@@ -1528,11 +1596,46 @@ for(const k of ['global','server'])$('annnew-'+k).onkeydown=e=>{if(e.key=='Enter
 $('annivgo-all').onclick=()=>armed($('annivgo-all'),()=>annPost({action:'interval',server:'*',minutes:+$('anniv-all').value}));
 $('annivgo-server').onclick=()=>annPost({action:'interval',server:$('annsrv').value,minutes:+$('anniv-server').value});
 $('annre').onclick=()=>annPost({action:'reapply',scope:$('annsrv').value});
-const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen']];
+let LB={league:'unranked',board:'general',data:null};
+const lbFmt=t=>t?new Date(t*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}):'-';
+async function lbLoad(){try{LB.data=await api('/api/leaderboard?league='+LB.league+'&board='+encodeURIComponent(LB.board));LB.board=LB.data.board;lbDraw()}catch(e){$('lbstats').textContent='Fehler: '+(e.message||e)}}
+function lbDraw(){const d=LB.data;if(!d)return;
+ const lg=$('lbleague');lg.textContent='';
+ for(const [k,l] of [['unranked','Unranked · Server 1–5'],['ranked','Ranked · Server 6']]){const b=el('button',k==LB.league?'on':'',l);b.onclick=()=>{LB.league=k;LB.board='general';lbLoad()};lg.append(b)}
+ const base=LB.board.split(':')[0],mode=LB.board.split(':')[1]||'';
+ const periods=d.boards.filter(b=>!b.mode),sel=$('lbboard');sel.textContent='';
+ const KN={general:'Gesamt',year:'Jahr',month:'Monat',week:'Woche',event:'Event'};let grp=null,gk='';
+ for(const b of periods){if(b.kind!=gk){gk=b.kind;grp=document.createElement('optgroup');grp.label=KN[gk]||gk;sel.append(grp)}
+  const o=el('option',0,b.name+(b.closed_at?' (beendet)':'')+' · '+b.players);o.value=b.id;if(b.id==base)o.selected=true;grp.append(o)}
+ const ms=$('lbmode');ms.textContent='';const all=el('option',0,'Alle Modi');all.value='';ms.append(all);
+ const bn=(periods.find(b=>b.id==base)||{name:''}).name;
+ for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ','')+' · '+b.players);o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
+ const q=$('lbfind').value.trim().toLowerCase();
+ $('lbstats').textContent=d.exists?d.total+' Spieler mit Punkten auf diesem Board · '+(d.stats.players||0)+' Spieler insgesamt · '+(d.stats.awards||0)+' Vergaben · letzte Vergabe '+lbFmt(d.stats.last):'Für diese Liga gibt es noch keine Datenbank.';
+ const t=$('lbtable');t.textContent='';const hr=el('tr');
+ for(const [l,n] of [['#',0],['Spieler',0],['Punkte',1],['Siege',1],['Spiele',1]]){const h=el('th',n?'lbn':'',l);hr.append(h)}t.append(hr);
+ const top=d.rows.length?d.rows[0].points:1;let shown=0;
+ for(const r of d.rows){if(q&&!(r.name+' '+r.tag).toLowerCase().includes(q))continue;shown++;
+  const tr=el('tr'),nm=el('td'),pt=el('td','lbn',r.points);
+  nm.title=r.steam_id;if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
+  const bar=el('div','lbbar');bar.style.width=Math.max(2,Math.round(100*r.points/top))+'%';nm.append(bar);
+  tr.append(el('td','rk'+(r.rank<4?' r'+r.rank:''),r.rank),nm,pt,el('td','lbn',r.wins),el('td','lbn',r.played));t.append(tr)}
+ if(!shown){const tr=el('tr'),td=el('td','mut','Keine Einträge.');td.colSpan=5;tr.append(td);t.append(tr)}
+ else if(!q&&d.total>d.rows.length){const tr=el('tr'),td=el('td','mut','… und '+(d.total-d.rows.length)+' weitere');td.colSpan=5;tr.append(td);t.append(tr)}
+ const tt=$('lbteams');tt.textContent='';const th=el('tr');for(const [l,n] of [['Team',0],['Mitglieder',1],['Punkte',1]])th.append(el('th',n?'lbn':'',l));tt.append(th);
+ for(const x of d.teams){if(q&&!(x.name+' '+x.tag).toLowerCase().includes(q))continue;const tr=el('tr'),c=el('td');c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','lbn',x.members),el('td','lbn',x.points));tt.append(tr)}
+ if(!d.teams.length){const tr=el('tr'),td=el('td','mut','Noch keine Team-Punkte auf diesem Board.');td.colSpan=3;tr.append(td);tt.append(tr)}
+ const rc=$('lbrecent');rc.textContent='';const rh=el('tr');for(const [l,n] of [['Letzte Vergaben',0],['Punkte',1]])rh.append(el('th',n?'lbn':'',l));rc.append(rh);
+ for(const r of d.recent){const tr=el('tr'),c=el('td');c.append(r.name||'?',el('div','mut',lbFmt(r.at)+' · '+r.reason+(r.server?' · Server '+r.server:'')));tr.append(c,el('td','lbn',(r.points>0?'+':'')+r.points));rc.append(tr)}
+ if(!d.recent.length){const tr=el('tr'),td=el('td','mut','Noch nichts vergeben.');td.colSpan=2;tr.append(td);rc.append(tr)}}
+$('lbboard').onchange=()=>{LB.board=$('lbboard').value;lbLoad()};
+$('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;lbLoad()};
+$('lbfind').oninput=lbDraw;$('lbre').onclick=lbLoad;
+const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen'],['rangliste','Rangliste']];
 let tsLoaded=false;
 let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
-function show(v){view=v;mapsAt=0;if(v=='ansagen')annLoad();if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
+function show(v){view=v;mapsAt=0;if(v=='ansagen')annLoad();if(v=='rangliste')lbLoad();if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
  for(const s of document.querySelectorAll('section[data-v]'))s.classList.toggle('off',s.dataset.v!=v);
  $('diskwarn').classList.toggle('off',v!='uebersicht');
  for(const b of $('nav').children)b.classList.toggle('on',b.dataset.v==v)}
@@ -1639,6 +1742,8 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/ann":
                 with ANN_LOCK:
                     return self.json(200, ann_snapshot(ann_load()))
+            if url.path == "/api/leaderboard":
+                return self.json(200, lb_snapshot(q.get("league", "unranked"), q.get("board", "general"), q.get("n", "100")))
             if url.path == "/api/serverinfo":
                 return self.json(200, server_info(q.get("server", "")))
             if url.path == "/api/secret":

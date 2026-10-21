@@ -411,3 +411,53 @@ class OnlineCountTest(unittest.TestCase):
         self.assertEqual(out["online"], 2)
         self.assertEqual(out["slots"]["a"]["online"], 1)
         self.assertEqual(out["players"], 1)
+
+
+class LeaderboardTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        con = sqlite3.connect(f"{self.tmp.name}/leaderboard-unranked.db")
+        con.executescript(
+            "CREATE TABLE boards (id TEXT PRIMARY KEY, name TEXT, kind TEXT, created_at REAL, closed_at REAL);"
+            "CREATE TABLE players (steam_id TEXT PRIMARY KEY, name TEXT);"
+            "CREATE TABLE scores (board TEXT, steam_id TEXT, points INT, wins INT, played INT);"
+            "CREATE TABLE ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL, board TEXT, steam_id TEXT, points INT, reason TEXT, server TEXT);"
+            "INSERT INTO boards VALUES ('general','All Time','general',1,NULL),('week-2026-43','Week 43','week',2,NULL),"
+            "('week-2026-43:jam','Week 43 - Jam','mode',2,NULL);"
+            "INSERT INTO players VALUES ('1','Ann'),('2','Bo'),('3','Cy');"
+            "INSERT INTO scores VALUES ('general','1',50,1,3),('general','2',80,2,4),('general','3',0,0,1),('week-2026-43:jam','1',9,0,1);"
+            "INSERT INTO ledger (at,board,steam_id,points,reason,server) VALUES (5,'general','2',30,'jam win','2');")
+        con.commit()
+        con.close()
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.executescript("CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT, tag TEXT);"
+                          "CREATE TABLE members (steam_id TEXT PRIMARY KEY, team INT, role TEXT, joined REAL);"
+                          "INSERT INTO teams VALUES (1,'Crew','CRW');INSERT INTO members VALUES ('1',1,'member',0),('2',1,'member',0);")
+        con.commit()
+        con.close()
+
+    def test_ranks_teams_and_boards(self):
+        out = self.d.lb_snapshot("unranked")
+        self.assertEqual([r["name"] for r in out["rows"]], ["Bo", "Ann"])
+        self.assertEqual([r["rank"] for r in out["rows"]], [1, 2])
+        self.assertEqual(out["rows"][0]["tag"], "CRW")
+        self.assertEqual(out["teams"], [{"tag": "CRW", "name": "Crew", "points": 130, "wins": 3, "members": 2}])
+        self.assertEqual([b["id"] for b in out["boards"]], ["general", "week-2026-43", "week-2026-43:jam"])
+        self.assertEqual(out["boards"][2]["kind"], "week")
+        self.assertEqual(out["recent"][0]["name"], "Bo")
+        self.assertEqual(out["stats"]["awards"], 1)
+
+    def test_mode_board_and_unknown_board(self):
+        self.assertEqual([r["name"] for r in self.d.lb_snapshot("unranked", "week-2026-43:jam")["rows"]], ["Ann"])
+        self.assertEqual(self.d.lb_snapshot("unranked", "nope")["board"], "general")
+
+    def test_missing_league_and_bad_league(self):
+        out = self.d.lb_snapshot("ranked")
+        self.assertFalse(out["exists"])
+        self.assertEqual(out["rows"], [])
+        with self.assertRaises(ValueError):
+            self.d.lb_snapshot("../x")
