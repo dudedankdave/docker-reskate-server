@@ -193,6 +193,78 @@ def add_map(body):
     return f"written to {os.path.basename(path)}: " + ", ".join(new)
 
 
+TS_API = "https://thunderstore.io/c/reskate/api/v1/package/"
+TS_IMG_HOSTS = ("gcdn.thunderstore.io", "thunderstore.io")
+TS_CACHE = {"at": 0, "rows": []}
+
+
+def ts_fetch(url, limit):
+    req = urllib.request.Request(url, headers={"User-Agent": "reskate-dashboard", "Accept-Encoding": "identity"})
+    with urllib.request.urlopen(req, timeout=40) as r:
+        return r.read(limit + 1), r.headers.get("Content-Type", "")
+
+
+def ts_packages():
+    """The community's package list, cached for 15 minutes."""
+    if time.time() - TS_CACHE["at"] > 900 or not TS_CACHE["rows"]:
+        data, _ = ts_fetch(TS_API, 60_000_000)
+        rows = []
+        for p in json.loads(data):
+            if p.get("is_deprecated") or not p.get("versions"):
+                continue
+            v = p["versions"][0]
+            rows.append({"package": f"{p['owner']}-{p['name']}", "owner": p["owner"], "name": p["name"].replace("_", " "),
+                         "version": v.get("version_number", ""), "description": v.get("description", ""),
+                         "icon": v.get("icon", ""), "downloads": sum(x.get("downloads", 0) for x in p["versions"]),
+                         "rating": p.get("rating_score", 0), "updated": (p.get("date_updated") or "")[:10],
+                         "url": p.get("package_url", ""), "categories": p.get("categories", [])})
+        TS_CACHE.update(at=time.time(), rows=rows)
+    return TS_CACHE["rows"]
+
+
+def ts_search(query, maps_only=True):
+    terms = [t for t in str(query).lower().split() if t][:6]
+    out = []
+    for r in ts_packages():
+        text = f"{r['package']} {r['name']} {r['description']} {' '.join(r['categories'])}".lower()
+        cats = " ".join(r["categories"]).lower()
+        if maps_only and "map" not in cats and "level" not in cats:
+            continue
+        if all(t in text for t in terms):
+            out.append(r)
+    out.sort(key=lambda r: (-r["downloads"], r["package"]))
+    return {"total": len(out), "results": out[:30]}
+
+
+def ts_image(url):
+    u = urlparse(url)
+    if u.scheme != "https" or u.hostname not in TS_IMG_HOSTS or u.port:
+        raise ValueError("picture host not allowed")
+    data, kind = ts_fetch(url, 2_000_000)
+    if len(data) > 2_000_000 or not kind.startswith("image/") or "svg" in kind:
+        raise ValueError("not a plain picture")
+    return kind, data
+
+
+def store_names(package):
+    """displayName(s) of a map package that is already in the shared store (all versions, newest first)."""
+    if not PACKAGE.match(package):
+        raise ValueError("bad package")
+    names = []
+    for pack in sorted(glob.glob(f"{MODS_STORE}/packages/{package}-*/"), reverse=True):
+        try:
+            with open(f"{pack}reskate-levels.json", encoding="utf-8-sig") as f:
+                for level in json.load(f).get("levels", []):
+                    if isinstance(level, dict) and level.get("displayName") and level["displayName"] not in names:
+                        names.append(level["displayName"])
+        except (OSError, ValueError, AttributeError):
+            continue
+        if names:
+            break
+    return names
+
+
+
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
@@ -364,6 +436,9 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <h2 style="margin-top:14px">Neue Map hinzufügen</h2>
 <div class="bar"><input id="pkg" maxlength="80" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="live" checked style="flex:none;min-width:0">sofort laden</label><button id="addmap">Hinzufügen</button></div>
 <div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. "Sofort laden" schickt zusätzlich mods add und map-pool add an die laufenden Server (ohne Neustart, nur mit neuem Image). Die Settings-Datei sorgt dafür, dass es nach einem Neustart bleibt; der Rollover startet Server dafür nur, wenn sie leer sind.</div></section>
+<section data-v="suche"><h2>Maps auf Thunderstore</h2>
+<form class="bar" id="tsform"><input id="tsq" maxlength="60" placeholder="Suche, z. B. plaza, skatepark, Name"><select id="tsrv"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tsall" style="flex:none;min-width:0">alle Pakete</label><button>Suchen</button></form>
+<div class="mut" id="tsinfo">Sucht in der Thunderstore-Community reskate. "Auf Server" lädt das Paket, "In den Pool" nimmt die Map zusätzlich in den Map-Pool auf (ohne Neustart, mit neuem Image).</div><div class="grid" id="tsres"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -411,7 +486,7 @@ const CATALOG={
  'Netzwerk-Tuning':[['rate <KB/s>','Sendrate'],['crowd <n|off>','Crowd-Budget'],['distances <full> <half> <half-return> <low>','Distanzen'],['bone-scale <1-8|off>','Bone-Scale'],['bone-reach <0.5-20|off>','Bone-Reichweite'],['throwdown-locks on','Throwdown-Sperren an'],['throwdown-locks off','Throwdown-Sperren aus']]};
 let people=[],modOn=true,tpOn=false;
 function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;$('cmdsec').hidden=!d.mod;for(const b of $('nav').children)if(b.dataset.v=='moderator'||b.dataset.v=='befehle')b.hidden=!d.mod;const m=$('msrv');
- if(!m.options.length){for(const id of['msrv','csrv'])d.servers.forEach(s=>$(id).add(new Option(s.server+' '+s.role,s.server)));
+ if(!m.options.length){for(const id of['msrv','csrv'])d.servers.forEach(s=>$(id).add(new Option(s.server+' '+s.role,s.server)));$('tsrv').add(new Option('alle Server','*'));d.servers.forEach(s=>$('tsrv').add(new Option(s.server+' '+s.role,s.server)));
   $('pscope').add(new Option('nur diesen Server (Auswahl links)','one'));$('pscope').add(new Option('alle Server','*'));
   const c=$('cat');c.add(new Option('Befehlskatalog …',''));for(const [g,l] of Object.entries(CATALOG)){const o=document.createElement('optgroup');o.label=g;for(const [cmd,txt] of l)o.append(new Option(txt+' · '+cmd,cmd));c.append(o)}}}
 async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textContent='Sende: '+c+' …';
@@ -462,6 +537,29 @@ $('addmap').onclick=async()=>{const o=$('cout'),pk=$('pkg').value.trim();if(!pk)
  await new Promise(x=>setTimeout(x,6000));
  for(const sv of srvs)for(const n of names)await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:sv,action:'console',text:'map-pool add '+n})});
  o.textContent+='\\nPool-Eintraege gesendet. Ergebnis im Live-Log; Server ohne `mods add` (altes Image) kennen den Befehl noch nicht.'};
+const HDR={'Content-Type':'application/json','X-Requested-With':'dashboard'};
+const post=(u,b)=>fetch(u,{method:'POST',headers:HDR,body:JSON.stringify(b)}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||r.status);return d});
+const sleep=ms=>new Promise(x=>setTimeout(x,ms));
+async function tsAdd(r,pool,note,btns){
+ btns.forEach(b=>b.disabled=true);const sc=$('tsrv').value,srvs=sc=='*'?[...$('csrv').options].map(x=>x.value):[sc],con=(sv,t)=>post('/api/mod',{server:sv,action:'console',text:t});
+ try{note.textContent='Schreibe Settings …';await post('/api/addmap',{server:sc,package:r.package,pool:''});
+  for(const sv of srvs)await con(sv,'mods add '+r.package);note.textContent='Paket an '+srvs.length+' Server geschickt, lädt …';
+  if(pool){await sleep(8000);let names=[];try{names=(await api('/api/mapname?package='+encodeURIComponent(r.package))).names}catch(e){}
+   if(!names.length)names=[r.name];await post('/api/addmap',{server:sc,package:r.package,pool:names.join(', ')});
+   for(const sv of srvs)for(const n of names)await con(sv,'map-pool add '+n);note.textContent='Im Pool: '+names.join(', ')+' ('+srvs.length+' Server).'}
+  else note.textContent='Auf '+srvs.length+' Server geladen.'}
+ catch(e){note.textContent='Fehler: '+e.message}
+ btns.forEach(b=>b.disabled=false)}
+$('tsform').onsubmit=async e=>{e.preventDefault();const box=$('tsres'),info=$('tsinfo');box.replaceChildren();info.textContent='Suche …';
+ let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
+ info.textContent=d.total+' Treffer'+(d.total>d.results.length?' (die '+d.results.length+' beliebtesten)':'');
+ for(const r of d.results){const c=el('div','card'),pic=el('div','pic');pic.append(el('span',0,r.name));
+  if(r.icon){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/tsimg?u='+encodeURIComponent(r.icon);pic.append(im)}
+  const h=el('div','head');h.append(el('h3',0,r.name));
+  const a=el('a',0,'Thunderstore');a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';
+  const note=el('div','mut'),w=el('div','act'),b1=el('button',0,'Auf Server'),b2=el('button',0,'In den Pool');w.append(b1,b2);
+  b1.onclick=()=>tsAdd(r,false,note,[b1,b2]);b2.onclick=()=>tsAdd(r,true,note,[b1,b2]);
+  c.append(h,pic,el('div','mut',r.owner+' · v'+r.version+' · '+r.downloads+' Downloads · '+r.updated),el('div',0,r.description),a,w,note);box.append(c)}};
 let chatSrv='*',chatLast=0,chatLines=[],canSay=true;
 function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
  const all=el('button',0,'Alle Chats');all.dataset.s='*';all.onclick=()=>pick('*');t.append(all);
@@ -490,7 +588,7 @@ async function events(){
 for(const id of['sel','scope'])$(id).onchange=()=>{last=0;lines.length=0;$('events').textContent=''};
 async function toollog(){const n=$('tool').value;if(n)$('toollog').textContent=(await api('/api/toollog?name='+n)).log}
 $('tool').onchange=toollog;
-const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs']];
+const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['suche','Maps suchen'],['logs','Logs']];
 let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
 function show(v){view=v;try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
@@ -569,6 +667,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not found:
                     return self.json(404, {"error": "no picture"})
                 return self.send(200, found[1], found[0], headers=[("Cache-Control", "private, max-age=3600")])
+            if url.path == "/api/ts":
+                return self.json(200, ts_search(q.get("q", ""), q.get("all") != "1"))
+            if url.path == "/api/tsimg":
+                kind, data = ts_image(q.get("u", ""))
+                return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=86400")])
+            if url.path == "/api/mapname":
+                return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/players":
                 return self.json(200, players() if MOD else [])
             if url.path == "/api/containers":
