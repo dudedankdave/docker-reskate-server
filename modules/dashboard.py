@@ -1115,6 +1115,7 @@ def pw_memory(number, word=None):
         return word
 
 
+MARK = "# set by the dashboard"
 MANAGED = {"SERVER_PASSWORD": True, "ENFORCE_TUNING": False, "SCORE_CHECK": False, "SPEED_CHECK": False, "BOARD_CHECK": False,
            "LEADERBOARD_LEAGUE": False}      # the settings keys the dashboard writes (True = a secret)
 
@@ -1171,7 +1172,13 @@ def env_write(number, changes):
                 left.append(raw)
         fresh = [f"{k}={env_quote(v) if secret else v}" for k, v in wanted.items() if v is not None and k not in done]
         if fresh:
-            left += ["# set by the dashboard"] + fresh
+            left += ([] if MARK in left else [MARK]) + fresh
+        if not any(x.strip() and not x.strip().startswith("#") for x in left):
+            left = [x for x in left if x != MARK]          # nothing of ours is left in it
+        if not any(x.strip() for x in left):
+            if os.path.exists(path):
+                os.remove(path)
+            continue
         tmp = path + ".tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if secret else 0o644)
         with os.fdopen(fd, "w", encoding="utf-8") as f:

@@ -594,6 +594,7 @@ class ServerOptionTest(unittest.TestCase):
         self.d.server_option({"server": "1", "action": "score", "value": "warn", "persist": True})
         text = pathlib.Path(self.tmp.name, "settings", "server-1.env").read_text(encoding="utf-8")
         self.assertEqual(text.count("SCORE_CHECK="), 1)
+        self.assertEqual(text.count("# set by the dashboard"), 1)
         self.assertIn("SCORE_CHECK=warn\n", text)
         self.assertIn("ENFORCE_TUNING=false\n", text)
         out = self.d.server_option({"server": "1", "action": "password", "value": 'a "b" # c', "persist": True})
@@ -608,8 +609,10 @@ class ServerOptionTest(unittest.TestCase):
         self.assertFalse(os.path.exists(f"{self.tmp.name}/settings"))
         self.d.server_option({"server": "1", "action": "league", "value": "unranked", "persist": True})
         self.assertEqual(self.d.env_read("1"), {"LEADERBOARD_LEAGUE": "unranked"})
+        self.d.server_option({"server": "1", "action": "speed", "value": "kick", "persist": True})
         self.d.server_option({"server": "1", "action": "forget"})
         self.assertEqual(self.d.env_read("1"), {})
+        self.assertFalse(os.path.exists(f"{self.tmp.name}/settings/server-1.env"))     # nothing else was in it
         with self.assertRaises(ValueError):
             self.d.server_option({"server": "1", "action": "league", "value": "ranked"})
 
@@ -619,3 +622,5 @@ class ServerOptionTest(unittest.TestCase):
         pathlib.Path(path).write_text("# mine\nMAX_PLAYERS=30\nSPEED_CHECK=off\n")
         self.d.server_option({"server": "1", "action": "speed", "value": "kick", "persist": True})
         self.assertEqual(pathlib.Path(path).read_text(), "# mine\nMAX_PLAYERS=30\nSPEED_CHECK=kick\n")
+        self.d.server_option({"server": "1", "action": "forget"})
+        self.assertEqual(pathlib.Path(path).read_text(), "# mine\nMAX_PLAYERS=30\n")
