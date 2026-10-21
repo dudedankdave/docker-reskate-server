@@ -361,7 +361,7 @@ class Unix(http.client.HTTPConnection):
 
 
 def docker_get(path):
-    """GET on the Docker socket (read-only: the dashboard never sends anything else)."""
+    """GET on the Docker socket (everything the dashboard reads; its one write is docker_put_file)."""
     conn = Unix(DOCKER)
     try:
         conn.request("GET", "/v1.41" + path)
@@ -372,6 +372,51 @@ def docker_get(path):
         return data
     finally:
         conn.close()
+
+
+def docker_put_file(cid, directory, name, data):
+    """Write one file into a container (Docker archive API); the only write the dashboard sends to the socket."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as t:
+        info = tarfile.TarInfo(name)
+        info.size, info.mode, info.uid, info.gid = len(data), 0o644, 1000, 1000
+        t.addfile(info, io.BytesIO(data))
+    conn = Unix(DOCKER)
+    try:
+        conn.request("PUT", f"/v1.41/containers/{cid}/archive?path={directory}", body=buf.getvalue(),
+                     headers={"Content-Type": "application/x-tar"})
+        resp = conn.getresponse()
+        resp.read()
+        if resp.status != 200:
+            raise RuntimeError(f"docker {resp.status}")
+    finally:
+        conn.close()
+
+
+LAYERS_MAX = 8_000_000
+
+
+def upload_layers(server, text):
+    """world-layers.json into /data of the running container(s) of one server (or all): {server: "<n>"|"*", content}."""
+    if not (server == "*" or server.isalnum()):
+        raise ValueError("a server (or all) is needed")
+    if len(text) > LAYERS_MAX:
+        raise ValueError("the file is too large")
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        raise ValueError("that is not a JSON file") from None
+    if not isinstance(parsed, (dict, list)):
+        raise ValueError("that is not a world-layers.json")
+    rows = server_details()
+    targets = [n for n in rows if server == "*" or n == server]
+    if not targets:
+        raise ValueError("no running container for that server")
+    for number in targets:
+        for c in rows[number]["containers"]:
+            docker_put_file(c["id"], "/data", "world-layers.json", text.encode())
+    MAPS["at"] = 0
+    return f"world-layers.json written for server {', '.join(sorted(targets))} ({len(text) // 1024} KB)"
 
 
 def demux(data):
@@ -507,6 +552,11 @@ def live_maps(cid):
              "vote_tod": bool(votes.get("time_of_day", {}).get("enabled")),
              "rotation": int(maps.get("rotation_minutes") or 0), "layer_sync": bool(maps.get("world_layer_sync"))}
     try:
+        with tar_of(cid, "/data/world-layers.json") as t:
+            flags["layers_file"] = "world-layers.json" in t.getnames()
+    except (RuntimeError, OSError, tarfile.TarError):
+        flags["layers_file"] = False
+    try:
         with tar_of(cid, "/data/Mods") as t:
             mods = sorted(m.linkname.rsplit("/", 1)[-1] for m in t.getmembers() if m.issym())
     except (RuntimeError, OSError, tarfile.TarError):
@@ -514,9 +564,9 @@ def live_maps(cid):
     return str(maps.get("map") or ""), pool, mods, flags
 
 
-def server_maps():
+def server_maps(fresh=False):
     """Server number -> {map, pool, mods, live}; live=False falls back to the container's start-up environment."""
-    if time.time() - MAPS["at"] < 20:
+    if not fresh and time.time() - MAPS["at"] < 20:
         return MAPS["rows"]
     out = {}
     for number, row in server_details().items():
@@ -613,7 +663,9 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
-<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div></div>
+<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
+</div>
+<div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><div class="crow"><input type="file" id="layfile" accept=".json,application/json" style="flex:1 1 100%"></div><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
@@ -725,7 +777,7 @@ async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textConten
  const t=await l.json();o.textContent='> '+c+'\\n'+(t.text||'(keine Log-Zeilen)');o.scrollTop=o.scrollHeight}
 let cmdAt=0;
 async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
- if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'))}catch(e){}}
+ if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1':'')))}catch(e){}}
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
@@ -734,12 +786,13 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
+async function settle(sv,done){for(let i=0;i<6;i++){await sleep(700);delete mapsCache[sv];await cmdMaps(true);if(done(mapsCache[sv]||{}))return}}
 const FLAGS=[['vote_map','Map-Vote','votes map on','votes map off'],['vote_kick','Kick-Vote','votes kick on','votes kick off'],['vote_tod','Zeit-Vote','votes tod on','votes tod off'],['rotation','Map-Rotation',null,'rotation off'],['layer_sync','Layer-Sync','layer-sync on','layer-sync off']];
-function drawFlags(sv,fl){const box=$('cflags');box.replaceChildren();
+function drawFlags(sv,fl){const box=$('cflags');box.replaceChildren();$('laystate').textContent=fl?'world-layers.json auf diesem Server: '+(fl.layers_file?'vorhanden':'fehlt (nötig für Layer-Sync und Zeit-Vote)'):'';
  if(!fl){box.append(el('div','mut','Zustand unbekannt (Server nicht erreichbar).'));return}
  if(fl.rotation>0&&[...$('crot').options].some(o=>o.value==fl.rotation))$('crot').value=fl.rotation;
  for(const [k,label,onc,offc] of FLAGS){const on=k=='rotation'?fl.rotation>0:fl[k],lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
-  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await sleep(1200);delete mapsCache[sv];await cmdMaps(true)}finally{cb.disabled=false}};
+  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await settle(sv,x=>{const f=x.flags||{};return (k=='rotation'?f.rotation>0:f[k])==cb.checked})}finally{cb.disabled=false}};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&on?' ('+fl.rotation+' min)':'')));box.append(lb)}}
 function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
  const names=[...av];for(const n of pool)if(!names.some(x=>x.toLowerCase()==n.toLowerCase()))names.push(n);
@@ -747,9 +800,11 @@ function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.tr
  box.replaceChildren();
  for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
   const isOn=all||on.has(n.toLowerCase()),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
-  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd('map-pool '+(cb.checked?'add ':'remove ')+n);await sleep(1200);delete mapsCache[sv];await cmdMaps(true)}finally{cb.disabled=false}};
+  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd('map-pool '+(cb.checked?'add ':'remove ')+n);await settle(sv,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase()),has=!p.length||p.includes(n.toLowerCase());return has==cb.checked})}finally{cb.disabled=false}};
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
  if(!box.children.length)box.append(el('div','mut','Keine Treffer.'))}
+$('laygo').onclick=async()=>{const f=$('layfile').files[0],o=$('cout');if(!f){o.textContent='Erst eine world-layers.json auswählen.';return}
+ try{const r=await post('/api/layers',{server:$('layscope').value=='*'?'*':$('csrv').value,content:await f.text()});o.textContent=r.text+'\\nDanach "Layer-Sync" einschalten.';delete mapsCache[$('csrv').value];await cmdMaps(true)}catch(e){o.textContent='Fehler: '+e.message}};
 $('poolfilter').oninput=()=>{const sv=$('csrv').value,x=mapsCache[sv]||{pool:[],available:[]};drawPool(sv,x.pool||[],x.available||[])};
 $('crot').onchange=()=>{const x=mapsCache[$('csrv').value];if(x&&x.flags&&x.flags.rotation>0)sendCmd('rotation '+$('crot').value).then(()=>sleep(1200)).then(()=>cmdMaps(true))};
 $('ctodgo').onclick=()=>sendCmd('tod '+$('ctod').value);
@@ -962,7 +1017,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/mapname":
                 return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/maps":
-                return self.json(200, server_maps())
+                return self.json(200, server_maps(q.get("fresh") == "1"))
             if url.path == "/api/serverinfo":
                 return self.json(200, server_info(q.get("server", "")))
             if url.path == "/api/secret":
@@ -1037,6 +1092,21 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: map package {body.get('package')} for server {body.get('server')}: {text}")
         self.json(200, {"ok": True, "text": text})
 
+    def layers(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), LAYERS_MAX + 4096)) or b"{}")
+            text = upload_layers(str(body.get("server", "")), str(body.get("content", "")))
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except (RuntimeError, OSError) as e:
+            return self.json(502, {"error": f"docker: {e}"})
+        say(f"dashboard: {text}")
+        self.json(200, {"ok": True, "text": text})
+
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/logout":
@@ -1047,6 +1117,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.mod()
         if path == "/api/addmap":
             return self.addmap()
+        if path == "/api/layers":
+            return self.layers()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()

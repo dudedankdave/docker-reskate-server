@@ -162,7 +162,7 @@ class LiveMapsTest(unittest.TestCase):
         with mock.patch.object(d, "docker_get", lambda path: archive(path.split("path=")[1])):
             map_, pool, mods, flags = d.live_maps("c1")
             self.assertEqual((map_, pool, mods), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
-            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False})
+            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False, "layers_file": False})
 
 
 class DiskTest(unittest.TestCase):
@@ -202,3 +202,22 @@ class ImageHostTest(unittest.TestCase):
         with mock.patch.object(d, "ts_fetch", return_value=(b"x", "image/png")):
             for host in ("gcdn.thunderstore.io", "ccdn.thunderstore.io", "thunderstore.io"):
                 self.assertEqual(d.ts_image(f"https://{host}/a.png")[0], "image/png")
+
+
+class UploadLayersTest(unittest.TestCase):
+    def test_validates_and_writes_to_the_running_containers(self):
+        d = load()
+        rows = {"4": {"containers": [{"id": "c4"}]}, "5": {"containers": [{"id": "c5a"}, {"id": "c5b"}]}}
+        sent = []
+        with mock.patch.object(d, "server_details", return_value=rows), \
+                mock.patch.object(d, "docker_put_file", lambda cid, folder, name, data: sent.append((cid, folder, name))):
+            d.upload_layers("4", '{"layers": []}')
+            self.assertEqual(sent, [("c4", "/data", "world-layers.json")])
+            sent.clear()
+            d.upload_layers("*", "[]")
+            self.assertEqual(len(sent), 3)
+            for bad in ("nope", "3", '"text"'):
+                with self.assertRaises(ValueError):
+                    d.upload_layers("4", bad)
+            with self.assertRaises(ValueError):
+                d.upload_layers("9", "{}")
