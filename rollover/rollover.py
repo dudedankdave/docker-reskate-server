@@ -21,7 +21,7 @@ With image_updates on, a newer build of the image for the same ReSkate version (
 <version>-r<n> on Docker Hub, RESKATE_IMAGE_REVISION in the image) replaces a server in its own
 slot once nobody is on it: image changes are never worth disconnecting anyone.
 
-A restart that changes no version (settings the console cannot take, a missing mount, a restart request)
+A restart that changes no version (settings the console cannot take, a missing mount or console, a restart request)
 happens once at most restart_max_players (default 3) are on it; those players are reconnected by the
 restart, nobody else is touched. restart_max_players: 0 means only when empty.
 
@@ -368,16 +368,21 @@ class Rollover:
         return "" if volume.lower() in ("", "off", "none", "false") else volume
 
     def missing_mounts(self, server, inst):
-        """Destinations (/mods, /shared) that the config wants on this container but it lacks."""
+        """What the config wants on this container but it lacks: the destinations /mods and /shared,
+        and "a console" when it runs without stdin (the bridge sends console commands through it)."""
         if not setting(self.cfg, server, "repair_mods", True):
             return []
         have = [m.get("Destination") for m in inst.info.get("Mounts") or []]
-        return [dest for dest, volume in (("/mods", self.mods_volume(server)), ("/shared", self.shared_volume(server)))
-                if volume and dest not in have]
+        lacking = [dest for dest, volume in (("/mods", self.mods_volume(server)), ("/shared", self.shared_volume(server)))
+                   if volume and dest not in have]
+        if not (inst.info.get("Config") or {}).get("OpenStdin", True):
+            lacking.append("a console")
+        return lacking
 
     def lacks_mounts(self, server, inst):
         """True when the shared map volume (/mods) or the shared volume (/shared) should be on this
-        container but isn't. A server with every standard mount never needs a recreate for one."""
+        container but isn't, or it has no console. A server with every standard mount and a console
+        never needs a recreate for one."""
         return bool(self.missing_mounts(server, inst))
 
     def few_enough(self, server, inst):
@@ -565,7 +570,8 @@ class Rollover:
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
         install = not tag and not suffix and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
         in_place = slot == old.slot
-        how = (f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
+        how = (f"{count} player(s) on {old.name}, replacing it in slot {slot.upper()}" if in_place and count else
+               f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
                f"{count} player(s) on {old.name} ({old.version}), starting a copy in slot {slot.upper()}")
         self.notify(f"Server {number}: {what}, {how}: {name} on ports {s['port']}/{s['query_port']}, "
                     f"image {image}" + (" + release installed into its volume" if install else "")
@@ -601,7 +607,6 @@ class Rollover:
                 if without.get(k) == have[k]:       # not one a KEY+= builds on
                     env.pop(k)
         host = old.info["HostConfig"]
-        cfg = old.info["Config"]
         # shared map/mod store at /mods on every container we create (a server without it can crash-loop);
         # "off" leaves it out
         mods_volume = self.mods_volume(server)
@@ -609,7 +614,8 @@ class Rollover:
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
-            "Tty": cfg.get("Tty", True), "OpenStdin": cfg.get("OpenStdin", True), "StdinOnce": False,
+            # always a console: the bridge sends commands through stdin, a copy must not inherit a server without one
+            "Tty": True, "OpenStdin": True, "StdinOnce": False,
             "Labels": {LABEL: "true", "reskate.server": str(number), "reskate.slot": slot, "reskate.version": version,
                        "reskate.generation": str(int(time.time()))},
             "HostConfig": {
