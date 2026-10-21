@@ -141,7 +141,7 @@ def clean(line):
     return line.replace("```", "'''")[:500]
 
 
-JOINED = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$")
+JOINED = re.compile(r"^(.+) joined \(\d+(?:, [a-z]+)?\), (\d+/\d+) players, loaded in \d+ s$")
 LEFT = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")   # "Name left (reason) [connection details]"
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
 UP_ON = re.compile(r"^.+? is up on (.+ for \d+ players\.)$")

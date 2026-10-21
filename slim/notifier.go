@@ -296,7 +296,7 @@ func clean(line string) string {
 }
 
 var (
-	joinedRe = regexp.MustCompile(`^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players, loaded in \d+ s$`)
+	joinedRe = regexp.MustCompile(`^(.+) joined \(\d+(?:, [a-z]+)?\), (\d+/\d+) players, loaded in \d+ s$`)
 	leftRe   = regexp.MustCompile(`^(.+?) left \(.*\)(?: \[.*\])?$`) // "Name left (reason) [connection details]"
 	upRe     = regexp.MustCompile(`^.+ is up on .+ for \d+ players\.$`)
 	upOnRe   = regexp.MustCompile(`^.+? is up on (.+ for \d+ players\.)$`)

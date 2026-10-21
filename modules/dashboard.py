@@ -362,17 +362,63 @@ def map_image(name):
         return IMAGE_TYPES[os.path.splitext(path)[1].lower()], f.read()
 
 
+JOINED = re.compile(r"^(?:\[[^\]]*\] )?(.+) joined \((\d{17})(?:, [a-z]+)?\), \d+/\d+ players")
+LEFT = re.compile(r"^(?:\[[^\]]*\] )?(.+?) left \(.*\)(?: \[.*\])?$")
+UPLINE = re.compile(r"^(?:\[[^\]]*\] )?.+ is up on .+ for \d+ players\.$")
+LIVE = {}      # container id -> (read at, {steam_id: name})
+
+
+def live_from_log(cid, started):
+    """Who is on a server container, from its own join/leave lines since it started (cached for 5 s). The bridge follows
+    the same lines; this is the check that does not depend on it."""
+    hit = LIVE.get(cid)
+    if hit and time.time() - hit[0] < 5:
+        return hit[1]
+    people = {}
+    text = demux(docker_get(f"/containers/{cid}/logs?stdout=1&stderr=1&since={int(started)}"))
+    for line in text.splitlines():
+        if UPLINE.match(line):
+            people.clear()
+        elif j := JOINED.match(line):
+            people[j.group(2)] = j.group(1)
+        elif left := LEFT.match(line):
+            for steam_id in [i for i, n in people.items() if n == left.group(1)][:1]:
+                del people[steam_id]
+    LIVE[cid] = (time.time(), people)
+    return people
+
+
+def server_players(number, rows=None):
+    """[{name, steam_id, slot, team}] on a server now: the bridge's list plus everybody the server's log shows as joined."""
+    out = {}
+    try:
+        for p in bridge(f"/v1/servers/{number}/players"):
+            out[p.get("steam_id") or p.get("name")] = p
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
+    if DOCKER:
+        try:
+            for c in json.loads(docker_get("/containers/json")):
+                labels = c.get("Labels") or {}
+                if str(labels.get("reskate.server")) != str(number):
+                    continue
+                info = json.loads(docker_get(f"/containers/{c['Id']}/json"))
+                started = time.mktime(time.strptime(info["State"]["StartedAt"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+                for steam_id, name in live_from_log(c["Id"], started).items():
+                    out.setdefault(steam_id, {"name": name, "steam_id": steam_id, "slot": labels.get("reskate.slot", "a"), "team": ""})
+        except (RuntimeError, OSError, ValueError, KeyError):
+            pass
+    return sorted(out.values(), key=lambda p: p["name"].lower())
+
+
 def players():
     """Everybody who is on, from every running server: [{name, steam_id, team, server, slot, role}]."""
     out = []
     for r in bridge("/v1/servers"):
         if not r.get("running"):
             continue
-        try:
-            for p in bridge(f"/v1/servers/{r['server']}/players"):
-                out.append(dict(p, server=r["server"], role=r.get("role", "")))
-        except (urllib.error.URLError, OSError, ValueError):
-            pass
+        for p in server_players(r["server"]):
+            out.append(dict(p, server=r["server"], role=r.get("role", "")))
     return out
 
 
@@ -1715,13 +1761,10 @@ def servers():
         r["locked"] = bool(known.get(str(r["server"]), {}).get("password"))
         if r.get("running"):
             # who has really joined (the bridge follows join/leave lines); the status count can hold a ghost
-            try:
-                joined = bridge(f"/v1/servers/{r['server']}/players")
-                r["online"] = len(joined)
-                for letter, s in r.get("slots", {}).items():
-                    s["online"] = sum(1 for p in joined if str(p.get("slot") or "").lower() == str(letter).lower())
-            except (urllib.error.URLError, OSError, ValueError):
-                pass
+            joined = server_players(r["server"])
+            r["online"] = len(joined)
+            for letter, s in r.get("slots", {}).items():
+                s["online"] = sum(1 for p in joined if str(p.get("slot") or "").lower() == str(letter).lower())
     return {"cutoff": CUTOFF, "say": SAY and MOD, "mod": MOD, "tp": bool(TP), "servers": rows}
 
 

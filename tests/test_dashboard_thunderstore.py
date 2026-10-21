@@ -437,6 +437,34 @@ class OnlineCountTest(unittest.TestCase):
         self.assertEqual(out["players"], 1)
 
 
+class LivePlayersTest(unittest.TestCase):
+    LOG = ("[20:00:00] [24-7] - X is up on Map for 100 players.\n"
+           "[20:01:00] Old joined (76561198000000009, player), 1/100 players, loaded in 5 s\n"
+           "[20:02:00] Ann joined (76561198000000001, admin), 2/100 players, loaded in 5 s\n"
+           "[20:03:00] Ben joined (76561198000000002, player), 3/100 players, loaded in 5 s\n"
+           "[20:04:00] Cy joined (76561198000000003), 4/100 players, loaded in 5 s\n"
+           "[20:05:00] Old left (Disconnected.) [closed by their game, Steam reason 1000]\n"
+           "[20:05:30] [join] 76561198000000044 left without the map (Disconnected.)\n")
+
+    def test_players_come_from_the_log_whatever_their_role_and_the_bridge_misses_them(self):
+        d = load()
+        d.DOCKER = "/x"
+        d.LIVE.clear()
+
+        def docker(path):
+            if path == "/containers/json":
+                return json.dumps([{"Id": "c1", "Labels": {"reskate.server": "1", "reskate.slot": "a"}}]).encode()
+            if path.endswith("/json"):
+                return json.dumps({"State": {"StartedAt": "2026-10-21T19:47:00.123Z"}}).encode()
+            return self.LOG.encode()
+
+        def bridge(path, body=None):
+            return [{"name": "Ann", "steam_id": "76561198000000001", "slot": "a", "team": "CRW"}]
+        with mock.patch.object(d, "docker_get", docker), mock.patch.object(d, "bridge", bridge):
+            out = d.server_players("1")
+        self.assertEqual([(p["name"], p["team"]) for p in out], [("Ann", "CRW"), ("Ben", ""), ("Cy", "")])
+
+
 class LeaderboardTest(unittest.TestCase):
     def setUp(self):
         import sqlite3

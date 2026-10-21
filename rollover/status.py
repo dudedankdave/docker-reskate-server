@@ -35,7 +35,7 @@ SPACER = os.environ.get("STATUS_SPACER", "https://raw.githubusercontent.com/dude
 JOIN_CODE = os.environ.get("STATUS_JOIN_CODE", "true").strip().lower() not in ("0", "false", "no", "off")
 
 UP = re.compile(r"^.+ is up on (.+) for (\d+) players\.$")
-JOINED = re.compile(r"^.+ joined \(\d+(?:, admin)?\), (\d+)/(\d+) players, loaded in \d+ s$")
+JOINED = re.compile(r"^.+ joined \(\d+(?:, [a-z]+)?\), (\d+)/(\d+) players, loaded in \d+ s$")
 LEFT = re.compile(r"^(?:.+ left \(.*\)( \[.*\])?|\[join\] \S+ left without the map \(.*\))$")
 NETWORK = re.compile(r"^\[network\] (\d+) players, ")
 MAP = re.compile(r"^(?:Everyone has loaded (.+?)|\[rotation\] Changing the map to (.+?)|Changing map to (.+?))\.?$")
