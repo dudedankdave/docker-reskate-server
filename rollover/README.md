@@ -51,6 +51,13 @@ a newer build for the same ReSkate version on Docker Hub (`<version>-r<n>`, see 
 replaced in its own slot once nobody is on it, named `<name>-r<n>`. Only the default image; image changes never
 start a copy or wait for a cutoff.
 
+**Cleanup:** the old containers a rollover leaves behind (`-prev`, `-r<n>`, older versions) are removed once they have been
+stopped for `cleanup_hours` (default `72`, `0` turns it off; globally or per server), except the newest `cleanup_keep`
+(default `1`) of each server, the one to go back to. It only runs while the server has one healthy container, so
+nothing is touched in the middle of a rollover, and `protect` is respected. The tools' own leftovers
+(`reskate-bot-prev`, `reskate-bridge-prev-teams`, `reskate-rollover-old` ...) go the same way. Only containers are
+deleted, never volumes or images. In `DRY_RUN` it only says what it would remove.
+
 ## Slots
 
 Each server has two slots with their own ports, Steam token and `/data` volume (`servers.example.json`).

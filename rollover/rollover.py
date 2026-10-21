@@ -118,6 +118,16 @@ def started_at(info):
     return timegm(time.strptime(started, "%Y-%m-%dT%H:%M:%S")) if started and not started.startswith("0001") else 0
 
 
+def finished_at(info):
+    """When the container stopped (epoch seconds), 0 if it never ran."""
+    stopped = info["State"].get("FinishedAt", "")[:19]
+    return timegm(time.strptime(stopped, "%Y-%m-%dT%H:%M:%S")) if stopped and not stopped.startswith("0001") else 0
+
+
+LEFTOVER = re.compile(r"^/reskate-(?:bot|bot-admin|bot-chat|bridge|leaderboard|rollover|status|webhooks|settings|announcer)"
+                      r"-(?:prev(?:-[A-Za-z0-9.-]+)?|old)$")
+
+
 def logs(info, since=None, timestamps=False):
     """The container's output since it last started (or since `since`, Unix seconds), as text lines."""
     if since is None:
@@ -263,8 +273,50 @@ class Rollover:
                        if env_of(i).get("PORT", "") in ports]
             try:
                 self.server(number, server, latest, instances)
+                self.cleanup(number, server, instances)
             except Exception as e:
                 say(f"server {number}: {e!r}")
+        try:
+            self.sweep_tools()
+        except Exception as e:
+            say(f"cleanup of old tool containers: {e!r}")
+
+    def remove(self, info, why):
+        """Delete a stopped container (never its volumes, never an image)."""
+        self.notify(f"{why}: removing stopped {info['Name'].lstrip('/')}" + (" (dry run, nothing done)" if self.dry else ""))
+        if not self.dry:
+            docker("DELETE", f"/containers/{info['Id']}")
+
+    def cleanup(self, number, server, instances):
+        """Remove stopped containers of a server that have been stopped for `cleanup_hours` (default 72, 0 = off),
+        except the newest `cleanup_keep` (default 1: the one to go back to). Only while the server runs one
+        healthy container, so nothing is touched in the middle of a rollover; volumes stay."""
+        hours = float(setting(self.cfg, server, "cleanup_hours", 72))
+        keep = int(setting(self.cfg, server, "cleanup_keep", 1))
+        live = [s for s in instances if s.running]
+        if hours <= 0 or len(live) != 1 or not live[0].healthy:
+            return
+        old = sorted((s for s in instances if not s.running and s.name not in self.protect),
+                     key=lambda s: finished_at(s.info), reverse=True)
+        for s in old[keep:]:
+            stopped = finished_at(s.info)
+            if stopped and time.time() - stopped >= hours * 3600:
+                self.remove(s.info, f"Server {number}: stopped for {(time.time() - stopped) / 3600:.0f} h")
+
+    def sweep_tools(self):
+        """The same for the tools' own leftovers (reskate-bot-prev, reskate-bridge-prev-teams, reskate-rollover-old ...)."""
+        hours = float(setting(self.cfg, {}, "cleanup_hours", 72))
+        if hours <= 0:
+            return
+        for c in docker("GET", "/containers/json?all=1"):
+            if c.get("State") != "exited" or not any(LEFTOVER.match(n) for n in c.get("Names") or []):
+                continue
+            info = docker("GET", f"/containers/{c['Id']}/json")
+            if info["Name"].lstrip("/") in self.protect:
+                continue
+            stopped = finished_at(info)
+            if stopped and time.time() - stopped >= hours * 3600:
+                self.remove(info, f"Tools: stopped for {(time.time() - stopped) / 3600:.0f} h")
 
     def server(self, number, server, latest, instances):
         live = [s for s in instances if s.running]
