@@ -623,7 +623,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;margin:10px 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.card.open{display:grid;grid-template-columns:230px minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
@@ -665,7 +665,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
 </div>
-<div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><div class="crow"><input type="file" id="layfile" accept=".json,application/json" style="flex:1 1 100%"></div><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
+<div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><label id="laydrop" class="drop"><span id="laydroptxt">world-layers.json hierher ziehen oder klicken</span><input type="file" id="layfile" accept=".json,application/json" hidden></label><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
@@ -716,8 +716,9 @@ function detail(s){const p=el('div','detail'),i=infoCache[s.server];
  if(rest.length)grid.append(block('Sonstiges',rest));
  p.append(grid,el('div','mut','Einstellungen aus der Umgebung des Containers (ohne Tokens und Webhooks).'));return p}
 const imgState={};
+function put(real,nodes){const t=document.createElement('div');t.append(...nodes);const sig=t.innerHTML;if(real.dataset.sig===sig)return;real.dataset.sig=sig;const y=scrollY;real.replaceChildren(...t.childNodes);if(scrollY!=y)scrollTo(0,y)}
 async function servers(){
- const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
+ const d=await api('/api/servers'),real=$('servers'),box=document.createElement('div');
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
  tabs(d);mod(d);
  for(const s of d.servers){
@@ -740,21 +741,23 @@ async function servers(){
   c.append(dl);
   if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
   box.append(c)}
+ put(real,[...box.childNodes])
 }
 function diskWarn(k){const w=$('diskwarn');if(!k){w.hidden=true;return}
  const gb=k.free/1e9,pct=k.free/k.total*100,low=gb<20||pct<10;w.hidden=!low;
  w.textContent='Speicherplatz knapp: nur noch '+gb.toFixed(1)+' GB ('+pct.toFixed(0)+' %) auf der Host-Platte frei'+(gb<5?'. Leaderboards und Settings können nicht mehr schreiben.':'.');
  w.style.borderColor=gb<5?'var(--bad)':'var(--warn)'}
 async function containers(){
- const d=await api('/api/containers'),srv=$('containers'),tl=$('tools');srv.replaceChildren();tl.replaceChildren();diskWarn(d.disk);
- if(!d.docker){srv.append(el('div','mut','Docker-Socket nicht eingebunden (DASHBOARD_DOCKER).'));return}
+ const d=await api('/api/containers'),rs=$('containers'),rt=$('tools'),srv=document.createElement('div'),tl=document.createElement('div');diskWarn(d.disk);const fin=()=>{put(rs,[...srv.childNodes]);put(rt,[...tl.childNodes])};
+ if(!d.docker){srv.append(el('div','mut','Docker-Socket nicht eingebunden (DASHBOARD_DOCKER).'));fin();return}
  const t=$('tool');if(!t.options.length)d.containers.filter(c=>c.tool).forEach(c=>t.add(new Option(c.name)));
  const order=c=>(c.state=='running'?0:1);
  for(const c of d.containers.slice().sort((a,b)=>order(a)-order(b)||a.name.localeCompare(b.name))){const e=el('div','card'),run=c.state=='running';
   const hd=el('div','head');hd.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state));
   e.append(hd,el('div','mut',c.image.replace(/^sha256:(.{12}).*/,'$1')+' · '+c.status));(c.tool?tl:srv).append(e)}
  if(!tl.children.length)tl.append(el('div','mut','Keine Tools gefunden.'));
- if(!srv.children.length)srv.append(el('div','mut','Keine Server-Container gefunden.'))
+ if(!srv.children.length)srv.append(el('div','mut','Keine Server-Container gefunden.'));
+ fin()
 }
 const CATALOG={
  'Karte':[['map <name>','Map wechseln'],['maps','Bekannte Maps'],['map-pool','Pool anzeigen'],['map-pool add <map>','Map in den Pool'],['map-pool remove <map>','Map aus dem Pool'],['map-pool clear','Alle Maps erlauben'],['rotation <minutes>','Rotation (Minuten)'],['rotation off','Rotation aus'],['park <construction|historic|financial> <layout>','Park-Layout'],['park random','Parks zufällig'],['layer-sync on','Layer-Sync an'],['layer-sync off','Layer-Sync aus'],['tod <default|morning|noon|afternoon|evening|night>','Tageszeit']],
@@ -779,7 +782,7 @@ let cmdAt=0;
 async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
  if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1':'')))}catch(e){}}
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
- const fillSel=(sel,groups)=>{const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
+ const fillSel=(sel,groups)=>{const sig=JSON.stringify(groups);if(sel.dataset.sig===sig&&sel.options.length)return;sel.dataset.sig=sig;const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
  fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv,pool,av);drawFlags(sv,x.flags);
  $('cinfo').textContent='Karte: '+((x.map||'?').replace(/[.]$/,''))+' · Pool: '+(pool.length||'alle')+' · installiert: '+av.length}
@@ -788,21 +791,27 @@ $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
 async function settle(sv,done){for(let i=0;i<6;i++){await sleep(700);delete mapsCache[sv];await cmdMaps(true);if(done(mapsCache[sv]||{}))return}}
 const FLAGS=[['vote_map','Map-Vote','votes map on','votes map off'],['vote_kick','Kick-Vote','votes kick on','votes kick off'],['vote_tod','Zeit-Vote','votes tod on','votes tod off'],['rotation','Map-Rotation',null,'rotation off'],['layer_sync','Layer-Sync','layer-sync on','layer-sync off']];
-function drawFlags(sv,fl){const box=$('cflags');box.replaceChildren();$('laystate').textContent=fl?'world-layers.json auf diesem Server: '+(fl.layers_file?'vorhanden':'fehlt (nötig für Layer-Sync und Zeit-Vote)'):'';
- if(!fl){box.append(el('div','mut','Zustand unbekannt (Server nicht erreichbar).'));return}
+function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div');$('laystate').textContent=fl?'world-layers.json auf diesem Server: '+(fl.layers_file?'vorhanden':'fehlt (nötig für Layer-Sync und Zeit-Vote)'):'';
+ if(!fl){box.append(el('div','mut','Zustand unbekannt (Server nicht erreichbar).'));put(real,[...box.childNodes]);return}
  if(fl.rotation>0&&[...$('crot').options].some(o=>o.value==fl.rotation))$('crot').value=fl.rotation;
  for(const [k,label,onc,offc] of FLAGS){const on=k=='rotation'?fl.rotation>0:fl[k],lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
-  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await settle(sv,x=>{const f=x.flags||{};return (k=='rotation'?f.rotation>0:f[k])==cb.checked})}finally{cb.disabled=false}};
-  lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&on?' ('+fl.rotation+' min)':'')));box.append(lb)}}
-function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
+  cb.onchange=async()=>{cb.disabled=true;real.dataset.sig='';lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await settle(sv,x=>{const f=x.flags||{};return (k=='rotation'?f.rotation>0:f[k])==cb.checked})}finally{cb.disabled=false}};
+  lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&on?' ('+fl.rotation+' min)':'')));box.append(lb)}
+ put(real,[...box.childNodes])}
+function drawPool(sv,pool,av){const real=$('poollist'),box=document.createElement('div'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
  const names=[...av];for(const n of pool)if(!names.some(x=>x.toLowerCase()==n.toLowerCase()))names.push(n);
  $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps sind erlaubt (alle Schalter an). Schaltest du eine Map aus, gilt ab dann der Pool aus den übrigen Maps.';
- box.replaceChildren();
  for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
   const isOn=all||on.has(n.toLowerCase()),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
-  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd('map-pool '+(cb.checked?'add ':'remove ')+n);await settle(sv,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase()),has=!p.length||p.includes(n.toLowerCase());return has==cb.checked})}finally{cb.disabled=false}};
+  cb.onchange=async()=>{cb.disabled=true;real.dataset.sig='';lb.classList.toggle('on',cb.checked);try{await sendCmd('map-pool '+(cb.checked?'add ':'remove ')+n);await settle(sv,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase()),has=!p.length||p.includes(n.toLowerCase());return has==cb.checked})}finally{cb.disabled=false}};
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
- if(!box.children.length)box.append(el('div','mut','Keine Treffer.'))}
+ if(!box.children.length)box.append(el('div','mut','Keine Treffer.'));
+ put(real,[...box.childNodes])}
+const layName=()=>{const f=$('layfile').files[0];$('laydroptxt').textContent=f?f.name+' ('+Math.ceil(f.size/1024)+' KB), bereit zum Hochladen':'world-layers.json hierher ziehen oder klicken'};
+$('layfile').onchange=layName;
+for(const ev of['dragenter','dragover'])$('laydrop').addEventListener(ev,e=>{e.preventDefault();$('laydrop').classList.add('over')});
+for(const ev of['dragleave','drop'])$('laydrop').addEventListener(ev,e=>{e.preventDefault();$('laydrop').classList.remove('over')});
+$('laydrop').addEventListener('drop',e=>{if(e.dataTransfer&&e.dataTransfer.files.length){$('layfile').files=e.dataTransfer.files;layName()}});
 $('laygo').onclick=async()=>{const f=$('layfile').files[0],o=$('cout');if(!f){o.textContent='Erst eine world-layers.json auswählen.';return}
  try{const r=await post('/api/layers',{server:$('layscope').value=='*'?'*':$('csrv').value,content:await f.text()});o.textContent=r.text+'\\nDanach "Layer-Sync" einschalten.';delete mapsCache[$('csrv').value];await cmdMaps(true)}catch(e){o.textContent='Fehler: '+e.message}};
 $('poolfilter').oninput=()=>{const sv=$('csrv').value,x=mapsCache[sv]||{pool:[],available:[]};drawPool(sv,x.pool||[],x.available||[])};
@@ -819,11 +828,11 @@ let sortK='name',sortD=1;
 function cmp(a,b){let x,y;if(sortK=='server'){x=(parseInt(a.server)||0)*10+(a.slot=='B'?1:0);y=(parseInt(b.server)||0)*10+(b.slot=='B'?1:0)}
  else if(sortK=='team'){x=(a.team||'\\uffff').toLowerCase();y=(b.team||'\\uffff').toLowerCase()}else{x=a.name.toLowerCase();y=b.name.toLowerCase()}
  return (x<y?-1:x>y?1:0)*sortD}
-function draw(){const q=$('q').value.trim().toLowerCase(),tb=document.querySelector('#plist tbody');tb.replaceChildren();
+function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySelector('#plist tbody'),tb=document.createElement('tbody');
  const rows=people.filter(p=>!q||(p.name+' '+p.steam_id+' '+(p.team||'')).toLowerCase().includes(q)).sort(cmp);
  for(const th of document.querySelectorAll('#plist th[data-k]'))th.textContent=({name:'Spieler',team:'Team',server:'Server'})[th.dataset.k]+(th.dataset.k==sortK?(sortD>0?' ▲':' ▼'):'');
  document.querySelector('#modsec h2').firstChild.textContent='Moderator · '+people.length+' online ';
- if(!rows.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=4;tr.append(td);tb.append(tr);return}
+ if(!rows.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=4;tr.append(td);tb.append(tr);put(real,[...tb.childNodes]);return}
  for(const p of rows){const tr=el('tr'),n=el('td'),tm=el('td','mut',p.team||''),s=el('td','mut'),a=el('td'),w=el('div','act');
   n.append(el('div',0,p.name),el('div','mut',p.steam_id));s.textContent=p.server+(p.slot||'')+' '+p.role;
   const base={server:p.server,slot:p.slot,player:p.name,steam_id:p.steam_id};
@@ -832,7 +841,8 @@ function draw(){const q=$('q').value.trim().toLowerCase(),tb=document.querySelec
   add('Kick',b=>act({...base,action:'kick'},b));
   add('Ban',b=>act({...base,action:'ban',text:$('mtext').value},b));
   if(tpOn)add('Teleport',()=>act({...base,action:'tp',target:$('mtext').value}));
-  a.append(w);tr.append(n,tm,s,a);tb.append(tr)}}
+  a.append(w);tr.append(n,tm,s,a);tb.append(tr)}
+ put(real,[...tb.childNodes])}
 for(const th of document.querySelectorAll('#plist th[data-k]'))th.onclick=()=>{if(sortK==th.dataset.k)sortD=-sortD;else{sortK=th.dataset.k;sortD=1}draw()};
 $('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
@@ -852,7 +862,7 @@ async function tsAdd(r,pool,note,btns){
   else note.textContent='Auf '+srvs.length+' Server geladen.'}
  catch(e){note.textContent='Fehler: '+e.message}
  btns.forEach(b=>b.disabled=false)}
-const tsRun=async()=>{const box=$('tsres'),info=$('tsinfo');box.replaceChildren();info.textContent='Suche …';
+const tsRun=async()=>{const real=$('tsres'),box=document.createElement('div'),info=$('tsinfo');info.textContent='Suche …';
  let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+'&sort='+$('tssort').value+'&dir='+$('tsdir').value+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
  info.textContent=($('tsq').value.trim()?d.total+' Treffer':d.total+' Maps auf Thunderstore')+(d.total>d.results.length?' (die ersten '+d.results.length+' nach Sortierung)':'');
  for(const r of d.results){const row=el('div','tsrow'),pic=el('div','tspic');pic.append(el('span',0,r.name.slice(0,2)));
@@ -863,7 +873,8 @@ const tsRun=async()=>{const box=$('tsres'),info=$('tsinfo');box.replaceChildren(
   const st=el('div','tsstat');st.append(el('div',0,r.downloads.toLocaleString('de-DE')+' ↓'),el('div','mut','★ '+r.rating),el('div','mut','neu '+(r.created||'?')),el('div','mut','Update '+r.updated));
   const w=el('div','act'),b1=el('button',0,'Auf Server'),b2=el('button',0,'In den Pool');w.append(b1,b2);
   b1.onclick=()=>tsAdd(r,false,note,[b1,b2]);b2.onclick=()=>tsAdd(r,true,note,[b1,b2]);
-  row.append(pic,main,st,w);box.append(row)}};
+  row.append(pic,main,st,w);box.append(row)}
+ put(real,[...box.childNodes])};
 $('tsform').onsubmit=e=>{e.preventDefault();tsRun()};$('tssort').onchange=$('tsdir').onchange=tsRun;
 const mapsCache={};
 function chipRow(list,cur,mod){const box=el('div','chips');
@@ -872,7 +883,7 @@ function chipRow(list,cur,mod){const box=el('div','chips');
  return box}
 let mapsAt=0;
 async function poolmaps(){if(view!='befehle'||Date.now()-mapsAt<20000)return;mapsAt=Date.now();
- const [d,m]=await Promise.all([api('/api/servers'),api('/api/maps')]),box=$('poolbox');box.replaceChildren();
+ const [d,m]=await Promise.all([api('/api/servers'),api('/api/maps')]),real=$('poolbox'),box=document.createElement('div');
  for(const sv of d.servers){const x=m[sv.server];if(!x)continue;const c=el('div','card'),h=el('div','head');
   h.append(el('span','num','#'+sv.server),el('h3',0,sv.role||('Server '+sv.server)));c.append(h);
   const cur=(sv.map||x.map||'').replace(/[.]$/,'');
@@ -886,7 +897,8 @@ async function poolmaps(){if(view!='befehle'||Date.now()-mapsAt<20000)return;map
   const mods=x.mods.length?chipRow(x.mods,'',true):el('div','chips');
   if(!x.mods.length)mods.append(el('span','mut','Keine Mods'));
   c.append(mods);box.append(c)}
- if(!box.children.length)box.append(el('div','mut','Keine Server-Daten (Docker-Zugriff nötig).'))}
+ if(!box.children.length)box.append(el('div','mut','Keine Server-Daten (Docker-Zugriff nötig).'));
+ put(real,[...box.childNodes])}
 let chatSrv='*',chatLast=0,chatLines=[],canSay=true;
 function tabs(d){canSay=d.say;$('sayform').hidden=!d.say;const t=$('tabs');if(t.children.length)return;
  const all=el('button',0,'Alle Chats');all.dataset.s='*';all.onclick=()=>pick('*');t.append(all);
