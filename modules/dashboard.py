@@ -999,14 +999,14 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="col">
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
-<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
+<div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><label id="laydrop" class="drop"><span id="laydroptxt">world-layers.json hierher ziehen oder klicken</span><input type="file" id="layfile" accept=".json,application/json" hidden></label><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
 </div>
 <div class="col">
-<div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><label id="laydrop" class="drop"><span id="laydroptxt">world-layers.json hierher ziehen oder klicken</span><input type="file" id="layfile" accept=".json,application/json" hidden></label><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
 </div>
+<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
 </div>
 <div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
