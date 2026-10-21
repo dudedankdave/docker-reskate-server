@@ -22,6 +22,15 @@ class ConfirmationTest(unittest.TestCase):
     def test_stop_words_stay_refused(self):
         self.assertIsNotNone(console.refused("restart"))
 
+    def test_control_characters_are_refused(self):
+        self.assertIsNotNone(console.refused("say hi\x03"))
+        self.assertIsNotNone(console.refused("\x1c"))
+        self.assertIsNone(console.refused("say hi\tthere"))
+
+    def test_password_is_masked(self):
+        self.assertEqual(console.masked("password hunter2"), "password ***")
+        self.assertEqual(console.masked("password off"), "password off")
+
 
 if __name__ == "__main__":
     unittest.main()
