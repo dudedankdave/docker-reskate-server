@@ -237,7 +237,11 @@ def warm_ts():
         say(f"dashboard: Thunderstore list not loaded: {type(e).__name__}: {e}")
 
 
-def ts_search(query, maps_only=True):
+TS_SORTS = {"downloads": lambda r: r["downloads"], "updated": lambda r: r["updated"], "rating": lambda r: r["rating"],
+            "name": lambda r: r["name"].lower()}
+
+
+def ts_search(query, maps_only=True, sort="downloads", asc=False):
     terms = [t for t in str(query).lower().split() if t][:6]
     out = []
     for r in ts_packages():
@@ -247,8 +251,9 @@ def ts_search(query, maps_only=True):
             continue
         if all(t in text for t in terms):
             out.append(r)
-    out.sort(key=lambda r: (-r["downloads"], r["package"]))
-    return {"total": len(out), "results": out[:30]}
+    out.sort(key=lambda r: r["package"])
+    out.sort(key=TS_SORTS.get(sort, TS_SORTS["downloads"]), reverse=not asc)
+    return {"total": len(out), "results": out[:100]}
 
 
 def ts_image(url):
@@ -458,6 +463,26 @@ def tar_of(cid, path):
     return tarfile.open(fileobj=io.BytesIO(docker_get(f"/containers/{cid}/archive?path={path}")))
 
 
+BUILTIN_MAPS = ["San Vansterdam", "Isle of Grom", "Super Ultra Mega Resort", "Stadium 1"]
+
+
+def package_maps(mods, pool=()):
+    """Built-in maps plus every map the linked packages declare (read from the shared store), plus the pool's own names."""
+    names = set()
+    for m in mods:
+        if not re.fullmatch(r"[\w.-]+", m):
+            continue
+        try:
+            with open(f"{MODS_STORE}/packages/{m}/reskate-levels.json", encoding="utf-8-sig") as f:
+                for level in json.load(f).get("levels", []):
+                    if isinstance(level, dict) and level.get("displayName"):
+                        names.add(level["displayName"])
+        except (OSError, ValueError, AttributeError):
+            continue
+    names.update(pool)
+    return BUILTIN_MAPS + sorted(names - set(BUILTIN_MAPS), key=str.lower)
+
+
 def live_maps(cid):
     """(current map, pool, installed packages) as the running server has them now: its saved settings file
     and the links in its Mods folder, not the environment it was started with."""
@@ -489,6 +514,7 @@ def server_maps():
                 break
             except (RuntimeError, OSError, ValueError, KeyError, tarfile.TarError):
                 continue
+        item["available"] = package_maps(item["mods"], item["pool"])
         out[number] = item
     MAPS.update(at=time.time(), rows=out)
     return out
@@ -534,7 +560,8 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.card.open{display:grid;grid-template-columns:230px minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
+.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;margin:10px 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.card.open{display:grid;grid-template-columns:230px minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
+.tsrow{display:grid;grid-template-columns:64px minmax(0,1fr) 110px auto;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:6px}.tspic{position:relative;width:64px;height:48px;border-radius:4px;background:var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.tsmain{min-width:0;overflow-wrap:anywhere}.tsmain .mut{font-size:12px}.tsname a{font-weight:600}.tsstat{text-align:right;font-variant-numeric:tabular-nums;font-size:13px}.tsrow .act{display:flex;gap:6px}@media(max-width:700px){.tsrow{grid-template-columns:64px minmax(0,1fr)}.tsstat{text-align:left;grid-column:2}.tsrow .act{grid-column:1/-1}}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -564,19 +591,29 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <button type="button" data-a="say">Say</button><button type="button" data-a="announce">Announce</button></form>
 <div class="mut" id="mres"></div></section>
 <section id="cmdsec" data-v="befehle"><h2>Server-Befehle</h2>
-<div class="bar"><select id="csrv"></select><select id="cat"></select><input id="cmd" maxlength="300" placeholder="Befehl, z. B. status oder map grom"><button id="csend">Senden</button></div>
-<div class="bar"><input id="mapname" list="maps" maxlength="64" placeholder="Map-Name (z. B. San Vansterdam)"><datalist id="maps"></datalist>
-<button data-c="map {m}">Map wechseln</button><button data-c="map-pool add {m}">Pool +</button><button data-c="map-pool remove {m}">Pool −</button><button data-c="map-pool clear">Alle Maps</button></div>
-<div class="bar"><input id="rot" type="number" min="1" max="1440" placeholder="Rotation (Minuten)"><button data-c="rotation {r}">Rotation setzen</button><button data-c="rotation off">Rotation aus</button>
-<button data-c="maps">Maps zeigen</button><button data-c="map-pool">Pool zeigen</button><button data-c="status">Status</button><button data-c="players">Spieler</button></div>
+<div class="bar"><select id="csrv"></select><span class="mut" id="cinfo"></span></div>
+<div class="cgrid">
+<div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
+<div class="card"><h3>Map-Pool</h3><div class="crow"><select id="cpooladd"></select><button id="cpooladdgo">Hinzufügen</button></div>
+<div class="crow"><select id="cpoolrm"></select><button id="cpoolrmgo">Entfernen</button></div>
+<div class="crow"><button data-c="map-pool">Pool zeigen</button><button data-c="map-pool clear">Alle Maps erlauben</button></div></div>
+<div class="card"><h3>Rotation</h3><div class="crow"><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span><button id="crotgo">Setzen</button><button data-c="rotation off">Aus</button></div></div>
+<div class="card"><h3>Votes</h3><div class="crow"><button data-c="votes map on">Map-Vote an</button><button data-c="votes map off">aus</button></div>
+<div class="crow"><button data-c="votes kick on">Kick-Vote an</button><button data-c="votes kick off">aus</button></div>
+<div class="crow"><button data-c="votes tod on">Zeit-Vote an</button><button data-c="votes tod off">aus</button><button data-c="vote-cancel">Vote abbrechen</button></div></div>
+<div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
+<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
+</div>
+<details class="adv"><summary>Erweitert: Befehl frei eingeben</summary><div class="bar"><select id="cat"></select><input id="cmd" maxlength="300" list="cmdsug" placeholder="Befehl, z. B. status oder map grom"><datalist id="cmdsug"></datalist><button id="csend">Senden</button></div></details>
+<div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers (siehe "Neue Map hinzufügen" für dauerhafte Änderungen).</div>
 <pre id="cout">Antwort des Servers erscheint hier (letzte Log-Zeilen).</pre>
 <h2 style="margin-top:14px">Neue Map hinzufügen</h2>
 <div class="bar"><input id="pkg" maxlength="80" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="live" checked style="flex:none;min-width:0">sofort laden</label><button id="addmap">Hinzufügen</button></div>
 <div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. "Sofort laden" schickt zusätzlich mods add und map-pool add an die laufenden Server (ohne Neustart, nur mit neuem Image). Die Settings-Datei sorgt dafür, dass es nach einem Neustart bleibt; der Rollover startet Server dafür nur, wenn sie leer sind.</div></section>
 <section data-v="suche"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
 <section data-v="suche"><h2>Maps auf Thunderstore</h2>
-<form class="bar" id="tsform"><input id="tsq" maxlength="60" placeholder="Suche, z. B. plaza, skatepark, Name"><select id="tsrv"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tsall" style="flex:none;min-width:0">alle Pakete</label><button>Suchen</button></form>
-<div class="mut" id="tsinfo">Sucht in der Thunderstore-Community reskate. "Auf Server" lädt das Paket, "In den Pool" nimmt die Map zusätzlich in den Map-Pool auf (ohne Neustart, mit neuem Image).</div><div class="grid" id="tsres"></div></section>
+<form class="bar" id="tsform"><input id="tsq" maxlength="60" placeholder="Suche, z. B. plaza, skatepark, Name"><select id="tsrv"></select><select id="tssort" title="Sortierung"><option value="downloads">Meiste Downloads</option><option value="updated">Zuletzt aktualisiert</option><option value="rating">Beste Bewertung</option><option value="name">Name</option></select><select id="tsdir" title="Richtung"><option value="desc">absteigend</option><option value="asc">aufsteigend</option></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tsall" style="flex:none;min-width:0">alle Pakete</label><button>Suchen</button></form>
+<div class="mut" id="tsinfo">Sucht in der Thunderstore-Community reskate. "Auf Server" lädt das Paket, "In den Pool" nimmt die Map zusätzlich in den Map-Pool auf (ohne Neustart, mit neuem Image).</div><div class="tslist" id="tsres"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -661,6 +698,7 @@ let people=[],modOn=true,tpOn=false;
 function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;$('cmdsec').hidden=!d.mod;for(const b of $('nav').children)if(b.dataset.v=='moderator'||b.dataset.v=='befehle')b.hidden=!d.mod;const m=$('msrv');
  if(!m.options.length){for(const id of['msrv','csrv'])d.servers.forEach(s=>$(id).add(new Option(s.server+' '+s.role,s.server)));$('tsrv').add(new Option('alle Server','*'));d.servers.forEach(s=>$('tsrv').add(new Option(s.server+' '+s.role,s.server)));
   $('pscope').add(new Option('nur diesen Server (Auswahl links)','one'));$('pscope').add(new Option('alle Server','*'));
+  const sug=$('cmdsug');for(const l of Object.values(CATALOG))for(const [cmd] of l)sug.append(new Option(cmd));
   const c=$('cat');c.add(new Option('Befehlskatalog …',''));for(const [g,l] of Object.entries(CATALOG)){const o=document.createElement('optgroup');o.label=g;for(const [cmd,txt] of l)o.append(new Option(txt+' · '+cmd,cmd));c.append(o)}}}
 async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textContent='Sende: '+c+' …';
  const r=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('csrv').value,action:'console',text:c})});
@@ -668,7 +706,21 @@ async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textConten
  await new Promise(x=>setTimeout(x,1500));
  const l=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('csrv').value,action:'log',count:14})});
  const t=await l.json();o.textContent='> '+c+'\\n'+(t.text||'(keine Log-Zeilen)');o.scrollTop=o.scrollHeight}
-function fill(c){const m=$('mapname').value.trim(),r=$('rot').value.trim();return c.replace(' {m}',m?' '+m:'').replace(' {r}',r?' '+r:'')}
+let cmdAt=0;
+async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
+ if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'))}catch(e){}}
+ const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
+ const fillSel=(sel,groups)=>{const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
+  if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
+ fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);fillSel($('cpooladd'),[['Installiert, nicht im Pool',rest]]);fillSel($('cpoolrm'),[['Im Pool',pool]]);
+ $('cinfo').textContent='Karte: '+((x.map||'?').replace(/[.]$/,''))+' · Pool: '+(pool.length||'alle')+' · installiert: '+av.length}
+const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
+$('csrv').onchange=()=>cmdMaps(true);
+$('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
+$('cpooladdgo').onclick=()=>{const m=$('cpooladd').value;if(m)sendCmd('map-pool add '+m).then(()=>cmdMaps(true))};
+$('cpoolrmgo').onclick=e=>{const m=$('cpoolrm').value;if(m)armed(e.target,()=>sendCmd('map-pool remove '+m).then(()=>cmdMaps(true)))};
+$('crotgo').onclick=()=>sendCmd('rotation '+$('crot').value);
+$('ctodgo').onclick=()=>sendCmd('tod '+$('ctod').value);
 document.addEventListener('DOMContentLoaded',()=>{});
 async function who(){if(!modOn)return;people=await api('/api/players');draw()}
 function say_(m){$('mres').textContent=m}
@@ -699,7 +751,7 @@ $('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
 $('cat').onchange=()=>{const v=$('cat').value;if(!v)return;$('cmd').value=v;$('cmd').focus();const i=v.search(/[<\\[]/);if(i>0)$('cmd').setSelectionRange(i,v.length);$('cat').value=''};
 $('csend').onclick=()=>sendCmd($('cmd').value);$('cmd').onkeydown=e=>{if(e.key=='Enter')sendCmd($('cmd').value)};
-for(const b of document.querySelectorAll('[data-c]'))b.onclick=()=>{const c=fill(b.dataset.c);if(c.includes('{'))return;if(/^(map|map-pool (add|remove)|rotation)$/.test(c.trim()))return $('cout').textContent='Bitte zuerst Map-Name bzw. Minuten eintragen.';$('cmd').value=c;sendCmd(c)};
+for(const b of document.querySelectorAll('[data-c]'))b.onclick=()=>{const c=b.dataset.c;if(c=='map-pool clear')return armed(b,()=>sendCmd(c).then(()=>cmdMaps(true)));sendCmd(c)};
 $('addmap').onclick=async()=>{const o=$('cout'),pk=$('pkg').value.trim();if(!pk)return;
  const r=await fetch('/api/addmap',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('pscope').value=='*'?'*':$('csrv').value,package:pk,pool:$('poolnames').value})});
  const d=await r.json();o.textContent=r.ok?'Map-Paket: '+d.text:'Fehler: '+(d.error||r.status);if(!r.ok||!$('live').checked)return;
@@ -723,16 +775,19 @@ async function tsAdd(r,pool,note,btns){
   else note.textContent='Auf '+srvs.length+' Server geladen.'}
  catch(e){note.textContent='Fehler: '+e.message}
  btns.forEach(b=>b.disabled=false)}
-$('tsform').onsubmit=async e=>{e.preventDefault();const box=$('tsres'),info=$('tsinfo');box.replaceChildren();info.textContent='Suche …';
- let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
- info.textContent=d.total+' Treffer'+(d.total>d.results.length?' (die '+d.results.length+' beliebtesten)':'');
- for(const r of d.results){const c=el('div','card'),pic=el('div','pic');pic.append(el('span',0,r.name));
+const tsRun=async()=>{const box=$('tsres'),info=$('tsinfo');box.replaceChildren();info.textContent='Suche …';
+ let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+'&sort='+$('tssort').value+'&dir='+$('tsdir').value+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
+ info.textContent=d.total+' Treffer'+(d.total>d.results.length?' (die ersten '+d.results.length+' nach Sortierung)':'');
+ for(const r of d.results){const row=el('div','tsrow'),pic=el('div','tspic');pic.append(el('span',0,r.name.slice(0,2)));
   if(r.icon){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/tsimg?u='+encodeURIComponent(r.icon);pic.append(im)}
-  const h=el('div','head');h.append(el('h3',0,r.name));
-  const a=el('a',0,'Thunderstore');a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';
-  const note=el('div','mut'),w=el('div','act'),b1=el('button',0,'Auf Server'),b2=el('button',0,'In den Pool');w.append(b1,b2);
+  const main=el('div','tsmain'),a=el('a',0,r.name);a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';
+  const t=el('div','tsname');t.append(a,el('span','mut',' '+r.owner+' · v'+r.version));
+  const note=el('div','mut');main.append(t,el('div','mut',r.description),note);
+  const st=el('div','tsstat');st.append(el('div',0,r.downloads.toLocaleString('de-DE')+' ↓'),el('div','mut','★ '+r.rating),el('div','mut',r.updated));
+  const w=el('div','act'),b1=el('button',0,'Auf Server'),b2=el('button',0,'In den Pool');w.append(b1,b2);
   b1.onclick=()=>tsAdd(r,false,note,[b1,b2]);b2.onclick=()=>tsAdd(r,true,note,[b1,b2]);
-  c.append(h,pic,el('div','mut',r.owner+' · v'+r.version+' · '+r.downloads+' Downloads · '+r.updated),el('div',0,r.description),a,w,note);box.append(c)}};
+  row.append(pic,main,st,w);box.append(row)}};
+$('tsform').onsubmit=e=>{e.preventDefault();tsRun()};$('tssort').onchange=$('tsdir').onchange=tsRun;
 const mapsCache={};
 function chipRow(list,cur,mod){const box=el('div','chips');
  for(const n of list){let t=n,tip='';if(mod){const m=n.match(/^(.*)-(\\d+[.]\\d+[.]\\d+)$/);t=m?m[1]:n;tip=n}
@@ -786,7 +841,7 @@ $('tool').onchange=toollog;
 const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['suche','Maps suchen'],['logs','Logs']];
 let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
-function show(v){view=v;mapsAt=0;try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
+function show(v){view=v;mapsAt=0;if(v=='befehle')setTimeout(()=>cmdMaps(),0);try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
  for(const s of document.querySelectorAll('section[data-v]'))s.classList.toggle('off',s.dataset.v!=v);
  for(const b of $('nav').children)b.classList.toggle('on',b.dataset.v==v)}
 for(const [v,l] of VIEWS){const b=el('button',0,l);b.dataset.v=v;b.onclick=()=>show(v);$('nav').append(b)}
@@ -796,7 +851,7 @@ document.querySelectorAll('section').forEach((s,i)=>{const h=s.querySelector('h2
  b.onclick=()=>{const c=!s.classList.contains('closed');set(c);try{localStorage.setItem(k,c?'1':'')}catch(e){}};
  try{set(!!localStorage.getItem(k))}catch(e){}h.append(b)});
 async function tick(){
- for(const f of[servers,who,chat,containers,events,toollog,poolmaps])try{await f()}catch(e){if(e)console.warn(e)}
+ for(const f of[servers,who,chat,containers,events,toollog,poolmaps,async()=>{if(view=='befehle')await cmdMaps()}])try{await f()}catch(e){if(e)console.warn(e)}
  $('upd').textContent='aktualisiert '+new Date().toLocaleTimeString()}
 tick();setInterval(tick,5000);
 </script></body></html>"""
@@ -864,7 +919,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, found[1], found[0], headers=[("Cache-Control", "private, max-age=3600")])
             if url.path == "/api/ts":
                 try:
-                    return self.json(200, ts_search(q.get("q", ""), q.get("all") != "1"))
+                    return self.json(200, ts_search(q.get("q", ""), q.get("all") != "1", q.get("sort", "downloads"), q.get("dir") == "asc"))
                 except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as e:
                     return self.json(502, {"error": f"Thunderstore: {type(e).__name__}: {e}"})
             if url.path == "/api/tsimg":
