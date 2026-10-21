@@ -37,7 +37,6 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import base64
-import calendar
 import glob
 import gzip
 import hashlib
@@ -836,11 +835,13 @@ def layers_loaded(cid, started):
     key = (cid, started)
     if key not in LAYERS_SEEN:
         try:
-            begin = calendar.timegm(time.strptime(started[:19], "%Y-%m-%dT%H:%M:%S"))
-            text = demux(docker_get(f"/containers/{cid}/logs?stdout=1&stderr=1&since={begin}&until={begin + 240}"))
-        except (RuntimeError, OSError, ValueError):
+            begin = started[:19].replace("T", " ")
+            with tar_of(cid, "/data/ReSkateServer.log") as t:
+                text = t.extractfile(t.getmember("ReSkateServer.log")).read().decode("utf-8", "replace")
+        except (RuntimeError, OSError, KeyError, tarfile.TarError):
             return None
-        LAYERS_SEEN[key] = "from world-layers.json" in text
+        stamps = [x[1:20] for x in text.splitlines() if "from world-layers.json" in x and x.startswith("[")]
+        LAYERS_SEEN[key] = bool(stamps) and stamps[-1] >= begin
     return LAYERS_SEEN[key]
 
 
