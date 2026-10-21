@@ -1049,6 +1049,10 @@ def server_details():
                                   "health": (info["State"].get("Health") or {}).get("Status", ""), "id": c["Id"]})
         row["name"] = env.get("SERVER_NAME", row["name"])
         word = env.get("SERVER_PASSWORD", "")
+        try:                                        # what the server has now (the dashboard changes it live), not at start
+            word = str((live_config(c["Id"]).get("server") or {}).get("password") or "")
+        except (RuntimeError, OSError, KeyError, ValueError, tarfile.TarError):
+            pass
         row["password"] = word if word.lower() not in ("", "off") else row["password"]
         for k, v in env.items():
             if k not in SKIP and not any(h in k for h in HIDE):
@@ -1085,6 +1089,68 @@ def restart_server(body):
     docker_restart(mine[0]["id"])
     DETAILS["at"] = 0
     return {"ok": True, "container": mine[0]["name"], "players": players, "forced": restart_rule(players) != "restart"}
+
+
+PW_FILE = f"{SHARED}/passwords.json"
+PW_LOCK = threading.Lock()
+RANKED_ON = ("tuning on", "score-check kick", "speed-check kick")
+RANKED_OFF = ("score-check warn", "speed-check warn")
+
+
+def pw_memory(number, word=None):
+    """The password a server had before it was unlocked (so "lock" can bring it back); with `word`, remember it."""
+    with PW_LOCK:
+        try:
+            with open(PW_FILE, encoding="utf-8") as f:
+                book = json.load(f)
+        except (OSError, ValueError):
+            book = {}
+        if word is None:
+            return str(book.get(number) or "")
+        book[number] = word
+        fd = os.open(PW_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(book, f)
+        return word
+
+
+def server_option(body):
+    """{server, slot?, action: password|lock|unlock|ranked, value}: the server options that change live through the console.
+    password sets one (and remembers it), unlock clears it (remembering it), lock puts the remembered one back. ranked
+    on/off sets the three checks a ranked server needs (physics forced, score and speed check on kick; off = warn).
+    None of it survives a restart: the container's own settings are applied again then."""
+    number, action, slot = str(body.get("server", "")), str(body.get("action", "")), str(body.get("slot") or "")
+    DETAILS["at"] = 0
+    known = server_details().get(number)
+    mine = [c for c in (known or {}).get("containers", []) if not slot or c["slot"] == slot]
+    if not mine:
+        raise ValueError("unknown server or not running")
+    if len(mine) > 1:
+        raise ValueError("this server runs in several slots; say which one")
+    cid, slot = mine[0]["id"], mine[0]["slot"]
+    current = str((live_config(cid).get("server") or {}).get("password") or "")
+    if action == "password":
+        word = str(body.get("value", "")).strip()
+        if not 1 <= len(word) <= 64 or any(ord(ch) < 32 for ch in word) or word.lower() in ("off", "none"):
+            raise ValueError("a password is 1 to 64 characters (not 'off' or 'none', those clear it)")
+        commands = [f"password {pw_memory(number, word)}"]
+    elif action == "unlock":
+        if current:
+            pw_memory(number, current)
+        commands = ["password off"]
+    elif action == "lock":
+        word = current or pw_memory(number) or known["password"]
+        if not word:
+            raise ValueError("no password is remembered for this server; set one first")
+        commands = [f"password {word}"]
+    elif action == "ranked":
+        commands = list(RANKED_ON if body.get("on") else RANKED_OFF)
+    else:
+        raise ValueError(f"unknown action {action!r}")
+    for command in commands:
+        moderate({"server": number, "slot": slot, "action": "console", "text": command})
+    DETAILS["at"] = 0
+    return {"ok": True, "commands": len(commands)}
 
 
 MAPS = {"at": 0, "rows": {}}
@@ -1144,17 +1210,25 @@ def layers_fit(cid, version):
     return "ok" if built and built == version else "old"
 
 
+def live_config(cid):
+    """The server's settings file (/data/ReSkateServer.json) as it is right now."""
+    with tar_of(cid, "/data/ReSkateServer.json") as t:
+        return json.load(t.extractfile(t.getmember("ReSkateServer.json")))
+
+
 def live_maps(cid, version="", started=""):
     """(current map, pool, installed packages, on/off flags) as the running server has them now: its saved settings file
     and the links in its Mods folder, not the environment it was started with."""
-    with tar_of(cid, "/data/ReSkateServer.json") as t:
-        member = t.getmember("ReSkateServer.json")
-        config = json.load(t.extractfile(member))
+    config = live_config(cid)
     maps, votes = config.get("maps", {}), config.get("votes", {})
     pool = [x for x in maps.get("pool", []) if isinstance(x, str)]
     flags = {"vote_map": bool(votes.get("map", {}).get("enabled")), "vote_kick": bool(votes.get("kick", {}).get("enabled")),
              "vote_tod": bool(votes.get("time_of_day", {}).get("enabled")),
              "rotation": int(maps.get("rotation_minutes") or 0), "layer_sync": bool(maps.get("world_layer_sync"))}
+    guard = config.get("anti_cheat") or {}
+    flags.update(locked=bool((config.get("server") or {}).get("password")), enforce_tuning=guard.get("enforce_tuning") is not False,
+                 score_check=str(guard.get("modified_scoring") or ""), speed_check=str(guard.get("speed_hack") or ""))
+    flags["ranked"] = flags["enforce_tuning"] and flags["score_check"] == "kick" and flags["speed_check"] == "kick"
     try:
         with tar_of(cid, "/data/world-layers.json") as t:
             flags["layers_file"] = "world-layers.json" in t.getnames()
@@ -1258,7 +1332,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .off{display:none!important}section.closed>*:not(h2){display:none}.fold{margin-left:auto;padding:1px 9px}th[data-k]{cursor:pointer;user-select:none;white-space:nowrap}th[data-k]:hover{color:var(--fg)}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}.bar input,.bar select{flex:1 1 160px;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
-#sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+#sayform{display:flex;gap:8px;margin-top:8px}#pwnew,#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
@@ -1293,6 +1367,9 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 </div>
 <div class="col">
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
+<div id="copts" class="flags"></div>
+<div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
+<div class="mut" id="opthint"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
 </div>
@@ -1466,7 +1543,7 @@ async function fire(c,sv){tprint('> '+c+(sv&&sv!=$('csrv').value?'  (Server '+sv
 const pend={},qs={};
 const wanted=(sv,k,cur)=>{const p=pend[sv+'|'+k];return p&&Date.now()-p.at<12000?p.want:cur};
 function toggle(sv,k,val,cmd,check){const key=sv+'|'+k;pend[key]={want:val,at:Date.now()};
- const sent=(qs[sv]||Promise.resolve()).then(()=>fire(cmd,sv)).catch(e=>{delete pend[key];tprint('Fehler: '+e.message);throw e});
+ const sent=(qs[sv]||Promise.resolve()).then(()=>typeof cmd=='function'?cmd():fire(cmd,sv)).catch(e=>{delete pend[key];tprint('Fehler: '+e.message);throw e});
  qs[sv]=sent.catch(()=>{});
  sent.then(async()=>{for(let i=0;i<14;i++){await sleep(i?350:200);delete mapsCache[sv];if($('csrv').value==sv)await cmdMaps(true);else Object.assign(mapsCache,await api('/api/maps?fresh=1&server='+encodeURIComponent(sv)));if(check(mapsCache[sv]||{})==val)break}
   if(pend[key]&&pend[key].want===val)delete pend[key];if($('csrv').value==sv)await cmdMaps(true)}).catch(()=>{if($('csrv').value==sv)cmdMaps(true)})}
@@ -1479,7 +1556,18 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
  for(const [k,label,onc,offc] of FLAGS){const cur=k=='rotation'?fl.rotation>0:fl[k],on=wanted(sv,'flag:'+k,cur),lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
- put(real,[...box.childNodes])}
+put(real,[...box.childNodes]);drawOpts(sv,fl)}
+const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv},b));
+function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div');
+ for(const [k,label,tip,body] of [['locked','Gesperrt (Passwort aktiv)','Ein: das gemerkte Passwort wird wieder gesetzt. Aus: Passwort wird entfernt und gemerkt.',on=>({action:on?'lock':'unlock'})],
+   ['ranked','Ranked-Modus','Ein: Physik erzwungen, Score-Check und Speed-Check auf kick. Aus: Score-Check und Speed-Check auf warn.',on=>({action:'ranked',on})]]){
+  const cur=!!fl[k],on=wanted(sv,'opt:'+k,cur),lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;lb.title=tip;
+  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'opt:'+k,cb.checked,()=>optBody(sv,body(cb.checked)),x=>!!(x.flags||{})[k])};
+  lb.append(cb,el('span','sw'),el('span','tn',label));box.append(lb)}
+ put(real,[...box.childNodes]);
+ $('opthint').textContent='Physik '+(fl.enforce_tuning?'erzwungen':'frei')+' · Score-Check '+(fl.score_check||'?')+' · Speed-Check '+(fl.speed_check||'?')+'. Gilt bis zum nächsten Neustart des Servers, danach zählen wieder die Einstellungen des Containers. Ob Punkte in die Unranked- oder Ranked-Liste gehen, wird beim Start festgelegt.'}
+$('pwset').onclick=async()=>{const sv=$('csrv').value,w=$('pwnew').value.trim();if(!sv||!w)return;
+ try{await optBody(sv,{action:'password',value:w});$('pwnew').value='';tprint('Passwort von Server '+sv+' gesetzt');await sleep(600);await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 let POOLS=null;
 const loadPools=async()=>{try{POOLS=await api('/api/pools')}catch(e){}};
 const ci=(a,b)=>a.toLowerCase().localeCompare(b.toLowerCase());
@@ -1951,6 +2039,23 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: announcements {body.get('action')} {body.get('scope', body.get('server', ''))}")
         self.json(200, result)
 
+    def option(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 2048)) or b"{}")
+            result = server_option(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except urllib.error.HTTPError as e:
+            return self.json(502, {"error": f"bridge: {e.code} {e.read()[:200].decode(errors='replace')}"})
+        except (RuntimeError, OSError, urllib.error.URLError) as e:
+            return self.json(502, {"error": str(e)})
+        say(f"dashboard: option {body.get('action')} server {body.get('server')}")
+        self.json(200, result)
+
     def restart(self):
         if not self.logged_in():
             return self.json(401, {"error": "login"})
@@ -1987,6 +2092,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.ann()
         if path == "/api/restart":
             return self.restart()
+        if path == "/api/option":
+            return self.option()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()

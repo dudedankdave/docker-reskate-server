@@ -86,6 +86,8 @@ class ServerDetailsTest(unittest.TestCase):
                                "State": {"StartedAt": "2026-10-21T00:00:00Z", "Health": {"Status": "healthy"}}}).encode()
         if path.startswith("/containers/c1/logs"):
             return b"Join code: 1234-abcd\n[x] Join code: 9999-ffff trailing\n"
+        if "/archive" in path:
+            raise RuntimeError("docker 404")        # no settings file to read: the start environment counts
         raise AssertionError(path)
 
     def test_details_hide_secrets_and_find_code(self):
@@ -99,6 +101,20 @@ class ServerDetailsTest(unittest.TestCase):
             self.assertEqual(self.d.server_secret("9"), {"password": "!420"})
             with self.assertRaises(ValueError):
                 self.d.server_info("1")
+
+    def test_live_password_beats_the_start_environment(self):
+        def docker(path):
+            if "/archive" in path:
+                buf = io.BytesIO()
+                raw = json.dumps({"server": {"password": ""}}).encode()
+                with tarfile.open(fileobj=buf, mode="w") as t:
+                    info = tarfile.TarInfo("ReSkateServer.json")
+                    info.size = len(raw)
+                    t.addfile(info, io.BytesIO(raw))
+                return buf.getvalue()
+            return ServerDetailsTest.docker(self, path)
+        with mock.patch.object(self.d, "docker_get", docker):
+            self.assertFalse(self.d.server_info("9")["locked"])
 
     def test_off_means_no_password(self):
         def docker(path):
@@ -164,7 +180,8 @@ class LiveMapsTest(unittest.TestCase):
         with mock.patch.object(d, "docker_get", lambda path: archive(path.split("path=")[1])):
             map_, pool, mods, flags = d.live_maps("c1")
             self.assertEqual((map_, pool, mods), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
-            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False, "layers_file": False, "layers_fit": "missing"})
+            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False, "layers_file": False, "layers_fit": "missing",
+                                     "locked": True, "enforce_tuning": True, "score_check": "", "speed_check": "", "ranked": False})
 
 
 class DiskTest(unittest.TestCase):
@@ -506,3 +523,57 @@ class RestartTest(unittest.TestCase):
             self.d.restart_server({"server": "1"})
         self.d.restart_server({"server": "1", "slot": "B"})
         self.assertEqual(self.restarted, ["cid2"])
+
+
+class ServerOptionTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.PW_FILE = f"{self.tmp.name}/passwords.json"
+        self.sent = []
+        self.config = {"server": {"password": ""}}
+        self.rows = {"1": {"password": "", "containers": [{"name": "s1", "slot": "a", "id": "c1"}]}}
+        self.d.server_details = lambda: self.rows
+        self.d.live_config = lambda cid: self.config
+        self.d.moderate = lambda body: self.sent.append(body["text"])
+
+    def test_set_unlock_lock_roundtrip(self):
+        self.d.server_option({"server": "1", "action": "password", "value": "  secret word "})
+        self.assertEqual(self.sent, ["password secret word"])
+        self.config["server"]["password"] = "secret word"
+        self.d.server_option({"server": "1", "action": "unlock"})
+        self.assertEqual(self.sent[-1], "password off")
+        self.config["server"]["password"] = ""
+        self.d.server_option({"server": "1", "action": "lock"})
+        self.assertEqual(self.sent[-1], "password secret word")
+        self.assertEqual(oct(os.stat(self.d.PW_FILE).st_mode & 0o777), "0o600")
+
+    def test_lock_without_any_password_and_bad_passwords(self):
+        with self.assertRaises(ValueError):
+            self.d.server_option({"server": "1", "action": "lock"})
+        for word in ("", "off", "None", "x" * 65, "a\nb"):
+            with self.assertRaises(ValueError):
+                self.d.server_option({"server": "1", "action": "password", "value": word})
+        self.assertEqual(self.sent, [])
+
+    def test_lock_falls_back_to_the_start_password(self):
+        self.rows["1"]["password"] = "fromenv"
+        self.d.server_option({"server": "1", "action": "lock"})
+        self.assertEqual(self.sent, ["password fromenv"])
+
+    def test_ranked_on_and_off(self):
+        self.d.server_option({"server": "1", "action": "ranked", "on": True})
+        self.assertEqual(self.sent, ["tuning on", "score-check kick", "speed-check kick"])
+        self.sent.clear()
+        self.d.server_option({"server": "1", "action": "ranked", "on": False})
+        self.assertEqual(self.sent, ["score-check warn", "speed-check warn"])
+
+    def test_unknown_server_action_and_slots(self):
+        with self.assertRaises(ValueError):
+            self.d.server_option({"server": "7", "action": "lock"})
+        with self.assertRaises(ValueError):
+            self.d.server_option({"server": "1", "action": "boom"})
+        self.rows["1"]["containers"].append({"name": "s1b", "slot": "b", "id": "c2"})
+        with self.assertRaises(ValueError):
+            self.d.server_option({"server": "1", "action": "unlock"})
