@@ -381,9 +381,18 @@ def demux(data):
     return b"".join(out).decode("utf-8", "replace") if out else data.decode("utf-8", "replace")
 
 
+def disk():
+    """Free space of the disk the shared store lives on (the host disk): {total, free} in bytes, or None."""
+    try:
+        v = os.statvfs(MODS_STORE)
+    except OSError:
+        return None
+    return {"total": v.f_blocks * v.f_frsize, "free": v.f_bavail * v.f_frsize}
+
+
 def containers():
     if not DOCKER:
-        return {"docker": False, "containers": []}
+        return {"docker": False, "containers": [], "disk": disk()}
     rows = []
     for c in json.loads(docker_get("/containers/json?all=1")):
         name = c["Names"][0].lstrip("/")
@@ -391,7 +400,7 @@ def containers():
             continue
         rows.append({"name": name, "image": c["Image"], "state": c["State"], "status": c["Status"],
                      "tool": name.removeprefix("reskate-") in TOOLS})
-    return {"docker": True, "containers": sorted(rows, key=lambda r: (not r["tool"], r["name"]))}
+    return {"docker": True, "containers": sorted(rows, key=lambda r: (not r["tool"], r["name"])), "disk": disk()}
 
 
 def tool_log(name, lines=60):
@@ -579,6 +588,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <header><h1>ReSkate Dashboard</h1><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
 <nav id="nav"></nav>
 <main>
+<div id="diskwarn" class="card" hidden></div>
 <section data-v="uebersicht"><h2>Server</h2><div class="grid" id="servers"></div></section>
 <section data-v="uebersicht"><h2>Tools</h2><div class="grid" id="tools"></div></section>
 <section data-v="uebersicht"><h2>Server-Container</h2><div class="grid" id="containers"></div></section>
@@ -650,6 +660,7 @@ function detail(s){const p=el('div','detail'),i=infoCache[s.server];
  for(const [t,,rows] of buckets)if(rows.length&&t!='Betrieb')grid.append(block(t,rows));else if(rows.length){const o=grid.querySelector('.dblock:nth-child(2) dl');for(const [k,v] of rows){o.append(el('dt',0,k));o.append(el('dd',0,v))}}
  if(rest.length)grid.append(block('Sonstiges',rest));
  p.append(grid,el('div','mut','Einstellungen aus der Umgebung des Containers (ohne Tokens und Webhooks).'));return p}
+const imgState={};
 async function servers(){
  const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
@@ -664,7 +675,7 @@ async function servers(){
    if(openCards.has(s.server))openCards.delete(s.server);else{openCards.add(s.server);delete infoAt[s.server]}
    await servers()};
   const mapName=(s.map||'').replace(/[.]$/,''),pic=el('div','pic');pic.append(el('span',0,mapName||'Kein Bild'));
-  if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
+  if(s.running&&s.map&&imgState[mapName]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[mapName]=='ok'?1:0;im.onload=()=>{imgState[mapName]='ok';im.style.opacity=1};im.onerror=()=>{imgState[mapName]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
   c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Neustart direkt nur bis '+d.cutoff+' Spieler; mehr Spieler oder unbekannt: nur über den Rollover'}));
   const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
   row('Spieler',s.running?(s.players==null?'?':s.players)+' / '+(s.max||'?'):'offline');
@@ -675,8 +686,12 @@ async function servers(){
   if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
   box.append(c)}
 }
+function diskWarn(k){const w=$('diskwarn');if(!k){w.hidden=true;return}
+ const gb=k.free/1e9,pct=k.free/k.total*100,low=gb<20||pct<10;w.hidden=!low;
+ w.textContent='Speicherplatz knapp: nur noch '+gb.toFixed(1)+' GB ('+pct.toFixed(0)+' %) auf der Host-Platte frei'+(gb<5?'. Leaderboards und Settings können nicht mehr schreiben.':'.');
+ w.style.borderColor=gb<5?'var(--bad)':'var(--warn)'}
 async function containers(){
- const d=await api('/api/containers'),srv=$('containers'),tl=$('tools');srv.replaceChildren();tl.replaceChildren();
+ const d=await api('/api/containers'),srv=$('containers'),tl=$('tools');srv.replaceChildren();tl.replaceChildren();diskWarn(d.disk);
  if(!d.docker){srv.append(el('div','mut','Docker-Socket nicht eingebunden (DASHBOARD_DOCKER).'));return}
  const t=$('tool');if(!t.options.length)d.containers.filter(c=>c.tool).forEach(c=>t.add(new Option(c.name)));
  const order=c=>(c.state=='running'?0:1);
@@ -843,6 +858,7 @@ let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
 function show(v){view=v;mapsAt=0;if(v=='befehle')setTimeout(()=>cmdMaps(),0);try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
  for(const s of document.querySelectorAll('section[data-v]'))s.classList.toggle('off',s.dataset.v!=v);
+ $('diskwarn').classList.toggle('off',v!='uebersicht');
  for(const b of $('nav').children)b.classList.toggle('on',b.dataset.v==v)}
 for(const [v,l] of VIEWS){const b=el('button',0,l);b.dataset.v=v;b.onclick=()=>show(v);$('nav').append(b)}
 show(view);

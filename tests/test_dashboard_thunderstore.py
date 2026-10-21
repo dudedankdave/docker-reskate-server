@@ -161,3 +161,14 @@ class LiveMapsTest(unittest.TestCase):
 
         with mock.patch.object(d, "docker_get", lambda path: archive(path.split("path=")[1])):
             self.assertEqual(d.live_maps("c1"), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
+
+
+class DiskTest(unittest.TestCase):
+    def test_disk_reports_free_space_of_the_store(self):
+        d = load()
+        with tempfile.TemporaryDirectory() as t, mock.patch.object(d, "MODS_STORE", t):
+            k = d.disk()
+        self.assertGreater(k["total"], 0)
+        self.assertLessEqual(k["free"], k["total"])
+        with mock.patch.object(d, "MODS_STORE", "/nonexistent-store"):
+            self.assertIsNone(d.disk())
