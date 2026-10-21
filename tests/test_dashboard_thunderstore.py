@@ -242,6 +242,35 @@ class UploadLayersTest(unittest.TestCase):
                 d.upload_layers("9", "{}")
 
 
+class LayersLoadedTest(unittest.TestCase):
+    def _log(self, text):
+        def tar(cid, path):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as t:
+                info = tarfile.TarInfo("ReSkateServer.log")
+                info.size = len(text.encode())
+                t.addfile(info, io.BytesIO(text.encode()))
+            buf.seek(0)
+            return tarfile.open(fileobj=buf)
+        return tar
+
+    def test_a_fresh_start_is_not_remembered_as_failed(self):
+        import datetime
+        d = load()
+        d.LAYERS_SEEN.clear()
+        fmt = "%Y-%m-%dT%H:%M:%S.0Z"
+        now = datetime.datetime.now(datetime.timezone.utc)
+        fresh = now.strftime(fmt)
+        with mock.patch.object(d, "tar_of", self._log("[2000-01-01 00:00:00] booting\n")):
+            self.assertIsNone(d.layers_loaded("c", fresh))
+        loaded = "[%s] World layers: 261 from world-layers.json.\n" % now.strftime("%Y-%m-%d %H:%M:%S")
+        with mock.patch.object(d, "tar_of", self._log(loaded)):
+            self.assertTrue(d.layers_loaded("c", fresh))
+        old = (now - datetime.timedelta(hours=1)).strftime(fmt)
+        with mock.patch.object(d, "tar_of", self._log("[2000-01-01 00:00:00] booting\n")):
+            self.assertFalse(d.layers_loaded("c2", old))
+
+
 class LayersFitTest(unittest.TestCase):
     def test_fit_compares_the_recorded_version(self):
         d = load()

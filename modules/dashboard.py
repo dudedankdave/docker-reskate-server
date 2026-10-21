@@ -37,6 +37,7 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import base64
+import datetime
 from functools import reduce
 from math import gcd
 import glob
@@ -1638,6 +1639,15 @@ def package_maps(mods, pool=()):
 
 
 LAYERS_SEEN = {}
+LAYERS_GRACE = 300         # seconds a fresh container may take before "no layers line in the log" counts as a failure
+
+
+def _age(started):
+    """Seconds since a Docker timestamp (2026-10-21T22:31:50.57Z)."""
+    try:
+        return time.time() - datetime.datetime.strptime(started[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def layers_loaded(cid, started):
@@ -1652,7 +1662,10 @@ def layers_loaded(cid, started):
         except (RuntimeError, OSError, KeyError, tarfile.TarError):
             return None
         stamps = [x[1:20] for x in text.splitlines() if "from world-layers.json" in x and x.startswith("[")]
-        LAYERS_SEEN[key] = bool(stamps) and stamps[-1] >= begin
+        seen = bool(stamps) and stamps[-1] >= begin
+        if not seen and LAYERS_GRACE > _age(started):
+            return None                    # the server has not got to that log line yet; do not remember "not loaded"
+        LAYERS_SEEN[key] = seen
     return LAYERS_SEEN[key]
 
 
