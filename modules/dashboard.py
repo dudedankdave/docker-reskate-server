@@ -809,8 +809,14 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
  put(real,[...box.childNodes])}
+const known={};
+function remember(sv,list){let m=known[sv];if(!m){m=known[sv]=new Map();try{for(const n of JSON.parse(localStorage.getItem('km'+sv)||'[]'))m.set(n.toLowerCase(),n)}catch(e){}}
+ let add=false;for(const n of list)if(typeof n=='string'&&n&&!m.has(n.toLowerCase())){m.set(n.toLowerCase(),n);add=true}
+ if(add)try{localStorage.setItem('km'+sv,JSON.stringify([...m.values()]))}catch(e){}
+ return [...m.values()].sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()))}
 function drawPool(sv,pool,av){const real=$('poollist'),box=document.createElement('div'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
- const names=[...av];for(const n of pool)if(!names.some(x=>x.toLowerCase()==n.toLowerCase()))names.push(n);
+ const names=[...av],have=new Set(names.map(x=>x.toLowerCase()));
+ for(const n of remember(sv,[...pool,...av]))if(!have.has(n.toLowerCase())){have.add(n.toLowerCase());names.push(n)}
  $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps sind erlaubt (alle Schalter an). Schaltest du eine Map aus, gilt ab dann der Pool aus den übrigen Maps.';
  for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
   const low=n.toLowerCase(),isOn=wanted(sv,'pool:'+low,all||on.has(low)),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
