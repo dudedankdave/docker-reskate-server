@@ -325,7 +325,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.mapimg{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;margin-bottom:8px;background:var(--line)}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap;display:inline-block;margin-bottom:6px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap;display:inline-block;margin-bottom:6px}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -378,13 +378,14 @@ async function servers(){
  for(const s of d.servers){
   const c=el('div','card'),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
   h.append(el('span','num','#'+s.server),el('h3',0,s.role||('Server '+s.server)));c.append(h);
-  if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(s.map);c.append(im)}
-  c.append(Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
-  c.append(el('div',0,s.running?(s.players==null?'Spieler unbekannt':s.players+'/'+(s.max||'?')+' Spieler')+' · '+(s.map||'?'):'offline'));
-  for(const [l,x] of Object.entries(s.slots||{})){
-   const [st,sk]=RULE[x.rule]||['','mut'];
-   c.append(el('div','mut','Slot '+l+': '+(x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus')));
-  }
+  const pic=el('div','pic');pic.append(el('span',0,s.map||'Kein Bild'));
+  if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(s.map);pic.append(im)}
+  c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
+  const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
+  row('Spieler',s.running?(s.players==null?'?':s.players)+' / '+(s.max||'?'):'offline');
+  row('Karte',s.running?(s.map||'?'):'–');
+  for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus');
+  c.append(dl);
   box.append(c)}
 }
 async function containers(){
