@@ -668,3 +668,78 @@ class SyncLinksTest(unittest.TestCase):
     def test_nothing_missing_nothing_planned(self):
         store = {"a-One": {"folder": "a-One-1.0.0", "names": {"one"}}}
         self.assertEqual(self.d.sync_plan(store, {"1": ["a-One-1.0.0"]}), {})
+
+
+class TeamsTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.executescript(
+            "CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT, tag TEXT, motto TEXT DEFAULT '', description TEXT DEFAULT '', logo TEXT DEFAULT '',"
+            " league TEXT DEFAULT '', category TEXT DEFAULT '', open INTEGER DEFAULT 0, created REAL DEFAULT 0);"
+            "CREATE TABLE members (steam_id TEXT PRIMARY KEY, team INT, role TEXT, joined REAL);"
+            "CREATE TABLE known (steam_id TEXT PRIMARY KEY, name TEXT, seen REAL);"
+            "CREATE TABLE invites (team INT, steam_id TEXT, at REAL);"
+            "CREATE TABLE applications (id INTEGER PRIMARY KEY, steam_id TEXT, applicant TEXT, name TEXT, tag TEXT, status TEXT, created REAL,"
+            " decided_by TEXT, decided_at REAL, message TEXT DEFAULT '');"
+            "INSERT INTO teams (id, name, tag, open) VALUES (1, 'Crew', 'crw', 1);"
+            "INSERT INTO members VALUES ('76561198000000001', 1, 'member', 2), ('76561198000000002', 1, 'owner', 1);"
+            "INSERT INTO known VALUES ('76561198000000001', 'Ann', 0), ('76561198000000002', 'Bo', 0);"
+            "INSERT INTO invites VALUES (1, '76561198000000009', 0);"
+            "INSERT INTO applications (id, steam_id, applicant, name, tag, status, created) VALUES (1, '3', 'Cy', 'New', 'NEW', 'pending', 5),"
+            " (2, '4', 'Di', 'Old', 'OLD', 'denied', 4);")
+        con.commit()
+        con.close()
+        con = sqlite3.connect(f"{self.tmp.name}/leaderboard-unranked.db")
+        con.executescript("CREATE TABLE scores (board TEXT, steam_id TEXT, points INT);"
+                          "INSERT INTO scores VALUES ('general', '76561198000000002', 30), ('general', 'name:Ann', 12), ('week-1', 'name:Ann', 99);")
+        con.commit()
+        con.close()
+        self.calls = []
+
+        def bridge(path, body=None):
+            self.calls.append((path, body))
+            return {"ok": True, "lines": ["Done."], "text": "ok"}
+        self.d.bridge = bridge
+
+    def test_snapshot_members_points_and_applications(self):
+        out = self.d.teams_snapshot()
+        team = out["teams"][0]
+        self.assertEqual((team["tag"], team["open"], team["invites"]), ("CRW", True, 1))
+        self.assertEqual([m["name"] for m in team["members"]], ["Bo", "Ann"])          # owner first
+        self.assertEqual(team["points"], {"unranked": 42, "ranked": 0})                 # a name-keyed board counts too
+        self.assertEqual([a["tag"] for a in out["pending"]], ["NEW"])
+        self.assertEqual([a["status"] for a in out["recent"]], ["denied"])
+
+    def test_no_database_is_not_an_error(self):
+        self.d.SHARED = tempfile.mkdtemp()
+        out = self.d.teams_snapshot()
+        self.assertEqual((out["exists"], out["teams"], out["pending"]), (False, [], []))
+
+    def test_actions_run_as_the_owner_through_the_bridge(self):
+        self.d.team_action({"action": "set", "team": "crw", "key": "motto", "value": "  skate  "})
+        self.d.team_action({"action": "set", "team": "CRW", "key": "open", "value": "no"})
+        self.d.team_action({"action": "kick", "team": "CRW", "player": "76561198000000001"})
+        self.d.team_action({"action": "disband", "team": "CRW"})
+        self.assertEqual([c[1]["verb"] for c in self.calls], ["set", "set", "kick", "disband"])
+        self.assertEqual(self.calls[0][1]["who"], {"steam_id": "76561198000000002", "name": "Bo"})
+        self.assertEqual(self.calls[0][1]["args"], {"key": "motto", "value": "skate"})
+        self.assertEqual(self.calls[1][1]["args"]["value"], "no")
+        self.assertEqual(self.calls[3][1]["args"], {"confirm": "yes"})
+
+    def test_decide_and_refusals(self):
+        self.d.team_action({"action": "decide", "id": 1, "accept": True})
+        self.assertEqual(self.calls[0], ("/v1/teams/decide", {"id": 1, "accept": True, "by": "dashboard"}))
+        for body in ({"action": "set", "team": "NOPE", "key": "motto", "value": "x"},
+                     {"action": "set", "team": "CRW", "key": "owner", "value": "x"},
+                     {"action": "kick", "team": "CRW", "player": "76561198999999999"},
+                     {"action": "boom", "team": "CRW"}):
+            with self.assertRaises(ValueError):
+                self.d.team_action(body)
+        self.d.bridge = lambda path, body=None: {"ok": False, "lines": ["Only the owner can remove a leader."]}
+        with self.assertRaisesRegex(ValueError, "owner can remove"):
+            self.d.team_action({"action": "kick", "team": "CRW", "player": "76561198000000001"})

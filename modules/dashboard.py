@@ -1056,6 +1056,73 @@ def lb_snapshot(league, board="general", limit=100):
             "exists": os.path.exists(path)}
 
 
+def teams_snapshot():
+    """The teams (Discord bot / bridge keep them in /shared/teams.db): profile, members with their All Time points on both
+    leagues' boards, open applications. Read-only here; changes go through the bridge (team_action)."""
+    path = f"{SHARED}/teams.db"
+    teams = db_rows(path, "SELECT id, name, tag, motto, description, logo, league, category, open, created FROM teams")
+    members = db_rows(path, "SELECT m.steam_id, m.team, m.role, m.joined, COALESCE(k.name, m.steam_id) AS name FROM members m "
+                            "LEFT JOIN known k USING (steam_id) ORDER BY m.role = 'owner' DESC, m.role = 'leader' DESC, m.joined")
+    invites = {r["team"]: r["n"] for r in db_rows(path, "SELECT team, COUNT(*) AS n FROM invites GROUP BY team")}
+    points = {league: {r["steam_id"]: r["points"] for r in db_rows(f"{SHARED}/{file}", "SELECT steam_id, points FROM scores WHERE board = 'general'")}
+              for league, file in LB_FILES.items()}
+    for t in teams:
+        t["tag"], t["open"] = t["tag"].upper(), bool(t["open"])
+        t["members"] = [m for m in members if m["team"] == t["id"]]
+        t["invites"] = invites.get(t["id"], 0)
+        t["points"] = {}
+        for league, book in points.items():
+            for m in t["members"]:       # the unranked boards know players by name when there is no Steam ID
+                m.setdefault("points", {})[league] = book.get(m["steam_id"], book.get("name:" + m["name"], 0))
+            t["points"][league] = sum(m["points"][league] for m in t["members"])
+    teams.sort(key=lambda t: (-len(t["members"]), t["name"].lower()))
+    apps = db_rows(path, "SELECT id, applicant, name, tag, status, created, decided_by, decided_at FROM applications ORDER BY id DESC LIMIT 60")
+    return {"exists": os.path.exists(path) and bool(db_rows(path, "SELECT name FROM sqlite_master WHERE name = 'teams'")), "teams": teams,
+            "pending": [a for a in reversed(apps) if a["status"] == "pending"], "recent": [a for a in apps if a["status"] != "pending"][:8]}
+
+
+TEAM_KEYS = ("tag", "open", "motto", "description", "logo", "league", "category")
+
+
+def team_action(body):
+    """{action: decide|set|kick|leader|owner|disband, ...}: an admin's side of /team. decide {id, accept} answers an
+    application. The others run the team command as the team's owner (the bridge delivers its in-game notices):
+    set {team, key, value}, kick|leader|owner {team, player (Steam ID of a member)}, disband {team}."""
+    action = str(body.get("action", ""))
+    if action == "decide":
+        result = bridge("/v1/teams/decide", {"id": int(body.get("id")), "accept": bool(body.get("accept")), "by": "dashboard"})
+        if not result.get("ok"):
+            raise ValueError(result.get("text") or "not possible")
+        return result.get("text") or "done"
+    snap = teams_snapshot()
+    tag = str(body.get("team", "")).upper()
+    team = next((t for t in snap["teams"] if t["tag"] == tag), None)
+    owner = next((m for m in (team or {}).get("members", []) if m["role"] == "owner"), None)
+    if not team or not owner:
+        raise ValueError("unknown team")
+    who, args = {"steam_id": owner["steam_id"], "name": owner["name"]}, {}
+    if action == "set":
+        key, value = str(body.get("key", "")), str(body.get("value", "")).strip()[:300]
+        if key not in TEAM_KEYS:
+            raise ValueError("unknown setting")
+        verb, args = "set", {"key": key, "value": value}
+        if key == "open":
+            args["value"] = "yes" if body.get("value") in (True, "yes", "true") else "no"
+    elif action in ("kick", "leader", "owner"):
+        player = str(body.get("player", ""))
+        if not any(m["steam_id"] == player for m in team["members"]):
+            raise ValueError("that player is not in the team")
+        verb, args = action, {"player": player}
+    elif action == "disband":
+        verb, args = "disband", {"confirm": "yes"}
+    else:
+        raise ValueError(f"unknown action {action!r}")
+    result = bridge("/v1/teams/act", {"who": who, "verb": verb, "args": args})
+    if not result.get("ok"):
+        raise ValueError((result.get("lines") or ["not possible"])[0])
+    return " ".join(result.get("lines") or ["done"])
+
+
 def demux(data):
     """Text of a Docker log stream (8-byte frame headers unless the container has a TTY)."""
     out, i = [], 0
@@ -1536,6 +1603,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
 .sv{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.sv.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.svleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.svpic{border-radius:0;margin:0;padding:0}.svtop{position:absolute;left:0;right:0;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:8px 10px 16px;background:linear-gradient(rgba(0,0,0,.78),transparent);color:#fff;text-align:left}.svtop h3{flex:1;color:#fff}.svmapname{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:18px 10px 8px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:#fff;font-size:13px;font-weight:600;text-align:left}.sv.offline .svpic{filter:grayscale(1);opacity:.6}.svbody{padding:0 12px;display:grid;gap:10px}.svstat{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}.svstat .pill{margin:0 0 0 auto}.svcount{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.svpills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.svpills .pill{margin:0}.pill.acc{color:var(--acc)}.svact{display:flex;gap:8px;flex-wrap:wrap}.svact button{flex:1 1 auto;margin:0}.svright{padding:12px 14px 14px 2px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-content:start}.svsec{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}.svsec h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.svsec .kv{margin:0}.svright .wide{grid-column:1/-1}.svcode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.svcode code,.svsec code{font:12px ui-monospace,monospace;word-break:break-all}.svrun{margin-bottom:8px}.svrun b{font-size:15px}.svraw summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:8px}@media(max-width:700px){.sv.open{display:flex}.svright{padding:0 12px 12px}}
+.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:10px;align-content:start}.tm.open{grid-column:1/-1}.tmhead{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.tmhead h3{flex:1;font-size:16px}.tmtag{color:var(--acc);font-weight:700}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts b{font-size:22px;font-variant-numeric:tabular-nums}.tmedit{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}.tmedit .crow{margin:0}.tmedit input,.tmedit select{flex:1;min-width:0;font:inherit;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -1591,6 +1659,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <section data-v="befehle"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
+<section data-v="teams"><h2>Bewerbungen</h2><div id="tmapps"></div></section>
+<section data-v="teams"><h2>Teams <span class="mut" id="tmcount"></span></h2><div class="mut" id="tmstat"></div><div class="grid" id="tmlist"></div></section>
 <section data-v="rangliste"><h2>Rangliste</h2><div class="tabs" id="lbleague"></div><div class="bar"><select id="lbboard" title="Zeitraum"></select><select id="lbmode" title="Spielmodus"></select><input id="lbfind" placeholder="Spieler oder Team suchen"><button id="lbre">Aktualisieren</button></div><div class="mut" id="lbstats"></div><div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="col"><div class="tablewrap"><table id="lbteams"></table></div><div class="tablewrap"><table id="lbrecent"></table></div></div></div></section>
 <section data-v="ansagen"><h2>Ansagen für alle Server</h2><div class="card"><div class="mut">Diese Ansagen laufen auf jedem Server, zusätzlich zu den eigenen. Das Spiel zeigt sie reihum im eingestellten Intervall.</div><div class="annlist" id="annglobal"></div><div class="crow"><input id="annnew-global" maxlength="220" placeholder="Neue Ansage für alle Server" style="flex:1;min-width:200px"><button id="annadd-global">Hinzufügen</button></div><div class="crow"><span class="mut">Standard-Intervall für alle Server</span><input id="anniv-all" type="number" min="1" max="1440" value="10" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-all">Setzen</button></div></div></section>
 <section data-v="ansagen"><h2>Ansagen pro Server <select id="annsrv"></select></h2><div class="card"><div class="mut" id="annstate"></div><div class="annlist" id="annserver"></div><div class="crow"><input id="annnew-server" maxlength="220" placeholder="Neue Ansage nur für diesen Server" style="flex:1;min-width:200px"><button id="annadd-server">Hinzufügen</button></div><div class="crow"><span class="mut">Standard-Intervall dieses Servers</span><input id="anniv-server" type="number" min="1" max="1440" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-server">Setzen</button><button id="annre">Neu anwenden</button></div><div class="mut" id="annlive"></div></div></section>
@@ -2032,11 +2102,49 @@ function lbDraw(){const d=LB.data;if(!d)return;
 $('lbboard').onchange=()=>{LB.board=$('lbboard').value;lbLoad()};
 $('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;lbLoad()};
 $('lbfind').oninput=lbDraw;$('lbre').onclick=lbLoad;
-const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen'],['rangliste','Rangliste']];
+let TM=null;const openTeams=new Set();
+const tmSay=(t,bad)=>{const e=$('tmstat');e.textContent=t;e.className=bad?'bad':'mut'};
+async function tmLoad(){try{TM=await api('/api/teams');tmDraw()}catch(e){tmSay('Fehler: '+(e.message||e),true)}}
+const tmPost=b=>post('/api/team',b).then(d=>{tmSay(d.text);return tmLoad()}).catch(e=>tmSay('Fehler: '+e.message,true));
+function tmDraw(){const d=TM;if(!d)return;
+ $('tmcount').textContent=d.exists?'('+d.teams.length+')':'';
+ const apps=$('tmapps');apps.textContent='';
+ if(!d.exists){apps.append(el('div','mut','Es gibt noch keine Teams-Datenbank. Teams laufen über den Discord-Bot und die Bridge (TEAMS=true), siehe /shared/teams.db.'))}
+ for(const a of d.pending){const r=el('div','tmapp'),w=el('div','who');w.append(el('span','tmtag','['+a.tag+']'),' '+a.name,el('div','mut','von '+a.applicant+' · '+lbFmt(a.created)));
+  const ok=el('button',0,'Annehmen'),no=el('button',0,'Ablehnen');ok.onclick=()=>armed(ok,()=>tmPost({action:'decide',id:a.id,accept:true}));no.onclick=()=>armed(no,()=>tmPost({action:'decide',id:a.id,accept:false}));
+  r.append(w,ok,no);apps.append(r)}
+ if(d.exists&&!d.pending.length)apps.append(el('div','mut','Keine offenen Bewerbungen.'));
+ if(d.recent.length){const m=el('div','mut','Zuletzt entschieden: '),st={accepted:'angenommen',denied:'abgelehnt',cancelled:'zurückgezogen'};m.append(d.recent.map(a=>'['+a.tag+'] '+a.name+' ('+(st[a.status]||a.status)+')').join(' · '));apps.append(m)}
+ const box=document.createElement('div');
+ for(const t of d.teams){const open=openTeams.has(t.tag),c=el('div','tm'+(open?' open':'')),h=el('div','tmhead');
+  h.append(el('span','tmtag','['+t.tag+']'),el('h3',0,t.name),pill(t.open?'offen':'nur Einladung',t.open?'ok':'warn'));
+  if(t.league)h.append(pill(t.league=='both'?'beide Ligen':t.league=='ranked'?'Ranked':'Unranked','acc'));if(t.category)h.append(pill(t.category,'mut'));
+  const pts=el('div','tmpts');for(const [l,n] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b',0,t.points[l]),el('div','mut',n+' · Gesamt'));pts.append(x)}
+  const mm=el('div');mm.append(el('b',0,t.members.length),el('div','mut','Mitglieder'+(t.invites?' · '+t.invites+' eingeladen':'')));pts.append(mm);
+  c.append(h);if(t.motto)c.append(el('div','mut','„'+t.motto+'“'));c.append(pts);
+  const more=el('button',0,open?'Schließen ▴':'Verwalten ▾');more.onclick=()=>{if(openTeams.has(t.tag))openTeams.delete(t.tag);else openTeams.add(t.tag);tmDraw()};c.append(more);
+  if(open)c.append(tmManage(t));box.append(c)}
+ if(d.exists&&!d.teams.length)box.append(el('div','mut','Noch keine Teams. Bewerbungen kommen aus dem Spiel mit /team apply.'));
+ $('tmlist').replaceChildren(...box.childNodes)}
+function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='12px';
+ const ed=el('div','tmedit'),field=(label,key,val,ph)=>{const r=el('div','crow'),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'?300:60;const b=el('button',0,'Speichern');b.onclick=()=>tmPost({action:'set',team:t.tag,key,value:i.value});r.append(el('span','mut',label),i,b);return r};
+ ed.append(field('Motto','motto',t.motto),field('Beschreibung','description',t.description),field('Kategorie','category',t.category,'z. B. Casual'),field('Tag','tag',t.tag),field('Logo-Link','logo',t.logo,'https://…'));
+ const lr=el('div','crow'),ls=document.createElement('select');for(const [v,l] of [['','keine Angabe'],['ranked','Ranked'],['unranked','Unranked'],['both','beide']])ls.add(new Option(l,v));ls.value=t.league||'';ls.onchange=()=>tmPost({action:'set',team:t.tag,key:'league',value:ls.value});lr.append(el('span','mut','Liga'),ls);
+ const or=el('div','crow'),ob=el('button',0,t.open?'Auf „nur Einladung“ stellen':'Für alle öffnen');ob.onclick=()=>tmPost({action:'set',team:t.tag,key:'open',value:t.open?'no':'yes'});or.append(el('span','mut','Beitritt'),ob);
+ ed.append(lr,or);w.append(ed);
+ const tw=el('div','tablewrap'),tb=el('table'),hr=el('tr');for(const [l,n] of [['Mitglied',0],['Rolle',0],['Unranked',1],['Ranked',1],['',0]])hr.append(el('th',n?'lbn':'',l));tb.append(hr);
+ const RN={owner:'Besitzer',leader:'Leader',member:'Mitglied'};
+ for(const m of t.members){const tr=el('tr'),nm=el('td',0,m.name);nm.title=m.steam_id;const act=el('td'),box=el('div','act');
+  if(m.role!='owner'){const ld=el('button',0,m.role=='leader'?'Zu Mitglied':'Zu Leader'),ow=el('button',0,'Zum Besitzer'),kk=el('button',0,'Entfernen');
+   ld.onclick=()=>tmPost({action:'leader',team:t.tag,player:m.steam_id});ow.onclick=()=>armed(ow,()=>tmPost({action:'owner',team:t.tag,player:m.steam_id}));kk.onclick=()=>armed(kk,()=>tmPost({action:'kick',team:t.tag,player:m.steam_id}));box.append(ld,ow,kk)}
+  act.append(box);tr.append(nm,el('td',0,RN[m.role]||m.role),el('td','lbn',m.points.unranked),el('td','lbn',m.points.ranked),act);tb.append(tr)}
+ tw.append(tb);w.append(tw);
+ const dr=el('div','crow'),db=el('button','danger','Team auflösen');db.onclick=()=>armed(db,()=>tmPost({action:'disband',team:t.tag}).then(()=>openTeams.delete(t.tag)));dr.append(db,el('span','mut','Entfernt das Team für alle Mitglieder. Änderungen laufen wie vom Besitzer ausgeführt, die Spieler bekommen die Meldung im Spiel.'));w.append(dr);return w}
+const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen'],['rangliste','Rangliste'],['teams','Teams']];
 let tsLoaded=false;
 let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
-function show(v){view=v;mapsAt=0;if(v=='ansagen')annLoad();if(v=='rangliste')lbLoad();if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
+function show(v){view=v;mapsAt=0;if(v=='ansagen')annLoad();if(v=='rangliste')lbLoad();if(v=='teams')tmLoad();if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
  for(const s of document.querySelectorAll('section[data-v]'))s.classList.toggle('off',s.dataset.v!=v);
  $('diskwarn').classList.toggle('off',v!='uebersicht');
  for(const b of $('nav').children)b.classList.toggle('on',b.dataset.v==v)}
@@ -2143,6 +2251,8 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/ann":
                 with ANN_LOCK:
                     return self.json(200, ann_snapshot(ann_load()))
+            if url.path == "/api/teams":
+                return self.json(200, teams_snapshot())
             if url.path == "/api/leaderboard":
                 return self.json(200, lb_snapshot(q.get("league", "unranked"), q.get("board", "general"), q.get("n", "100")))
             if url.path == "/api/serverinfo":
@@ -2279,6 +2389,23 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: announcements {body.get('action')} {body.get('scope', body.get('server', ''))}")
         self.json(200, result)
 
+    def team(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 2048)) or b"{}")
+            text = team_action(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except urllib.error.HTTPError as e:
+            return self.json(502, {"error": f"bridge: {e.code} {e.read()[:200].decode(errors='replace')}"})
+        except (RuntimeError, OSError, urllib.error.URLError) as e:
+            return self.json(502, {"error": str(e)})
+        say(f"dashboard: team {body.get('action')} {body.get('team', body.get('id', ''))} {body.get('key', body.get('player', ''))}")
+        self.json(200, {"ok": True, "text": text})
+
     def option(self):
         if not self.logged_in():
             return self.json(401, {"error": "login"})
@@ -2334,6 +2461,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.restart()
         if path == "/api/option":
             return self.option()
+        if path == "/api/team":
+            return self.team()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()
