@@ -221,3 +221,14 @@ class UploadLayersTest(unittest.TestCase):
                     d.upload_layers("4", bad)
             with self.assertRaises(ValueError):
                 d.upload_layers("9", "{}")
+
+
+class ServerMapsOnlyTest(unittest.TestCase):
+    def test_refreshing_one_server_keeps_the_others(self):
+        d = load()
+        rows = {"1": {"env": {}, "containers": []}, "2": {"env": {"MAP": "B"}, "containers": []}}
+        d.MAPS.update(at=0, rows={"1": {"map": "keep", "pool": [], "mods": [], "live": False, "available": []}})
+        with mock.patch.object(d, "server_details", return_value=rows):
+            out = d.server_maps(True, "2")
+        self.assertEqual(out["1"]["map"], "keep")
+        self.assertEqual(out["2"]["map"], "B")

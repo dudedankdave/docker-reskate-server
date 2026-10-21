@@ -564,12 +564,14 @@ def live_maps(cid):
     return str(maps.get("map") or ""), pool, mods, flags
 
 
-def server_maps(fresh=False):
+def server_maps(fresh=False, only=None):
     """Server number -> {map, pool, mods, live}; live=False falls back to the container's start-up environment."""
     if not fresh and time.time() - MAPS["at"] < 20:
         return MAPS["rows"]
-    out = {}
+    out = dict(MAPS["rows"]) if only else {}
     for number, row in server_details().items():
+        if only and number != only:
+            continue
         env = row["env"]
         split = lambda v: [x.strip() for x in v.split(",") if x.strip()]  # noqa: E731
         item = {"map": env.get("MAP", ""), "pool": split(env.get("MAP_POOL", "")), "mods": split(env.get("MODS", "")), "live": False}
@@ -582,7 +584,7 @@ def server_maps(fresh=False):
                 continue
         item["available"] = package_maps(item["mods"], item["pool"])
         out[number] = item
-    MAPS.update(at=time.time(), rows=out)
+    MAPS.update(at=time.time() if not only else MAPS["at"], rows=out)
     return out
 
 
@@ -780,7 +782,7 @@ async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textConten
  const t=await l.json();o.textContent='> '+c+'\\n'+(t.text||'(keine Log-Zeilen)');o.scrollTop=o.scrollHeight}
 let cmdAt=0;
 async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
- if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1':'')))}catch(e){}}
+ if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1&server='+encodeURIComponent(sv):'')))}catch(e){}}
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const sig=JSON.stringify(groups);if(sel.dataset.sig===sig&&sel.options.length)return;sel.dataset.sig=sig;const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
@@ -789,21 +791,30 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
-async function settle(sv,done){for(let i=0;i<6;i++){await sleep(700);delete mapsCache[sv];await cmdMaps(true);if(done(mapsCache[sv]||{}))return}}
+async function fire(c,sv){const o=$('cout');o.textContent='> '+c;
+ const r=await fetch('/api/mod',{method:'POST',headers:HDR,body:JSON.stringify({server:sv||$('csrv').value,action:'console',text:c})});
+ if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.error||r.status)}}
+const pend={},qs={};
+const wanted=(sv,k,cur)=>{const p=pend[sv+'|'+k];return p&&Date.now()-p.at<12000?p.want:cur};
+function toggle(sv,k,val,cmd,check){const key=sv+'|'+k;pend[key]={want:val,at:Date.now()};
+ const sent=(qs[sv]||Promise.resolve()).then(()=>fire(cmd,sv)).catch(e=>{delete pend[key];$('cout').textContent='Fehler: '+e.message;throw e});
+ qs[sv]=sent.catch(()=>{});
+ sent.then(async()=>{for(let i=0;i<14;i++){await sleep(i?350:200);delete mapsCache[sv];if($('csrv').value==sv)await cmdMaps(true);else Object.assign(mapsCache,await api('/api/maps?fresh=1&server='+encodeURIComponent(sv)));if(check(mapsCache[sv]||{})==val)break}
+  if(pend[key]&&pend[key].want===val)delete pend[key];if($('csrv').value==sv)await cmdMaps(true)}).catch(()=>{if($('csrv').value==sv)cmdMaps(true)})}
 const FLAGS=[['vote_map','Map-Vote','votes map on','votes map off'],['vote_kick','Kick-Vote','votes kick on','votes kick off'],['vote_tod','Zeit-Vote','votes tod on','votes tod off'],['rotation','Map-Rotation',null,'rotation off'],['layer_sync','Layer-Sync','layer-sync on','layer-sync off']];
 function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div');$('laystate').textContent=fl?'world-layers.json auf diesem Server: '+(fl.layers_file?'vorhanden':'fehlt (nötig für Layer-Sync und Zeit-Vote)'):'';
  if(!fl){box.append(el('div','mut','Zustand unbekannt (Server nicht erreichbar).'));put(real,[...box.childNodes]);return}
  if(fl.rotation>0&&[...$('crot').options].some(o=>o.value==fl.rotation))$('crot').value=fl.rotation;
- for(const [k,label,onc,offc] of FLAGS){const on=k=='rotation'?fl.rotation>0:fl[k],lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
-  cb.onchange=async()=>{cb.disabled=true;real.dataset.sig='';lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await settle(sv,x=>{const f=x.flags||{};return (k=='rotation'?f.rotation>0:f[k])==cb.checked})}finally{cb.disabled=false}};
-  lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&on?' ('+fl.rotation+' min)':'')));box.append(lb)}
+ for(const [k,label,onc,offc] of FLAGS){const cur=k=='rotation'?fl.rotation>0:fl[k],on=wanted(sv,'flag:'+k,cur),lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
+  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
+  lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
  put(real,[...box.childNodes])}
 function drawPool(sv,pool,av){const real=$('poollist'),box=document.createElement('div'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
  const names=[...av];for(const n of pool)if(!names.some(x=>x.toLowerCase()==n.toLowerCase()))names.push(n);
  $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps sind erlaubt (alle Schalter an). Schaltest du eine Map aus, gilt ab dann der Pool aus den übrigen Maps.';
  for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
-  const isOn=all||on.has(n.toLowerCase()),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
-  cb.onchange=async()=>{cb.disabled=true;real.dataset.sig='';lb.classList.toggle('on',cb.checked);try{await sendCmd('map-pool '+(cb.checked?'add ':'remove ')+n);await settle(sv,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase()),has=!p.length||p.includes(n.toLowerCase());return has==cb.checked})}finally{cb.disabled=false}};
+  const low=n.toLowerCase(),isOn=wanted(sv,'pool:'+low,all||on.has(low)),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
+  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'pool:'+low,cb.checked,'map-pool '+(cb.checked?'add ':'remove ')+n,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase());return !p.length||p.includes(low)})};
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
  if(!box.children.length)box.append(el('div','mut','Keine Treffer.'));
  put(real,[...box.childNodes])}
@@ -1029,7 +1040,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/mapname":
                 return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/maps":
-                return self.json(200, server_maps(q.get("fresh") == "1"))
+                return self.json(200, server_maps(q.get("fresh") == "1", q.get("server") or None))
             if url.path == "/api/serverinfo":
                 return self.json(200, server_info(q.get("server", "")))
             if url.path == "/api/secret":
