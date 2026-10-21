@@ -381,12 +381,90 @@ def tool_log(name, lines=60):
     return {"name": name, "log": demux(data)}
 
 
+HIDE = ("TOKEN", "WEBHOOK", "SECRET", "KEY", "PASSWORD")
+SKIP = {"PATH", "HOME", "LD_LIBRARY_PATH", "SteamAppId", "COMMANDS", "RESKATE_SERVER", "HOSTNAME"}
+DETAILS = {"at": 0, "rows": {}}
+CODES = {}           # container id -> (read at, join code)
+
+
+def join_code(cid):
+    """The server's join code: the last `Join code:` line in the log (cached for a minute)."""
+    got = CODES.get(cid)
+    if got and time.time() - got[0] < 60:
+        return got[1]
+    code = None
+    try:
+        for line in reversed(demux(docker_get(f"/containers/{cid}/logs?stdout=1&stderr=1&tail=6000")).splitlines()):
+            if "Join code: " in line:
+                code = line.split("Join code: ", 1)[1].strip().split()[0]
+                break
+    except (RuntimeError, OSError):
+        pass
+    CODES[cid] = (time.time(), code)
+    return code
+
+
+def server_details():
+    """Server number -> what its running containers say (name, password set, settings); cached for 20 s."""
+    if not DOCKER:
+        return {}
+    if time.time() - DETAILS["at"] < 20:
+        return DETAILS["rows"]
+    rows = {}
+    for c in json.loads(docker_get("/containers/json")):
+        name = c["Names"][0].lstrip("/")
+        if not name.startswith("reskate-server"):
+            continue
+        info = json.loads(docker_get(f"/containers/{c['Id']}/json"))
+        env = dict(e.partition("=")[::2] for e in info["Config"].get("Env") or [])
+        number = (info["Config"].get("Labels") or {}).get("reskate.server") or env.get("RESKATE_SERVER")
+        if not number:
+            continue
+        slot = (info["Config"].get("Labels") or {}).get("reskate.slot", "")
+        row = rows.setdefault(number, {"containers": [], "env": {}, "password": "", "name": ""})
+        row["containers"].append({"name": name, "slot": slot, "image": info["Config"].get("Image", ""),
+                                  "version": env.get("RESKATE_IMAGE_VERSION", ""), "revision": env.get("RESKATE_IMAGE_REVISION", ""),
+                                  "started": info["State"].get("StartedAt", ""), "port": env.get("PORT", ""),
+                                  "health": (info["State"].get("Health") or {}).get("Status", ""), "id": c["Id"]})
+        row["name"] = env.get("SERVER_NAME", row["name"])
+        row["password"] = env.get("SERVER_PASSWORD", "") or row["password"]
+        for k, v in env.items():
+            if k not in SKIP and not any(h in k for h in HIDE):
+                row["env"][k] = v[:200]
+    DETAILS.update(at=time.time(), rows=rows)
+    return rows
+
+
+def server_info(number):
+    row = server_details().get(str(number))
+    if not row:
+        raise ValueError("no running container for that server")
+    containers = [dict(c, code=join_code(c["id"])) for c in row["containers"]]
+    for c in containers:
+        c.pop("id")
+    return {"server": str(number), "name": row["name"], "locked": bool(row["password"]), "containers": containers,
+            "env": dict(sorted(row["env"].items()))}
+
+
+def server_secret(number):
+    row = server_details().get(str(number))
+    if not row:
+        raise ValueError("no running container for that server")
+    return {"password": row["password"]}
+
+
 def servers():
     rows = bridge("/v1/servers")
     for r in rows:
         r["rule"] = restart_rule(r.get("players")) if r.get("running") else "empty"
         for s in r.get("slots", {}).values():
             s["rule"] = restart_rule(s.get("players")) if s.get("running") else "empty"
+    try:
+        known = server_details()
+    except (RuntimeError, OSError, ValueError):
+        known = {}
+    for r in rows:
+        r["locked"] = bool(known.get(str(r["server"]), {}).get("password"))
     return {"cutoff": CUTOFF, "say": SAY and MOD, "mod": MOD, "tp": bool(TP), "servers": rows}
 
 
@@ -397,7 +475,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.bar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.bar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.bar .warn{background:var(--warn)}.bar .bad{background:var(--bad)}.bar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.bar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.bar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap;display:inline-block;margin-bottom:6px}
+.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.bar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.bar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.bar .warn{background:var(--warn)}.bar .bad{background:var(--bad)}.bar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.bar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.bar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap;display:inline-block;margin-bottom:6px}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -447,13 +525,34 @@ const $=id=>document.getElementById(id);
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const RULE={restart:["Neustart ok · ≤ 3 Spieler","ok"],rollover:["Nur per Rollover · mehr als 3 oder unbekannt","warn"],empty:["aus","mut"]};
 async function api(p){const r=await fetch(p);if(r.status==401){location.reload();throw 0}if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
+const openCards=new Set(),infoCache={},infoAt={},shown={};
+let drawTimer=0;const drawn=()=>{clearTimeout(drawTimer);drawTimer=setTimeout(()=>servers().catch(()=>{}),50)};
+function detail(s){const p=el('div','detail'),i=infoCache[s.server];
+ if(!i){p.textContent='Lade …';return p}
+ if(i.error){p.textContent='Keine Details: '+i.error;return p}
+ const dl=el('dl','kv'),row=(a,b)=>{dl.append(el('dt',0,a));const d=el('dd',0,b);dl.append(d);return d};
+ row('Servername',i.name||'–');
+ for(const c of i.containers){const lab=c.slot?' (Slot '+c.slot+')':'',d=row('Join-Code'+lab,c.code||'unbekannt');
+  if(c.code){const b=el('button',0,'Kopieren');b.style.marginLeft='8px';b.onclick=()=>{navigator.clipboard.writeText(c.code).then(()=>{b.textContent='Kopiert'},()=>{b.textContent='Markieren & Strg+C'})};d.append(b)}
+  row('Version'+lab,(c.version||'?')+(c.revision?' · '+c.revision:'')+' · Port '+(c.port||'?')+(c.health?' · '+c.health:''));
+  row('Gestartet'+lab,c.started?new Date(c.started).toLocaleString():'?')}
+ p.append(dl);
+ const st=el('div','mut','Einstellungen (Umgebung des Containers, ohne Tokens und Webhooks)'),box=el('dl','kv set');
+ for(const [k,v] of Object.entries(i.env)){box.append(el('dt',0,k),el('dd',0,v||'(leer)'))}
+ p.append(st,box);return p}
 async function servers(){
  const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
  tabs(d);mod(d);
  for(const s of d.servers){
-  const c=el('div','card'),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
-  h.append(el('span','num','#'+s.server),el('h3',0,s.role||('Server '+s.server)));c.append(h);
+  const c=el('div','card srv'+(openCards.has(s.server)?' open':'')),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
+  h.append(el('span','num','#'+s.server),el('h3',0,s.role||('Server '+s.server)));
+  if(s.locked){const sh=shown[s.server],on=sh&&sh.until>Date.now(),lk=el('button','lock',on?'🔓 '+sh.pw:'🔒');lk.title=on?'Passwort (verschwindet nach 15 s)':'Passwortgeschützt, Klick zeigt das Passwort';
+   lk.onclick=async e=>{e.stopPropagation();try{const d=await api('/api/secret?server='+s.server);shown[s.server]={pw:d.pw||d.password||'(leer)',until:Date.now()+15000};servers()}catch(x){lk.title='Fehler: '+x.message}};h.append(lk)}
+  c.append(h);
+  c.onclick=async e=>{if(e.target.closest('button,a,input,.detail'))return;
+   if(openCards.has(s.server))openCards.delete(s.server);else{openCards.add(s.server);delete infoAt[s.server]}
+   await servers()};
   const pic=el('div','pic');pic.append(el('span',0,s.map||'Kein Bild'));
   if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(s.map);pic.append(im)}
   c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
@@ -463,6 +562,7 @@ async function servers(){
   row('Karte',s.running?(s.map||'?'):'–');
   for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus');
   c.append(dl);
+  if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();api('/api/serverinfo?server='+s.server).then(i=>{infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
   box.append(c)}
 }
 async function containers(){
@@ -674,6 +774,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=86400")])
             if url.path == "/api/mapname":
                 return self.json(200, {"names": store_names(q.get("package", ""))})
+            if url.path == "/api/serverinfo":
+                return self.json(200, server_info(q.get("server", "")))
+            if url.path == "/api/secret":
+                if self.headers.get("X-Requested-With") != "dashboard" or not MOD:
+                    return self.json(403, {"error": "forbidden"})
+                say(f"dashboard: password of server {q.get('server', '')} shown")
+                return self.json(200, server_secret(q.get("server", "")))
             if url.path == "/api/players":
                 return self.json(200, players() if MOD else [])
             if url.path == "/api/containers":

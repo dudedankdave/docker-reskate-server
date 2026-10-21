@@ -67,5 +67,37 @@ class ThunderstoreTest(unittest.TestCase):
                 self.d.store_names("../etc")
 
 
+class ServerDetailsTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.d.DOCKER = "/fake.sock"
+        self.d.DETAILS.update(at=0, rows={})
+        self.d.CODES.clear()
+
+    def docker(self, path):
+        if path == "/containers/json":
+            return json.dumps([{"Id": "c1", "Names": ["/reskate-server-test"]}, {"Id": "c2", "Names": ["/reskate-bot"]}]).encode()
+        if path == "/containers/c1/json":
+            env = ["RESKATE_SERVER=9", "SERVER_NAME=[TEST] Test", "SERVER_PASSWORD=!420", "STEAM_TOKEN=abc",
+                   "WEBHOOK_URL_admin=https://hook", "PORT=12490", "MAP=Tampa", "PATH=/bin"]
+            return json.dumps({"Config": {"Env": env, "Labels": {}, "Image": "img"},
+                               "State": {"StartedAt": "2026-10-21T00:00:00Z", "Health": {"Status": "healthy"}}}).encode()
+        if path.startswith("/containers/c1/logs"):
+            return b"Join code: 1234-abcd\n[x] Join code: 9999-ffff trailing\n"
+        raise AssertionError(path)
+
+    def test_details_hide_secrets_and_find_code(self):
+        with mock.patch.object(self.d, "docker_get", self.docker):
+            info = self.d.server_info("9")
+            self.assertTrue(info["locked"])
+            self.assertEqual(info["name"], "[TEST] Test")
+            self.assertEqual(info["containers"][0]["code"], "9999-ffff")
+            self.assertEqual(info["env"], {"MAP": "Tampa", "PORT": "12490", "SERVER_NAME": "[TEST] Test"})
+            self.assertNotIn("!420", json.dumps(info))
+            self.assertEqual(self.d.server_secret("9"), {"password": "!420"})
+            with self.assertRaises(ValueError):
+                self.d.server_info("1")
+
+
 if __name__ == "__main__":
     unittest.main()
