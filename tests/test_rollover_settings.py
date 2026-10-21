@@ -110,6 +110,13 @@ class RestartTest(unittest.TestCase):
         self.assertTrue(ro.lacks_mounts({}, Info({}, ["/data"])))
         self.assertEqual(ro.missing_mounts({"repair_mods": False}, Info({}, ["/data"])), [])
 
+    def test_missing_console(self):
+        inst = Info({}, ["/data", "/mods", "/shared"])
+        inst.info["Config"] = {"OpenStdin": False}
+        self.assertEqual(self.ro.missing_mounts({}, inst), ["a console"])
+        inst.info["Config"] = {"OpenStdin": True}
+        self.assertFalse(self.ro.lacks_mounts({}, inst))
+
 
 if __name__ == "__main__":
     unittest.main()
