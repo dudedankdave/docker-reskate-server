@@ -1822,12 +1822,12 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="col">
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
 <div id="copts" class="flags"></div>
+<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div id="copts2"></div>
 <div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
 <div class="crow"><label class="chk"><input type="checkbox" id="persist"> Dauerhaft speichern (überlebt den Neustart des Servers)</label></div>
 <div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
 <div class="mut" id="opthint"></div>
-<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
 </div>
 </div>
