@@ -1095,6 +1095,7 @@ PW_FILE = f"{SHARED}/passwords.json"
 PW_LOCK = threading.Lock()
 RANKED_ON = ("tuning on", "score-check kick", "speed-check kick")
 RANKED_OFF = ("score-check warn", "speed-check warn")
+CHECKS = {"score": "score-check", "speed": "speed-check", "board": "board-check"}
 
 
 def pw_memory(number, word=None):
@@ -1117,7 +1118,8 @@ def pw_memory(number, word=None):
 def server_option(body):
     """{server, slot?, action: password|lock|unlock|ranked, value}: the server options that change live through the console.
     password sets one (and remembers it), unlock clears it (remembering it), lock puts the remembered one back. ranked
-    on/off sets the three checks a ranked server needs (physics forced, score and speed check on kick; off = warn).
+    on/off sets the three checks a ranked server needs (physics forced, score and speed check on kick; off = warn);
+    tuning on/off, score|speed|board with value off|warn|kick set each of them alone.
     None of it survives a restart: the container's own settings are applied again then."""
     number, action, slot = str(body.get("server", "")), str(body.get("action", "")), str(body.get("slot") or "")
     DETAILS["at"] = 0
@@ -1145,6 +1147,13 @@ def server_option(body):
         commands = [f"password {word}"]
     elif action == "ranked":
         commands = list(RANKED_ON if body.get("on") else RANKED_OFF)
+    elif action == "tuning":
+        commands = ["tuning on" if body.get("on") else "tuning off"]
+    elif action in CHECKS:
+        value = str(body.get("value", ""))
+        if value not in ("off", "warn", "kick"):
+            raise ValueError("a check is off, warn or kick")
+        commands = [f"{CHECKS[action]} {value}"]
     else:
         raise ValueError(f"unknown action {action!r}")
     for command in commands:
@@ -1227,7 +1236,8 @@ def live_maps(cid, version="", started=""):
              "rotation": int(maps.get("rotation_minutes") or 0), "layer_sync": bool(maps.get("world_layer_sync"))}
     guard = config.get("anti_cheat") or {}
     flags.update(locked=bool((config.get("server") or {}).get("password")), enforce_tuning=guard.get("enforce_tuning") is not False,
-                 score_check=str(guard.get("modified_scoring") or ""), speed_check=str(guard.get("speed_hack") or ""))
+                 score_check=str(guard.get("modified_scoring") or ""), speed_check=str(guard.get("speed_hack") or ""),
+                 board_check=str(guard.get("pinned_board") or ""))
     flags["ranked"] = flags["enforce_tuning"] and flags["score_check"] == "kick" and flags["speed_check"] == "kick"
     try:
         with tar_of(cid, "/data/world-layers.json") as t:
@@ -1368,6 +1378,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="col">
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
 <div id="copts" class="flags"></div>
+<div id="copts2"></div>
 <div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
 <div class="mut" id="opthint"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
@@ -1564,8 +1575,18 @@ function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div')
   const cur=!!fl[k],on=wanted(sv,'opt:'+k,cur),lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;lb.title=tip;
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'opt:'+k,cb.checked,()=>optBody(sv,body(cb.checked)),x=>!!(x.flags||{})[k])};
   lb.append(cb,el('span','sw'),el('span','tn',label));box.append(lb)}
+ const tl=wanted(sv,'opt:tuning',fl.enforce_tuning),tb=el('label','tgl'+(tl?' on':'')),tc=document.createElement('input');tc.type='checkbox';tc.checked=tl;tb.title='Ein: alle spielen mit der Standard-Physik des Spiels. Aus: Spieler dürfen ihre eigene Physik-Einstellung nutzen (dann zählt niemand als Ranked).';
+ tc.onchange=()=>{tb.classList.toggle('on',tc.checked);toggle(sv,'opt:tuning',tc.checked,()=>optBody(sv,{action:'tuning',on:tc.checked}),x=>!!(x.flags||{}).enforce_tuning)};
+ tb.append(tc,el('span','sw'),el('span','tn','Physik erzwungen'));box.append(tb);
  put(real,[...box.childNodes]);
- $('opthint').textContent='Physik '+(fl.enforce_tuning?'erzwungen':'frei')+' · Score-Check '+(fl.score_check||'?')+' · Speed-Check '+(fl.speed_check||'?')+'. Gilt bis zum nächsten Neustart des Servers, danach zählen wieder die Einstellungen des Containers. Ob Punkte in die Unranked- oder Ranked-Liste gehen, wird beim Start festgelegt.'}
+ const cs=$('copts2'),rows=document.createElement('div');
+ for(const [k,label,key,tip] of [['score','Score-Check','score_check','Spieler mit Mods, die die Punkte verändern'],['speed','Speed-Check','speed_check','Spieler mit beschleunigtem Spiel'],['board','Board-Check','board_check','Spieler mit angepinntem Board']]){
+  const cur=fl[key]||'',val=wanted(sv,'opt:'+k,cur),row=el('div','crow'),sel=document.createElement('select');row.dataset.v=val;
+  for(const o of ['off','warn','kick'])sel.add(new Option(o,o));sel.value=val;sel.title=tip+': off = ignorieren, warn = nur melden, kick = rauswerfen';
+  sel.onchange=()=>toggle(sv,'opt:'+k,sel.value,()=>optBody(sv,{action:k,value:sel.value}),x=>(x.flags||{})[key]);
+  row.append(el('span','mut',label),sel);rows.append(row)}
+ put(cs,[...rows.childNodes]);
+ $('opthint').textContent='Gilt bis zum nächsten Neustart des Servers, danach zählen wieder die Einstellungen des Containers. Ob Punkte in die Unranked- oder Ranked-Liste gehen, wird beim Start festgelegt.'}
 $('pwset').onclick=async()=>{const sv=$('csrv').value,w=$('pwnew').value.trim();if(!sv||!w)return;
  try{await optBody(sv,{action:'password',value:w});$('pwnew').value='';tprint('Passwort von Server '+sv+' gesetzt');await sleep(600);await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 let POOLS=null;

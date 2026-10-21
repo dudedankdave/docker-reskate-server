@@ -181,7 +181,7 @@ class LiveMapsTest(unittest.TestCase):
             map_, pool, mods, flags = d.live_maps("c1")
             self.assertEqual((map_, pool, mods), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
             self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False, "layers_file": False, "layers_fit": "missing",
-                                     "locked": True, "enforce_tuning": True, "score_check": "", "speed_check": "", "ranked": False})
+                                     "locked": True, "enforce_tuning": True, "score_check": "", "speed_check": "", "board_check": "", "ranked": False})
 
 
 class DiskTest(unittest.TestCase):
@@ -568,6 +568,15 @@ class ServerOptionTest(unittest.TestCase):
         self.sent.clear()
         self.d.server_option({"server": "1", "action": "ranked", "on": False})
         self.assertEqual(self.sent, ["score-check warn", "speed-check warn"])
+
+    def test_single_checks_and_tuning(self):
+        self.d.server_option({"server": "1", "action": "tuning", "on": False})
+        self.d.server_option({"server": "1", "action": "score", "value": "kick"})
+        self.d.server_option({"server": "1", "action": "speed", "value": "off"})
+        self.d.server_option({"server": "1", "action": "board", "value": "warn"})
+        self.assertEqual(self.sent, ["tuning off", "score-check kick", "speed-check off", "board-check warn"])
+        with self.assertRaises(ValueError):
+            self.d.server_option({"server": "1", "action": "score", "value": "ban"})
 
     def test_unknown_server_action_and_slots(self):
         with self.assertRaises(ValueError):
