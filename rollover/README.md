@@ -36,7 +36,11 @@ server) turns this off; servers with `MODS_UPDATE=false` or pinned entries are n
 
 **Shared map store:** every container the rollover creates (copies, in-place replacements, map-update copies) gets the volume `MODS_VOLUME` at `/mods` (default `reskate-mods`; env var, or `mods_volume` in `servers.json`, globally or per server; `off` leaves it out). Servers share one download of each map version (see the main README); a server started without `/mods` can crash-loop on current images. A copy keeps its predecessor's map version available there until `mods.py gc` removes it. The existing servers need the same mount added once, the next time they are recreated.
 
-**Repair:** a server that is up to date but runs without the shared map volume is recreated (named `<name>-r<MMDDHHMM>`, same image and settings, plus `/mods`) once nobody at all is on it. It never waits for a cutoff and never kicks anyone; `repair_mods: false` (globally or per server) turns it off.
+**Repair:** a server that is up to date but lacks a standard mount (the shared map volume at `/mods`, or the `shared_volume` at `/shared` when one is set) is recreated (named `<name>-r<MMDDHHMM>`, same image and settings, plus the mounts) once at most `restart_max_players` are on it. `repair_mods: false` (globally or per server) turns it off. With the same mounts on every server, a later config change never needs a recreate.
+
+**Restarts without a version change** (settings the console cannot take, a repair, a restart request) happen once at most `restart_max_players` (env `RESTART_MAX_PLAYERS`, globally or per server, default `3`) are on the server; `0` means only when empty. Those players reconnect after the restart.
+
+**Restart request:** touching `/shared/settings/.restart/server-<n>` (the dashboard does this) restarts that server once, under the same player limit, if the file is newer than the server's start. Nothing else is needed for a same-version restart, and no second copy is started.
 
 **Waiting for the image:** a ReSkate release is announced before its Docker Hub image is built. The rollover waits up to `IMAGE_WAIT_MINUTES` (`image_wait_minutes`, default `60`) for `<image>:<version>` to exist before it updates or starts anything for that release; after that it goes on with the current image and the release installed into the volume. Map updates don't wait.
 
