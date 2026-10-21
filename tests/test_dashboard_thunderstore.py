@@ -1,7 +1,9 @@
+import io
 import importlib.util
 import json
 import os
 import pathlib
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -162,7 +164,7 @@ class LiveMapsTest(unittest.TestCase):
         with mock.patch.object(d, "docker_get", lambda path: archive(path.split("path=")[1])):
             map_, pool, mods, flags = d.live_maps("c1")
             self.assertEqual((map_, pool, mods), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
-            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False, "layers_file": False})
+            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False, "layers_file": False, "layers_fit": "missing"})
 
 
 class DiskTest(unittest.TestCase):
@@ -212,15 +214,33 @@ class UploadLayersTest(unittest.TestCase):
         with mock.patch.object(d, "server_details", return_value=rows), \
                 mock.patch.object(d, "docker_put_file", lambda cid, folder, name, data: sent.append((cid, folder, name))):
             d.upload_layers("4", '{"layers": []}')
-            self.assertEqual(sent, [("c4", "/data", "world-layers.json")])
+            self.assertEqual(sent, [("c4", "/data", "world-layers.json"), ("c4", "/data", "world-layers.version")])
             sent.clear()
             d.upload_layers("*", "[]")
-            self.assertEqual(len(sent), 3)
+            self.assertEqual(len(sent), 6)
             for bad in ("nope", "3", '"text"'):
                 with self.assertRaises(ValueError):
                     d.upload_layers("4", bad)
             with self.assertRaises(ValueError):
                 d.upload_layers("9", "{}")
+
+
+class LayersFitTest(unittest.TestCase):
+    def test_fit_compares_the_recorded_version(self):
+        d = load()
+        for recorded, want in (("2.1.1", "ok"), ("2.0.9", "old"), (None, "unknown")):
+            def tar(cid, path, recorded=recorded):
+                if recorded is None:
+                    raise RuntimeError("missing")
+                buf = io.BytesIO()
+                with tarfile.open(fileobj=buf, mode="w") as t:
+                    info = tarfile.TarInfo("world-layers.version")
+                    info.size = len(recorded)
+                    t.addfile(info, io.BytesIO(recorded.encode()))
+                buf.seek(0)
+                return tarfile.open(fileobj=buf)
+            with mock.patch.object(d, "tar_of", tar):
+                self.assertEqual(d.layers_fit("c", "2.1.1"), want)
 
 
 class ServerMapsOnlyTest(unittest.TestCase):
