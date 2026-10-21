@@ -1815,7 +1815,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="bar"><select id="csrv"></select></div>
 <div class="cmdstack">
 <div class="toprow">
-<div class="card" id="mapcard"><h3>Läuft gerade</h3><div class="pic" id="mappic"></div><div class="mut" id="mapinfo"></div></div>
+<div class="sv" id="mapcard"></div>
 <div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div></div>
 </div>
 <div class="twocol">
@@ -1955,10 +1955,11 @@ function restartDialog(s0){
  no.onclick=close;ov.onclick=e=>{if(e.target==ov)close()};
  row.append(pick,no,go);box.append(head,count,info,warn,chk,out,row);ov.append(box);document.body.append(ov);
  draw();refresh();timer=setInterval(refresh,3000)}
+let lastServers=[];
 async function servers(){
  const d=await api('/api/servers'),real=$('servers'),box=document.createElement('div');
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
- tabs(d);mod(d);
+ tabs(d);mod(d);lastServers=d.servers;
  if(Date.now()-cardMapsAt>25000){cardMapsAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'))}catch(e){}}
  for(const s of d.servers)box.append(svCard(s,d))
  put(real,[...box.childNodes])
@@ -2013,10 +2014,22 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
  fillSel($('cmap'),[['Im Pool',pool],['Installiert, nicht im Pool',rest]]);drawPool(sv);drawFlags(sv,x.flags);
  drawMapCard((x.map||'').replace(/[.]$/,''),pool.length,av.length)}
-function drawMapCard(name,np,na){const pic=$('mappic'),sig=name;
- if(pic.dataset.name!=sig){pic.dataset.name=sig;pic.replaceChildren(el('span',0,name||'?'));
-  if(name&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}}
- $('mapinfo').textContent=(name||'Karte unbekannt')+' · Pool: '+(np||'alle')+' · installiert: '+na}
+function drawMapCard(name,np,na){const sv=$('csrv').value,card=$('mapcard'),s=(lastServers.find(x=>x.server==sv))||{server:sv,running:true},mx=mapsCache[sv]||{},fl=mx.flags||{};
+ const sig=sv+'|'+name+'|'+(s.role||'')+'|'+(s.running?1:0)+'|'+(s.locked?1:0);
+ if(card.dataset.sig!=sig){card.dataset.sig=sig;card.classList.toggle('offline',s.running===false);
+  const pic=el('div','pic svpic');pic.append(el('span',0,name||'Kein Bild'));
+  if(name&&s.running!==false&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}
+  const top=el('div','svtop');top.append(el('span','num','#'+sv),el('h3',0,s.role||('Server '+sv)));
+  pic.append(top,Object.assign(el('div','svmapname'),{textContent:s.running===false?'offline':(name||'?')}));
+  const body=el('div','svbody');body.id='mapbody';card.replaceChildren(el('div','svleft'));card.firstChild.append(pic,body)}
+ const body=$('mapbody'),cnt=s.running===false?null:(s.online!=null?s.online:s.players),stat=el('div','svstat');
+ stat.append(el('span','svcount',s.running===false?'–':(cnt==null?'?':cnt)),el('span','mut','/ '+(s.running===false?'?':(s.max||'?'))+' Spieler'),pill('Läuft gerade','ok'));
+ const kids=[stat];
+ if(s.running!==false&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,cnt?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';kids.push(bar)}
+ const badges=el('div','svpills');badges.append(pill('Pool: '+(np||'alle'),'acc'),pill('installiert: '+na,'mut'));
+ if(mx.league)badges.append(pill(mx.league=='ranked'?'Ranked-Liga':'Unranked-Liga','acc'));
+ if(fl.ranked)badges.append(pill('Ranked-Modus','ok'));
+ kids.push(badges);put(body,kids)}
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
