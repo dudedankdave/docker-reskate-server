@@ -1816,7 +1816,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="cmdstack">
 <div class="toprow">
 <div class="card" id="mapcard"><h3>Läuft gerade</h3><div class="pic" id="mappic"></div><div class="mut" id="mapinfo"></div></div>
-<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div><div class="mut">Das Terminal zeigt das laufende Log des gewählten Servers. Befehle wirken sofort; nach einem Neustart gelten wieder die Einstellungen des Servers.</div></div>
+<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div></div>
 </div>
 <div class="twocol">
 <div class="col">
