@@ -21,6 +21,13 @@ With image_updates on, a newer build of the image for the same ReSkate version (
 <version>-r<n> on Docker Hub, RESKATE_IMAGE_REVISION in the image) replaces a server in its own
 slot once nobody is on it: image changes are never worth disconnecting anyone.
 
+A restart that changes no version (settings the console cannot take, a missing mount or console, a restart request)
+happens once at most restart_max_players (default 3) are on it; those players are reconnected by the
+restart, nobody else is touched. restart_max_players: 0 means only when empty.
+
+A restart can be asked for without any change: touching /shared/settings/.restart/server-<n> (the
+dashboard does) restarts that server the same way, once, if the file is newer than the server's start.
+
 The copy is a clone of the running container (env, mounts, restart policy) with the slot's
 ports, token, volume and a new SERVER_NAME. If Docker Hub has an image tag for the release it
 runs that; otherwise it runs the current image with the release installed into its volume
@@ -301,9 +308,11 @@ class Rollover:
             return self.roll(number, server, newest, live, instances, latest, what, f"back:{latest}", back=True)
         if len(live) > 1 or not newest.healthy or newest.name in self.protect:
             return                                     # mid-rollover: one change at a time
-        if self.lacks_mods(server, newest):
+        if self.lacks_mounts(server, newest):
             return self.repair(number, server, newest, instances)
         if self.settings_changed(number, server, newest):
+            return
+        if self.restart_requested(number, server, newest):
             return
         if self.image_update(number, server, newest, instances):
             return
@@ -358,23 +367,43 @@ class Rollover:
         volume = str(setting(self.cfg, server, "shared_volume", ""))
         return "" if volume.lower() in ("", "off", "none", "false") else volume
 
-    def lacks_mods(self, server, inst):
-        """True when the shared map volume should be at /mods on this container but isn't."""
-        if not self.mods_volume(server) or not setting(self.cfg, server, "repair_mods", True):
+    def missing_mounts(self, server, inst):
+        """What the config wants on this container but it lacks: the destinations /mods and /shared,
+        and "a console" when it runs without stdin (the bridge sends console commands through it)."""
+        if not setting(self.cfg, server, "repair_mods", True):
+            return []
+        have = [m.get("Destination") for m in inst.info.get("Mounts") or []]
+        lacking = [dest for dest, volume in (("/mods", self.mods_volume(server)), ("/shared", self.shared_volume(server)))
+                   if volume and dest not in have]
+        if not (inst.info.get("Config") or {}).get("OpenStdin", True):
+            lacking.append("a console")
+        return lacking
+
+    def lacks_mounts(self, server, inst):
+        """True when the shared map volume (/mods) or the shared volume (/shared) should be on this
+        container but isn't, or it has no console. A server with every standard mount and a console
+        never needs a recreate for one."""
+        return bool(self.missing_mounts(server, inst))
+
+    def few_enough(self, server, inst):
+        """True when at most restart_max_players (default 3) are on the server, a restart is fine.
+        A server whose players can't be counted counts as busy."""
+        try:
+            count = players(inst.info)
+        except Exception as e:
+            say(f"{inst.name}: could not count players ({e}), treating it as busy")
             return False
-        mounts = [m.get("Destination") for m in inst.info.get("Mounts") or []]
-        return "/mods" not in mounts
+        return count <= int(setting(self.cfg, server, "restart_max_players", 3))
 
     def repair(self, number, server, inst, instances):
-        """Recreate an up-to-date server that runs without /mods, but only while nobody is on it
-        (no cutoff here: the repair is not urgent, so it never disconnects anyone)."""
-        count = players(inst.info)
-        if count:
-            return self.once(("repair-wait", inst.name, count // 10),
-                             f"Server {number}: {inst.name} runs without the shared map volume, "
-                             f"{count} player(s) on it; recreating it once it is empty.")
-        self.start_copy(number, server, inst, inst.slot, inst.version, 0, instances,
-                        "the shared map volume is not mounted", suffix=time.strftime("-r%m%d%H%M", time.gmtime()))
+        """Recreate an up-to-date server that lacks a standard mount, once at most
+        restart_max_players are on it (a repair is not urgent, so it waits for that)."""
+        lacking = ", ".join(self.missing_mounts(server, inst))
+        if not self.few_enough(server, inst):
+            return self.once(("repair-wait", inst.name), f"Server {number}: {inst.name} runs without {lacking}, "
+                                                         "recreating it once few enough players are on it.")
+        self.start_copy(number, server, inst, inst.slot, inst.version, players(inst.info), instances,
+                        f"{lacking} is not mounted", suffix=time.strftime("-r%m%d%H%M", time.gmtime()))
 
     def image_ready(self, version):
         """True once <image>:<version> is on Docker Hub. A release is announced before its image
@@ -433,11 +462,28 @@ class Rollover:
         want = settings.restart_digest(values) if kind == "restart-digest" else settings.digest(values)
         if started[-1] == want:
             return False
-        if self.empty_for(inst) <= 0:
+        if not self.few_enough(server, inst):
             self.once(("settings-wait", inst.name, want),
-                      f"Server {number}: its settings changed, restarting {inst.name} once nobody is on it.")
+                      f"Server {number}: its settings changed, restarting {inst.name} once few enough players are on it.")
             return True
-        self.restart(inst, f"Server {number}: its settings changed, nobody is on {inst.name}, restarting it")
+        self.restart(inst, f"Server {number}: its settings changed, few players on {inst.name}, restarting it")
+        return True
+
+    def restart_requested(self, number, server, inst):
+        """Restart once when /shared/settings/.restart/server-<n> is newer than the server's start
+        (a restart without a settings change, e.g. asked for in the dashboard). True while pending."""
+        folder = str(setting(self.cfg, server, "settings_dir", "/shared/settings"))
+        try:
+            asked = os.stat(os.path.join(folder, ".restart", f"server-{number}")).st_mtime
+        except OSError:
+            return False
+        if asked <= started_at(inst.info):
+            return False
+        if not self.few_enough(server, inst):
+            self.once(("restart-wait", inst.name, asked),
+                      f"Server {number}: a restart was requested, restarting {inst.name} once few enough players are on it.")
+            return True
+        self.restart(inst, f"Server {number}: a restart was requested, restarting {inst.name}")
         return True
 
     def settings_live(self, number):
@@ -524,7 +570,8 @@ class Rollover:
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
         install = not tag and not suffix and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
         in_place = slot == old.slot
-        how = (f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
+        how = (f"{count} player(s) on {old.name}, replacing it in slot {slot.upper()}" if in_place and count else
+               f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
                f"{count} player(s) on {old.name} ({old.version}), starting a copy in slot {slot.upper()}")
         self.notify(f"Server {number}: {what}, {how}: {name} on ports {s['port']}/{s['query_port']}, "
                     f"image {image}" + (" + release installed into its volume" if install else "")
@@ -560,7 +607,6 @@ class Rollover:
                 if without.get(k) == have[k]:       # not one a KEY+= builds on
                     env.pop(k)
         host = old.info["HostConfig"]
-        cfg = old.info["Config"]
         # shared map/mod store at /mods on every container we create (a server without it can crash-loop);
         # "off" leaves it out
         mods_volume = self.mods_volume(server)
@@ -568,7 +614,8 @@ class Rollover:
         body = {
             "Image": image,
             "Env": [f"{k}={v}" for k, v in env.items()],
-            "Tty": cfg.get("Tty", True), "OpenStdin": cfg.get("OpenStdin", True), "StdinOnce": False,
+            # always a console: the bridge sends commands through stdin, a copy must not inherit a server without one
+            "Tty": True, "OpenStdin": True, "StdinOnce": False,
             "Labels": {LABEL: "true", "reskate.server": str(number), "reskate.slot": slot, "reskate.version": version,
                        "reskate.generation": str(int(time.time()))},
             "HostConfig": {
