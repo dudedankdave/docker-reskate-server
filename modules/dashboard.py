@@ -377,13 +377,13 @@ def players():
 
 
 class Unix(http.client.HTTPConnection):
-    def __init__(self, path):
-        super().__init__("docker", timeout=10)
+    def __init__(self, path, timeout=10):
+        super().__init__("docker", timeout=timeout)
         self.path = path
 
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.settimeout(10)
+        self.sock.settimeout(self.timeout)
         self.sock.connect(self.path)
 
 
@@ -414,6 +414,19 @@ def docker_put_tar(cid, directory, fill):
         resp = conn.getresponse()
         resp.read()
         if resp.status != 200:
+            raise RuntimeError(f"docker {resp.status}")
+    finally:
+        conn.close()
+
+
+def docker_restart(cid, grace=20):
+    """POST /containers/<id>/restart: the one other write the dashboard sends to the socket (see restart_server)."""
+    conn = Unix(DOCKER, timeout=grace + 40)
+    try:
+        conn.request("POST", f"/v1.41/containers/{cid}/restart?t={int(grace)}")
+        resp = conn.getresponse()
+        resp.read()
+        if resp.status != 204:
             raise RuntimeError(f"docker {resp.status}")
     finally:
         conn.close()
@@ -1042,6 +1055,36 @@ def server_details():
     return rows
 
 
+def restart_server(body):
+    """{server, slot?, force?, players?}: restart that server's container through Docker. Allowed up to CUTOFF players;
+    with more (or an unknown count) only with force=true and `players` equal to the count right now, so a button
+    pressed on a stale page cannot kick a crowd that arrived in the meantime."""
+    number, slot = str(body.get("server", "")), str(body.get("slot", "") or "")
+    DETAILS["at"] = 0
+    known = server_details().get(number)
+    if not known:
+        raise ValueError("unknown server or not running")
+    row = next((r for r in bridge("/v1/servers") if str(r.get("server")) == number), {})
+    if slot:
+        mine = [c for c in known["containers"] if c["slot"] == slot]
+    else:
+        mine = list(known["containers"])
+    if not mine:
+        raise ValueError("that slot is not running")
+    if len(mine) > 1:
+        raise ValueError("this server runs in several slots; say which one")
+    players = ((row.get("slots") or {}).get(mine[0]["slot"]) or row).get("players")
+    if restart_rule(players) != "restart":
+        if not body.get("force"):
+            raise ValueError(f"{players if players is not None else 'unknown number of'} players are online; "
+                             f"restarts are only allowed up to {CUTOFF} (or force it)")
+        if body.get("players") != players:
+            raise ValueError(f"the player count changed to {players if players is not None else 'unknown'}; confirm again")
+    docker_restart(mine[0]["id"])
+    DETAILS["at"] = 0
+    return {"ok": True, "container": mine[0]["name"], "players": players, "forced": restart_rule(players) != "restart"}
+
+
 MAPS = {"at": 0, "rows": {}}
 
 
@@ -1215,6 +1258,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.tabs button.on{border-color:var(--acc);color:var(--acc)}
 #sayform{display:flex;gap:8px;margin-top:8px}#sayform input{flex:1;min-width:0;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -1303,6 +1347,32 @@ function detail(s){const p=el('div','detail'),i=infoCache[s.server];
  p.append(grid,el('div','mut','Einstellungen aus der Umgebung des Containers (ohne Tokens und Webhooks).'));return p}
 const imgState={};
 function put(real,nodes){const t=document.createElement('div');t.append(...nodes);const sig=t.innerHTML;if(real.dataset.sig===sig)return;real.dataset.sig=sig;const y=scrollY;real.replaceChildren(...t.childNodes);if(scrollY!=y)scrollTo(0,y)}
+function restartDialog(s0){
+ const ov=el('div','modal'),box=el('div','card mbox'),slots=Object.entries(s0.slots||{}).filter(x=>x[1].running).map(x=>x[0]);
+ let cur=s0,slot=slots[0]||'',timer=0,done=false;
+ const close=()=>{clearInterval(timer);ov.remove();servers()};
+ const head=el('h3',0,'Server '+s0.server+' '+(s0.role||'')+' neu starten'),count=el('div','big'),info=el('div','mut'),warn=el('div','bad'),
+  chk=el('label','chk'),cb=document.createElement('input'),out=el('div','mut'),go=el('button','danger','Jetzt neu starten'),no=el('button',0,'Abbrechen'),row=el('div','crow');
+ cb.type='checkbox';chk.append(cb,el('span',0,''));
+ const pick=document.createElement('select');for(const k of slots)pick.add(new Option('Slot '+k,k));pick.hidden=slots.length<2;pick.onchange=()=>{slot=pick.value;cb.checked=false;draw()};
+ const players=()=>{const x=slots.length>1?(cur.slots||{})[slot]:cur;return x?x.players:null};
+ function draw(){if(done)return;const p=players(),busy=!(p!=null&&p<=cur_cutoff);
+  count.textContent=p==null?'Spielerzahl unbekannt':p+(p==1?' Spieler online':' Spieler online');
+  count.className='big '+(busy?'bad':'ok');
+  info.textContent=busy?'Die Regel erlaubt einen Neustart nur bis '+cur_cutoff+' Spieler, sonst über den Rollover.':'Innerhalb der Regel (bis '+cur_cutoff+' Spieler).';
+  warn.textContent=busy?(p==null?'Die Spielerzahl ist unbekannt, es könnten Leute drin sein. ':'Alle '+p+' Spieler fliegen raus und verlieren ihre laufende Runde. ')+'Das ist ein erzwungener Neustart.':'';
+  chk.hidden=!busy;chk.lastChild.textContent=busy?'Ich weiß das und will '+(p==null?'trotzdem':'die '+p+' Spieler rauswerfen und')+' neu starten.':'';
+  go.disabled=busy&&!cb.checked}
+ let cur_cutoff=3;
+ cb.onchange=()=>draw();
+ const refresh=async()=>{try{const d=await api('/api/servers');cur_cutoff=d.cutoff;const n=d.servers.find(x=>x.server==s0.server);if(n){const before=players();cur=n;if(players()!==before)cb.checked=false}draw()}catch(e){}};
+ go.onclick=async()=>{go.disabled=true;out.className='mut';out.textContent='Starte neu …';
+  try{const p=players();await post('/api/restart',{server:s0.server,slot:slots.length>1?slot:'',force:!(p!=null&&p<=cur_cutoff),players:p});
+   done=true;clearInterval(timer);out.className='ok';out.textContent='Neustart ausgelöst. Der Server ist in ein bis zwei Minuten wieder da, der Join-Code ändert sich.';go.hidden=true;chk.hidden=true;warn.textContent='';no.textContent='Schließen'}
+  catch(e){out.className='bad';out.textContent=e.message;cb.checked=false;refresh()}};
+ no.onclick=close;ov.onclick=e=>{if(e.target==ov)close()};
+ row.append(pick,no,go);box.append(head,count,info,warn,chk,out,row);ov.append(box);document.body.append(ov);
+ draw();refresh();timer=setInterval(refresh,3000)}
 async function servers(){
  const d=await api('/api/servers'),real=$('servers'),box=document.createElement('div');
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
@@ -1326,6 +1396,7 @@ async function servers(){
   row('Karte',s.running?(mapName||'?'):'–');
   for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+((x.online!=null?x.online:x.players)==null?'?':(x.online!=null?x.online:x.players))+' Spieler':'aus');
   c.append(dl);
+  if(s.running&&d.mod){const rb=el('button','rst','Neu starten …');rb.title='Server neu starten, mit Spielerzahl und Bestätigung';rb.onclick=()=>restartDialog(s);c.append(rb)}
   if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
   box.append(c)}
  put(real,[...box.childNodes])
@@ -1878,6 +1949,22 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: announcements {body.get('action')} {body.get('scope', body.get('server', ''))}")
         self.json(200, result)
 
+    def restart(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 2048)) or b"{}")
+            result = restart_server(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(409, {"error": str(e)})
+        except (RuntimeError, OSError, urllib.error.URLError) as e:
+            return self.json(502, {"error": str(e)})
+        say(f"dashboard: restart server {body.get('server')} ({result['container']}, {result['players']} players"
+            f"{', FORCED over the player limit' if result['forced'] else ''})")
+        self.json(200, result)
+
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/logout":
@@ -1896,6 +1983,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.pools()
         if path == "/api/ann":
             return self.ann()
+        if path == "/api/restart":
+            return self.restart()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()

@@ -461,3 +461,46 @@ class LeaderboardTest(unittest.TestCase):
         self.assertEqual(out["rows"], [])
         with self.assertRaises(ValueError):
             self.d.lb_snapshot("../x")
+
+
+class RestartTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.restarted = []
+        self.d.DETAILS.update(at=0, rows={})
+        self.rows = {"1": {"containers": [{"name": "reskate-server-1", "slot": "A", "id": "cid1"}]}}
+        self.status = [{"server": 1, "players": 2, "slots": {"A": {"players": 2}}}]
+        self.d.server_details = lambda: self.rows
+        self.d.bridge = lambda path, body=None: self.status
+        self.d.docker_restart = lambda cid, grace=20: self.restarted.append(cid)
+
+    def test_restarts_within_the_rule(self):
+        out = self.d.restart_server({"server": "1"})
+        self.assertEqual((out["forced"], out["players"], self.restarted), (False, 2, ["cid1"]))
+
+    def test_busy_server_needs_force_and_the_current_count(self):
+        self.status[0]["slots"]["A"]["players"] = 9
+        with self.assertRaises(ValueError):
+            self.d.restart_server({"server": "1"})
+        with self.assertRaises(ValueError):
+            self.d.restart_server({"server": "1", "force": True, "players": 7})
+        self.assertEqual(self.restarted, [])
+        out = self.d.restart_server({"server": "1", "force": True, "players": 9})
+        self.assertTrue(out["forced"])
+        self.assertEqual(self.restarted, ["cid1"])
+
+    def test_unknown_count_counts_as_busy(self):
+        self.status[0]["slots"]["A"]["players"] = None
+        with self.assertRaises(ValueError):
+            self.d.restart_server({"server": "1"})
+        self.d.restart_server({"server": "1", "force": True, "players": None})
+        self.assertEqual(self.restarted, ["cid1"])
+
+    def test_unknown_server_and_ambiguous_slots(self):
+        with self.assertRaises(ValueError):
+            self.d.restart_server({"server": "7"})
+        self.rows["1"]["containers"].append({"name": "reskate-server-1b", "slot": "B", "id": "cid2"})
+        with self.assertRaises(ValueError):
+            self.d.restart_server({"server": "1"})
+        self.d.restart_server({"server": "1", "slot": "B"})
+        self.assertEqual(self.restarted, ["cid2"])
