@@ -49,7 +49,7 @@ class ThunderstoreTest(unittest.TestCase):
         self.assertEqual(self.search("nothing")["total"], 0)
 
     def test_image_host_is_restricted(self):
-        for url in ("http://gcdn.thunderstore.io/a.png", "https://evil.example/a.png", "https://gcdn.thunderstore.io:8443/a.png"):
+        for url in ("http://gcdn.thunderstore.io/a.png", "https://evilthunderstore.io/a.png", "https://evil.example/a.png", "https://gcdn.thunderstore.io:8443/a.png"):
             with self.assertRaises(ValueError):
                 self.d.ts_image(url)
         with mock.patch.object(self.d, "ts_fetch", return_value=(b"x", "image/svg+xml")), self.assertRaises(ValueError):
@@ -194,3 +194,11 @@ class CreatedSortTest(unittest.TestCase):
         with mock.patch.object(d, "ts_packages", return_value=rows):
             self.assertEqual([r["package"] for r in d.ts_search("", sort="created")["results"]], ["b-B", "a-A"])
             self.assertEqual([r["package"] for r in d.ts_search("", sort="created", asc=True)["results"]], ["a-A", "b-B"])
+
+
+class ImageHostTest(unittest.TestCase):
+    def test_every_thunderstore_cdn_is_allowed(self):
+        d = load()
+        with mock.patch.object(d, "ts_fetch", return_value=(b"x", "image/png")):
+            for host in ("gcdn.thunderstore.io", "ccdn.thunderstore.io", "thunderstore.io"):
+                self.assertEqual(d.ts_image(f"https://{host}/a.png")[0], "image/png")

@@ -178,7 +178,7 @@ def add_map(body):
             raise ValueError(f"map name {name!r} has characters the pool does not take")
     folder = f"{SHARED}/settings"
     if not os.path.isdir(folder):
-        raise ValueError(f"{folder} is not mounted into the dashboard (DASHBOARD_SHARED)")
+        return f"not saved ({folder} does not exist): the map only stays until the server's next restart"
     path = f"{folder}/{'common' if server == '*' else 'server-' + server}.env"
     old = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
     have = {x.strip() for x in old.splitlines()}
@@ -199,7 +199,7 @@ def add_map(body):
 
 
 TS_API = "https://thunderstore.io/c/reskate/api/v1/package/"
-TS_IMG_HOSTS = ("gcdn.thunderstore.io", "thunderstore.io")
+TS_IMG_HOSTS = ("thunderstore.io",)   # and its subdomains (gcdn., ccdn., ...)
 TS_CACHE = {"at": 0, "rows": []}
 
 
@@ -260,7 +260,8 @@ def ts_search(query, maps_only=True, sort="downloads", asc=False):
 
 def ts_image(url):
     u = urlparse(url)
-    if u.scheme != "https" or u.hostname not in TS_IMG_HOSTS or u.port:
+    host = u.hostname or ""
+    if u.scheme != "https" or not any(host == h or host.endswith("." + h) for h in TS_IMG_HOSTS) or u.port:
         raise ValueError("picture host not allowed")
     data, kind = ts_fetch(url, 2_000_000)
     if len(data) > 2_000_000 or not kind.startswith("image/") or "svg" in kind:
@@ -619,11 +620,9 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"><button data-c="map-pool">Pool zeigen</button><button data-c="map-pool clear">Alle Maps erlauben</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
 <details class="adv"><summary>Erweitert: Befehl frei eingeben</summary><div class="bar"><select id="cat"></select><input id="cmd" maxlength="300" list="cmdsug" placeholder="Befehl, z. B. status oder map grom"><datalist id="cmdsug"></datalist><button id="csend">Senden</button></div></details>
-<div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers (siehe "Neue Map hinzufügen" für dauerhafte Änderungen).</div>
+<div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers.</div>
 <pre id="cout">Antwort des Servers erscheint hier (letzte Log-Zeilen).</pre>
-<h2 style="margin-top:14px">Neue Map hinzufügen</h2>
-<div class="bar"><input id="pkg" maxlength="80" list="newpkgs" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><datalist id="newpkgs"></datalist><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="live" checked style="flex:none;min-width:0">sofort laden</label><button id="addmap">Hinzufügen</button></div>
-<div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. "Sofort laden" schickt zusätzlich mods add und map-pool add an die laufenden Server (ohne Neustart, nur mit neuem Image). Die Settings-Datei sorgt dafür, dass es nach einem Neustart bleibt; der Rollover startet Server dafür nur, wenn sie leer sind.</div></section>
+</section>
 <section data-v="befehle"><h2>Maps suchen (Thunderstore)</h2>
 <form class="bar" id="tsform"><input id="tsq" maxlength="60" placeholder="Suche, z. B. plaza, skatepark, Name"><select id="tsrv"></select><select id="tssort" title="Sortierung"><option value="created">Neueste Maps</option><option value="downloads">Meiste Downloads</option><option value="updated">Zuletzt aktualisiert</option><option value="rating">Beste Bewertung</option><option value="name">Name</option></select><select id="tsdir" title="Richtung"><option value="desc">absteigend</option><option value="asc">aufsteigend</option></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tsall" style="flex:none;min-width:0">alle Pakete</label><button>Suchen</button></form>
 <div class="mut" id="tsinfo">Sucht in der Thunderstore-Community reskate. "Auf Server" lädt das Paket, "In den Pool" nimmt die Map zusätzlich in den Map-Pool auf (ohne Neustart, mit neuem Image).</div><div class="tslist" id="tsres"></div></section>
@@ -716,7 +715,6 @@ const CATALOG={
 let people=[],modOn=true,tpOn=false;
 function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;$('cmdsec').hidden=!d.mod;for(const b of $('nav').children)if(b.dataset.v=='moderator'||b.dataset.v=='befehle')b.hidden=!d.mod;const m=$('msrv');
  if(!m.options.length){for(const id of['msrv','csrv'])d.servers.forEach(s=>$(id).add(new Option(s.server+' '+s.role,s.server)));$('tsrv').add(new Option('alle Server','*'));d.servers.forEach(s=>$('tsrv').add(new Option(s.server+' '+s.role,s.server)));
-  $('pscope').add(new Option('nur diesen Server (Auswahl links)','one'));$('pscope').add(new Option('alle Server','*'));
   const sug=$('cmdsug');for(const l of Object.values(CATALOG))for(const [cmd] of l)sug.append(new Option(cmd));
   const c=$('cat');c.add(new Option('Befehlskatalog …',''));for(const [g,l] of Object.entries(CATALOG)){const o=document.createElement('optgroup');o.label=g;for(const [cmd,txt] of l)o.append(new Option(txt+' · '+cmd,cmd));c.append(o)}}}
 async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textContent='Sende: '+c+' …';
@@ -786,16 +784,6 @@ for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({
 $('cat').onchange=()=>{const v=$('cat').value;if(!v)return;$('cmd').value=v;$('cmd').focus();const i=v.search(/[<\\[]/);if(i>0)$('cmd').setSelectionRange(i,v.length);$('cat').value=''};
 $('csend').onclick=()=>sendCmd($('cmd').value);$('cmd').onkeydown=e=>{if(e.key=='Enter')sendCmd($('cmd').value)};
 for(const b of document.querySelectorAll('[data-c]'))b.onclick=()=>{const c=b.dataset.c;if(c=='map-pool clear')return armed(b,()=>sendCmd(c).then(()=>cmdMaps(true)));sendCmd(c)};
-$('addmap').onclick=async()=>{const o=$('cout'),pk=$('pkg').value.trim();if(!pk)return;
- const r=await fetch('/api/addmap',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('pscope').value=='*'?'*':$('csrv').value,package:pk,pool:$('poolnames').value})});
- const d=await r.json();o.textContent=r.ok?'Map-Paket: '+d.text:'Fehler: '+(d.error||r.status);if(!r.ok||!$('live').checked)return;
- const srvs=$('pscope').value=='*'?[...$('csrv').options].map(x=>x.value):[$('csrv').value],names=$('poolnames').value.split(',').map(x=>x.trim()).filter(Boolean);
- $('pkg').value='';$('poolnames').value='';
- for(const sv of srvs){const send=c=>fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:sv,action:'console',text:c})});
-  await send('mods add '+pk);o.textContent+='\\nServer '+sv+': mods add '+pk+' gesendet, lädt ohne Neustart …'}
- await new Promise(x=>setTimeout(x,6000));
- for(const sv of srvs)for(const n of names)await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:sv,action:'console',text:'map-pool add '+n})});
- o.textContent+='\\nPool-Eintraege gesendet. Ergebnis im Live-Log; Server ohne `mods add` (altes Image) kennen den Befehl noch nicht.'};
 const HDR={'Content-Type':'application/json','X-Requested-With':'dashboard'};
 const post=(u,b)=>fetch(u,{method:'POST',headers:HDR,body:JSON.stringify(b)}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||r.status);return d});
 const sleep=ms=>new Promise(x=>setTimeout(x,ms));
@@ -812,7 +800,6 @@ async function tsAdd(r,pool,note,btns){
 const tsRun=async()=>{const box=$('tsres'),info=$('tsinfo');box.replaceChildren();info.textContent='Suche …';
  let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+'&sort='+$('tssort').value+'&dir='+$('tsdir').value+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
  info.textContent=($('tsq').value.trim()?d.total+' Treffer':d.total+' Maps auf Thunderstore')+(d.total>d.results.length?' (die ersten '+d.results.length+' nach Sortierung)':'');
- const dl=$('newpkgs');dl.replaceChildren(...d.results.map(r=>{const o=new Option(r.name+' · '+(r.created||r.updated),r.package);return o}));
  for(const r of d.results){const row=el('div','tsrow'),pic=el('div','tspic');pic.append(el('span',0,r.name.slice(0,2)));
   if(r.icon){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/tsimg?u='+encodeURIComponent(r.icon);pic.append(im)}
   const main=el('div','tsmain'),a=el('a',0,r.name);a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';
