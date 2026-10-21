@@ -352,6 +352,40 @@ class AnnouncementScheduleTest(unittest.TestCase):
             d.ann_schedule([("a", 97, 0), ("b", 89, 0)])
 
 
+class StorePackageTest(unittest.TestCase):
+    def zipped(self, files):
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            for name, data in files.items():
+                z.writestr(name, data)
+        return buf.getvalue()
+
+    def fake(self, data):
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+        return lambda req, timeout=0: Resp(data)
+
+    def test_unpacks_into_the_store_once_and_refuses_unsafe_zips(self):
+        d = load()
+        with tempfile.TemporaryDirectory() as tmp:
+            d.SHARED = tmp
+            good = self.zipped({"manifest.json": "{}", "map/level.bundle": "x"})
+            with mock.patch.object(d.urllib.request, "urlopen", self.fake(good)):
+                folder = d.store_package("Own", "Map", "1.0.0")
+            self.assertTrue(os.path.exists(folder + "/map/level.bundle") and os.path.exists(folder + "/.thunderstore.json"))
+            with mock.patch.object(d.urllib.request, "urlopen", side_effect=AssertionError("downloaded twice")):
+                self.assertEqual(d.store_package("Own", "Map", "1.0.0"), folder)
+            for bad in ({"../evil": "x", "manifest.json": "{}"}, {"a": "x"}):
+                with mock.patch.object(d.urllib.request, "urlopen", self.fake(self.zipped(bad))), self.assertRaises(ValueError):
+                    d.store_package("Own", "Bad", "1.0.0")
+            self.assertFalse(os.path.exists(tmp + "/packages/Own-Bad-1.0.0"))
+
+
 class ServerMapsOnlyTest(unittest.TestCase):
     def test_refreshing_one_server_keeps_the_others(self):
         d = load()

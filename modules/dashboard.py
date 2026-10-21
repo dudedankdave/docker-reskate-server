@@ -43,6 +43,8 @@ import glob
 import gzip
 import hashlib
 import re
+import shutil
+import stat
 import hmac
 import io
 import http.client
@@ -56,6 +58,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -376,13 +379,12 @@ def docker_get(path):
         conn.close()
 
 
-def docker_put_file(cid, directory, name, data):
-    """Write one file into a container (Docker archive API); the only write the dashboard sends to the socket."""
+def docker_put_tar(cid, directory, fill):
+    """Write into a container through the Docker archive API (`fill` adds entries to the tar); the only writes the dashboard
+    sends to the socket are files and symlinks owned by uid 1000."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as t:
-        info = tarfile.TarInfo(name)
-        info.size, info.mode, info.uid, info.gid = len(data), 0o644, 1000, 1000
-        t.addfile(info, io.BytesIO(data))
+        fill(t)
     conn = Unix(DOCKER)
     try:
         conn.request("PUT", f"/v1.41/containers/{cid}/archive?path={directory}", body=buf.getvalue(),
@@ -393,6 +395,105 @@ def docker_put_file(cid, directory, name, data):
             raise RuntimeError(f"docker {resp.status}")
     finally:
         conn.close()
+
+
+def docker_put_file(cid, directory, name, data):
+    def fill(t):
+        info = tarfile.TarInfo(name)
+        info.size, info.mode, info.uid, info.gid = len(data), 0o644, 1000, 1000
+        t.addfile(info, io.BytesIO(data))
+    docker_put_tar(cid, directory, fill)
+
+
+def docker_put_link(cid, directory, name, target):
+    def fill(t):
+        info = tarfile.TarInfo(name)
+        info.type, info.linkname, info.mode, info.uid, info.gid = tarfile.SYMTYPE, target, 0o777, 1000, 1000
+        t.addfile(info)
+    docker_put_tar(cid, directory, fill)
+
+
+MODS_MAX = int(float(os.environ.get("DASHBOARD_MODS_MAX_GB", "3")) * 1024 ** 3)
+MARKER = ".thunderstore.json"
+
+
+def store_package(owner, name, version):
+    """Make sure the shared store (SHARED/packages/<Owner-Name-version>) holds this package version; returns its folder."""
+    final = f"{SHARED}/packages/{owner}-{name}-{version}"
+    if os.path.exists(f"{final}/{MARKER}"):
+        return final
+    tmp = f"{SHARED}/.tmp"
+    os.makedirs(tmp, exist_ok=True)
+    work, archive = f"{tmp}/dash-{owner}-{name}-{version}", f"{tmp}/dash-{owner}-{name}-{version}.zip"
+    shutil.rmtree(work, ignore_errors=True)
+    url = f"https://thunderstore.io/package/download/{owner}/{name}/{version}/"
+    req = urllib.request.Request(url, headers={"User-Agent": "reskate-dashboard"})
+    size = 0
+    with urllib.request.urlopen(req, timeout=60) as r, open(archive, "wb") as f:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MODS_MAX:
+                raise ValueError("the download is larger than the limit (DASHBOARD_MODS_MAX_GB)")
+            f.write(chunk)
+    try:
+        with zipfile.ZipFile(archive) as z:
+            infos = z.infolist()
+            for i in infos:
+                parts = i.filename.replace("\\", "/").split("/")
+                if i.filename.startswith("/") or ".." in parts or stat.S_ISLNK(i.external_attr >> 16):
+                    raise ValueError(f"unsafe entry in the zip: {i.filename!r}")
+            if sum(i.file_size for i in infos) > MODS_MAX:
+                raise ValueError("the package unpacks to more than the limit (DASHBOARD_MODS_MAX_GB)")
+            if "manifest.json" not in {i.filename for i in infos}:
+                raise ValueError("the package has no manifest.json")
+            z.extractall(work)
+        with open(f"{work}/{MARKER}", "w", encoding="utf-8") as f:
+            json.dump({"owner": owner, "name": name, "version": version}, f)
+        st = os.stat(f"{SHARED}/packages") if os.path.isdir(f"{SHARED}/packages") else os.stat(SHARED)
+        for root, dirs, files in os.walk(work):
+            for entry in dirs + files:
+                try:
+                    os.chown(os.path.join(root, entry), st.st_uid, st.st_gid)
+                except OSError:
+                    pass
+        os.makedirs(f"{SHARED}/packages", exist_ok=True)
+        shutil.rmtree(final, ignore_errors=True)
+        os.rename(work, final)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        try:
+            os.remove(archive)
+        except OSError:
+            pass
+    return final
+
+
+def install_package(body):
+    """Download a Thunderstore package into the shared store and link it into the running servers' Mods folder
+    (what the servers' `mods add` does, which older server images do not have): {server: "<n>"|"*", package, version?}."""
+    server, package = str(body.get("server", "")), str(body.get("package", "")).strip()
+    m = re.match(r"^([A-Za-z0-9_]+)-([A-Za-z0-9_]+)(?:-(\d+\.\d+\.\d+))?$", package)
+    if not (server == "*" or server.isalnum()) or not m:
+        raise ValueError("a server (or all) and a package like Owner-Name are needed")
+    owner, name, version = m.group(1), m.group(2), str(body.get("version") or m.group(3) or "")
+    if not re.match(r"^\d+\.\d+\.\d+$", version):
+        version = next((r["version"] for r in ts_packages() if r["package"] == f"{owner}-{name}"), "")
+    if not version:
+        raise ValueError("the package version is unknown")
+    store_package(owner, name, version)
+    rows = server_details()
+    targets = [n for n in rows if server == "*" or n == server]
+    if not targets:
+        raise ValueError("no running container for that server")
+    for number in targets:
+        for c in rows[number]["containers"]:
+            docker_put_link(c["id"], "/data/Mods", f"{owner}-{name}", f"{MODS_STORE}/packages/{owner}-{name}-{version}")
+        moderate({"server": number, "action": "console", "text": "maps reload"})
+    MAPS["at"] = 0
+    return {"text": f"{owner}-{name} {version} linked on server {', '.join(sorted(targets))}", "names": store_names(f"{owner}-{name}")}
 
 
 LAYERS_MAX = 8_000_000
@@ -1295,15 +1396,18 @@ const HDR={'Content-Type':'application/json','X-Requested-With':'dashboard'};
 const post=(u,b)=>fetch(u,{method:'POST',headers:HDR,body:JSON.stringify(b)}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||r.status);return d});
 const sleep=ms=>new Promise(x=>setTimeout(x,ms));
 async function tsAdd(r,pool,note,btns){
- btns.forEach(b=>b.disabled=true);const sc=$('tsrv').value,srvs=sc=='*'?[...$('csrv').options].map(x=>x.value):[sc],con=(sv,t)=>post('/api/mod',{server:sv,action:'console',text:t});
+ btns.forEach(b=>b.disabled=true);const sc=$('tsrv').value,srvs=sc=='*'?[...$('csrv').options].map(x=>x.value):[sc];
  try{note.textContent='Schreibe Settings …';await post('/api/addmap',{server:sc,package:r.package,pool:''});
-  for(const sv of srvs)await con(sv,'mods add '+r.package);note.textContent='Paket an '+srvs.length+' Server geschickt, lädt …';
-  if(pool){await sleep(8000);let names=[];try{names=(await api('/api/mapname?package='+encodeURIComponent(r.package))).names}catch(e){}
-   if(!names.length)names=[r.name];await post('/api/addmap',{server:sc,package:r.package,pool:names.join(', ')});
-   for(const sv of srvs)for(const n of names)await con(sv,'map-pool add '+n);note.textContent='Im Pool: '+names.join(', ')+' ('+srvs.length+' Server).'}
-  else note.textContent='Auf '+srvs.length+' Server geladen.'}
+  note.textContent='Lade das Paket und verlinke es auf '+srvs.length+' Server, das kann eine Minute dauern …';
+  const d=await post('/api/installmap',{server:sc,package:r.package,version:r.version});
+  const names=d.names&&d.names.length?d.names:[r.name];let done='Auf '+srvs.length+' Server geladen.';
+  if(pool){await loadPools();const seen=new Set();
+   for(const sv of srvs){const cur=POOLS&&POOLS.assign[sv];if(!cur||cur=='Alle Maps'||seen.has(cur))continue;seen.add(cur);
+    for(const n of names)await post('/api/pools',{action:'set',server:sv,name:cur,map:n,on:true})}
+   done=seen.size?'Im Pool '+[...seen].join(', ')+': '+names.join(', ')+'.':'Geladen. Die Server mit „Alle Maps" haben die Map automatisch im Pool.'}
+  note.textContent=done}
  catch(e){note.textContent='Fehler: '+e.message}
- btns.forEach(b=>b.disabled=false)}
+ btns.forEach(b=>b.disabled=false);for(const k of Object.keys(mapsCache))delete mapsCache[k];await loadPools();mapsAt=0;cmdMaps(true).catch(()=>{})}
 const tsRun=async()=>{const real=$('tsres'),box=document.createElement('div'),info=$('tsinfo');info.textContent='Suche …';
  let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+'&sort='+$('tssort').value+'&dir='+$('tsdir').value+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
  info.textContent=($('tsq').value.trim()?d.total+' Treffer':d.total+' Maps auf Thunderstore')+(d.total>d.results.length?' (die ersten '+d.results.length+' nach Sortierung)':'');
@@ -1584,6 +1688,21 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: map package {body.get('package')} for server {body.get('server')}: {text}")
         self.json(200, {"ok": True, "text": text})
 
+    def installmap(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)) or b"{}")
+            result = install_package(body)
+        except (ValueError, TypeError, AttributeError, zipfile.BadZipFile) as e:
+            return self.json(400, {"error": str(e)})
+        except (RuntimeError, OSError) as e:
+            return self.json(502, {"error": f"{type(e).__name__}: {e}"})
+        say(f"dashboard: {result['text']}")
+        self.json(200, result)
+
     def layers(self):
         if not self.logged_in():
             return self.json(401, {"error": "login"})
@@ -1641,6 +1760,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.addmap()
         if path == "/api/layers":
             return self.layers()
+        if path == "/api/installmap":
+            return self.installmap()
         if path == "/api/pools":
             return self.pools()
         if path == "/api/ann":
