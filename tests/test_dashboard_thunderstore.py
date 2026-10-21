@@ -759,9 +759,20 @@ class PlayerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.d.player_profile("12")
 
-    def test_search_finds_offline_players(self):
-        self.assertEqual([p["name"] for p in self.d.player_search("newb")], ["Newbie"])
-        self.assertEqual(self.d.player_search("a"), [])
+    def test_known_players_include_offline_ones_with_team_and_last_seen(self):
+        import sqlite3
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.execute(f"UPDATE known SET seen = 50 WHERE steam_id = '{self.NEW}'")
+        con.commit()
+        con.close()
+        con = sqlite3.connect(f"{self.tmp.name}/leaderboard.db")
+        con.executescript("CREATE TABLE players (steam_id TEXT, name TEXT);"
+                          "INSERT INTO players VALUES ('76561198000000077', 'Boardonly'), ('name:Nobody', 'Nobody');")
+        con.commit()
+        con.close()
+        out = self.d.players_known()
+        self.assertEqual([p["name"] for p in out], ["Newbie", "Ann", "Bo", "Boardonly"])      # newest seen first; name-only keys skipped
+        self.assertEqual({p["name"]: p["team"] for p in out}, {"Newbie": "", "Ann": "CRW", "Bo": "CRW", "Boardonly": ""})
 
     def test_assign_invites_as_the_owner_then_joins(self):
         self.d.player_team({"steam_id": self.NEW, "team": "crw"})

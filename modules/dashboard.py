@@ -1215,21 +1215,21 @@ def steam_info(steam_id):
     return info
 
 
-def player_search(text):
-    """Players that are not online too: names seen on a server (teams.db) and names on the boards. [{steam_id, name}]"""
-    text = str(text or "").strip()
-    if len(text) < 2:
-        return []
-    like = "%" + text.replace("%", "").replace("_", "") + "%"
+def players_known():
+    """Everybody the system knows, online or not: names seen on a server (teams.db), then the boards' players that have
+    a Steam ID. [{steam_id, name, seen, team}], newest first."""
+    teams = lb_team_of()
     found = {}
-    for r in db_rows(f"{SHARED}/teams.db", "SELECT steam_id, name FROM known WHERE steam_id = ? OR name LIKE ? ORDER BY seen DESC LIMIT 20",
-                     (text, like)):
-        found[r["steam_id"]] = r["name"]
+    for r in db_rows(f"{SHARED}/teams.db", "SELECT steam_id, name, seen FROM known ORDER BY seen DESC"):
+        if STEAM_ID.fullmatch(r["steam_id"]):
+            found[r["steam_id"]] = {"steam_id": r["steam_id"], "name": r["name"], "seen": r["seen"] or 0}
     for file in LB_FILES.values():
-        for r in db_rows(f"{SHARED}/{file}", "SELECT steam_id, name FROM players WHERE steam_id = ? OR name LIKE ? LIMIT 20", (text, like)):
+        for r in db_rows(f"{SHARED}/{file}", "SELECT steam_id, name FROM players"):
             if STEAM_ID.fullmatch(r["steam_id"]):
-                found.setdefault(r["steam_id"], r["name"])
-    return [{"steam_id": k, "name": v} for k, v in list(found.items())[:15]]
+                found.setdefault(r["steam_id"], {"steam_id": r["steam_id"], "name": r["name"], "seen": 0})
+    for row in found.values():
+        row["team"] = (teams.get(row["steam_id"]) or {}).get("tag", "").upper()
+    return sorted(found.values(), key=lambda r: (-r["seen"], r["name"].lower()))
 
 
 def player_team(body):
@@ -2051,7 +2051,8 @@ $('poolfilter').oninput=()=>drawPool($('csrv').value);
 $('crot').onchange=()=>{const x=mapsCache[$('csrv').value];if(x&&x.flags&&x.flags.rotation>0)sendCmd('rotation '+$('crot').value).then(()=>sleep(1200)).then(()=>cmdMaps(true))};
 $('ctodgo').onclick=()=>sendCmd('tod '+$('ctod').value);
 document.addEventListener('DOMContentLoaded',()=>{});
-async function who(){if(!modOn)return;people=await api('/api/players');draw()}
+let knownAt=0;
+async function who(){if(!modOn)return;people=await api('/api/players');if(Date.now()-knownAt>60000){knownAt=Date.now();try{known=await api('/api/knownplayers')}catch(e){}}draw()}
 function say_(m){$('mres').textContent=m}
 async function act(body,b){
  if(b&&!b.classList.contains('arm')&&/^(kick|ban)$/.test(body.action)){b.classList.add('arm');const t=b.textContent;b.textContent='Sicher?';setTimeout(()=>{b.classList.remove('arm');b.textContent=t},3000);return}
@@ -2061,7 +2062,7 @@ let sortK='name',sortD=1;
 function cmp(a,b){let x,y;if(sortK=='server'){x=(parseInt(a.server)||0)*10+(a.slot=='B'?1:0);y=(parseInt(b.server)||0)*10+(b.slot=='B'?1:0)}
  else if(sortK=='team'){x=(a.team||'\\uffff').toLowerCase();y=(b.team||'\\uffff').toLowerCase()}else{x=a.name.toLowerCase();y=b.name.toLowerCase()}
  return (x<y?-1:x>y?1:0)*sortD}
-const opened=new Set(),profs={},picks={};let offline=[],offQ='';
+const opened=new Set(),profs={},picks={};let known=[],offShown=100;
 const PKIND=[['general','Gesamt'],['year','Jahr'],['month','Monat'],['week','Woche']];
 function link(href,text){const a=el('a',0,text);a.href=href;a.target='_blank';a.rel='noopener noreferrer';return a}
 const steams={};
@@ -2109,7 +2110,7 @@ function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySel
  const rows=people.filter(p=>!q||(p.name+' '+p.steam_id+' '+(p.team||'')).toLowerCase().includes(q)).sort(cmp);
  for(const th of document.querySelectorAll('#plist th[data-k]'))th.textContent=({name:'Spieler',team:'Team',server:'Server'})[th.dataset.k]+(th.dataset.k==sortK?(sortD>0?' ▲':' ▼'):'');
  document.querySelector('#modsec h2').firstChild.textContent='Moderator · '+people.length+' online ';
- const online=new Set(people.map(p=>p.steam_id)),off=q.length>=2&&offQ==q?offline.filter(o=>!online.has(o.steam_id)):[];
+ const online=new Set(people.map(p=>p.steam_id)),offAll=known.filter(o=>!online.has(o.steam_id)&&(!q||(o.name+' '+o.steam_id+' '+(o.team||'')).toLowerCase().includes(q))),off=offAll.slice(0,offShown);
  if(!rows.length&&!off.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=4;tr.append(td);tb.append(tr);put(real,[...tb.childNodes]);return}
  const detail=p=>{const tr=el('tr'),td=el('td');td.colSpan=4;td.append(profileBox(p));tr.append(td);return tr};
  for(const p of rows){const tr=el('tr'),n=el('td'),tm=el('td','mut',p.team||''),s=el('td','mut'),a=el('td'),w=el('div','act');
@@ -2122,16 +2123,14 @@ function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySel
   add('Ban',b=>act({...base,action:'ban',text:$('mtext').value},b));
   if(tpOn)add('Teleport',()=>act({...base,action:'tp',target:$('mtext').value}));
   a.append(w);tr.append(n,tm,s,a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
- if(off.length){const tr=el('tr'),td=el('td','mut','Nicht online (Spieler, die schon auf den Servern oder Ranglisten waren)');td.colSpan=4;tr.append(td);tb.append(tr)}
+ if(off.length){const tr=el('tr'),td=el('td','mut','Nicht online · '+offAll.length+' Spieler (zuletzt gesehen zuerst)');td.colSpan=4;tr.append(td);tb.append(tr)}
  for(const p of off){const tr=el('tr'),n=el('td'),a=el('td'),b=el('button',0,opened.has(p.steam_id)?'Details ▲':'Details');
   n.append(el('div',0,p.name),el('div','mut',p.steam_id));b.onclick=()=>toggleProfile(p);a.append(b);
-  tr.append(n,el('td'),el('td','mut','offline'),a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
+  tr.append(n,el('td','mut',p.team||''),el('td','mut',p.seen?'zuletzt '+new Date(p.seen*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}):'offline'),a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
+ if(offAll.length>off.length){const tr=el('tr'),td=el('td');td.colSpan=4;const b=el('button',0,'Mehr anzeigen ('+(offAll.length-off.length)+')');b.onclick=()=>{offShown+=200;draw()};td.append(b);tr.append(td);tb.append(tr)}
  put(real,[...tb.childNodes])}
-let offT=0;
-function findOffline(){const q=$('q').value.trim().toLowerCase();clearTimeout(offT);if(q.length<2){offline=[];offQ='';return}
- offT=setTimeout(async()=>{try{offline=await api('/api/playersearch?q='+encodeURIComponent(q));offQ=q;draw()}catch(e){}},300)}
 for(const th of document.querySelectorAll('#plist th[data-k]'))th.onclick=()=>{if(sortK==th.dataset.k)sortD=-sortD;else{sortK=th.dataset.k;sortD=1}draw()};
-$('q').oninput=()=>{draw();findOffline()};$('find').onsubmit=e=>e.preventDefault();
+$('q').oninput=()=>{offShown=100;draw()};$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
 $('cat').onchange=()=>{const v=$('cat').value;if(!v)return;$('cmd').value=v;$('cmd').focus();const i=v.search(/[<\\[]/);if(i>0)$('cmd').setSelectionRange(i,v.length);$('cat').value=''};
 let cmdNames=null;
@@ -2465,8 +2464,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not MOD:
                     return self.json(403, {"error": "forbidden"})
                 return self.json(200, steam_info(q.get("steam_id", "")))
-            if url.path == "/api/playersearch":
-                return self.json(200, player_search(q.get("q", "")) if MOD else [])
+            if url.path == "/api/knownplayers":
+                return self.json(200, players_known() if MOD else [])
             if url.path == "/api/containers":
                 return self.json(200, containers())
             if url.path == "/api/toollog":
