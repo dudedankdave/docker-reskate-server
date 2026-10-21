@@ -160,7 +160,9 @@ class LiveMapsTest(unittest.TestCase):
             return buf.getvalue()
 
         with mock.patch.object(d, "docker_get", lambda path: archive(path.split("path=")[1])):
-            self.assertEqual(d.live_maps("c1"), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
+            map_, pool, mods, flags = d.live_maps("c1")
+            self.assertEqual((map_, pool, mods), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
+            self.assertEqual(flags, {"vote_map": False, "vote_kick": False, "vote_tod": False, "rotation": 0, "layer_sync": False})
 
 
 class DiskTest(unittest.TestCase):

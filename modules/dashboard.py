@@ -495,18 +495,22 @@ def package_maps(mods, pool=()):
 
 
 def live_maps(cid):
-    """(current map, pool, installed packages) as the running server has them now: its saved settings file
+    """(current map, pool, installed packages, on/off flags) as the running server has them now: its saved settings file
     and the links in its Mods folder, not the environment it was started with."""
     with tar_of(cid, "/data/ReSkateServer.json") as t:
         member = t.getmember("ReSkateServer.json")
-        maps = json.load(t.extractfile(member)).get("maps", {})
+        config = json.load(t.extractfile(member))
+    maps, votes = config.get("maps", {}), config.get("votes", {})
     pool = [x for x in maps.get("pool", []) if isinstance(x, str)]
+    flags = {"vote_map": bool(votes.get("map", {}).get("enabled")), "vote_kick": bool(votes.get("kick", {}).get("enabled")),
+             "vote_tod": bool(votes.get("time_of_day", {}).get("enabled")),
+             "rotation": int(maps.get("rotation_minutes") or 0), "layer_sync": bool(maps.get("world_layer_sync"))}
     try:
         with tar_of(cid, "/data/Mods") as t:
             mods = sorted(m.linkname.rsplit("/", 1)[-1] for m in t.getmembers() if m.issym())
     except (RuntimeError, OSError, tarfile.TarError):
         mods = []
-    return str(maps.get("map") or ""), pool, mods
+    return str(maps.get("map") or ""), pool, mods, flags
 
 
 def server_maps():
@@ -520,7 +524,7 @@ def server_maps():
         item = {"map": env.get("MAP", ""), "pool": split(env.get("MAP_POOL", "")), "mods": split(env.get("MODS", "")), "live": False}
         for c in row["containers"]:
             try:
-                item["map"], item["pool"], item["mods"] = live_maps(c["id"])
+                item["map"], item["pool"], item["mods"], item["flags"] = live_maps(c["id"])
                 item["live"] = True
                 break
             except (RuntimeError, OSError, ValueError, KeyError, tarfile.TarError):
@@ -568,7 +572,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;margin:10px 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.card.open{display:grid;grid-template-columns:230px minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
@@ -606,10 +610,9 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="bar"><select id="csrv"></select><span class="mut" id="cinfo"></span></div>
 <div class="cgrid">
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
-<div class="card"><h3>Rotation</h3><div class="crow"><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span><button id="crotgo">Setzen</button><button data-c="rotation off">Aus</button></div></div>
-<div class="card"><h3>Votes</h3><div class="crow"><button data-c="votes map on">Map-Vote an</button><button data-c="votes map off">aus</button></div>
-<div class="crow"><button data-c="votes kick on">Kick-Vote an</button><button data-c="votes kick off">aus</button></div>
-<div class="crow"><button data-c="votes tod on">Zeit-Vote an</button><button data-c="votes tod off">aus</button><button data-c="vote-cancel">Vote abbrechen</button></div></div>
+<div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
+<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
+<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div></div>
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
@@ -728,11 +731,18 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
- fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv,pool,av);
+ fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv,pool,av);drawFlags(sv,x.flags);
  $('cinfo').textContent='Karte: '+((x.map||'?').replace(/[.]$/,''))+' · Pool: '+(pool.length||'alle')+' · installiert: '+av.length}
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
+const FLAGS=[['vote_map','Map-Vote','votes map on','votes map off'],['vote_kick','Kick-Vote','votes kick on','votes kick off'],['vote_tod','Zeit-Vote','votes tod on','votes tod off'],['rotation','Map-Rotation',null,'rotation off'],['layer_sync','Layer-Sync','layer-sync on','layer-sync off']];
+function drawFlags(sv,fl){const box=$('cflags');box.replaceChildren();
+ if(!fl){box.append(el('div','mut','Zustand unbekannt (Server nicht erreichbar).'));return}
+ if(fl.rotation>0&&[...$('crot').options].some(o=>o.value==fl.rotation))$('crot').value=fl.rotation;
+ for(const [k,label,onc,offc] of FLAGS){const on=k=='rotation'?fl.rotation>0:fl[k],lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
+  cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await sleep(1200);delete mapsCache[sv];await cmdMaps(true)}finally{cb.disabled=false}};
+  lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&on?' ('+fl.rotation+' min)':'')));box.append(lb)}}
 function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.trim().toLowerCase(),on=new Set(pool.map(n=>n.toLowerCase()));
  const names=[...av];for(const n of pool)if(!names.some(x=>x.toLowerCase()==n.toLowerCase()))names.push(n);
  $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps erlaubt. Sobald du eine Map einschaltest, gilt nur noch der Pool.';
@@ -743,7 +753,7 @@ function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.tr
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
  if(!box.children.length)box.append(el('div','mut','Keine Treffer.'))}
 $('poolfilter').oninput=()=>{const sv=$('csrv').value,x=mapsCache[sv]||{pool:[],available:[]};drawPool(sv,x.pool||[],x.available||[])};
-$('crotgo').onclick=()=>sendCmd('rotation '+$('crot').value);
+$('crot').onchange=()=>{const x=mapsCache[$('csrv').value];if(x&&x.flags&&x.flags.rotation>0)sendCmd('rotation '+$('crot').value).then(()=>sleep(1200)).then(()=>cmdMaps(true))};
 $('ctodgo').onclick=()=>sendCmd('tod '+$('ctod').value);
 document.addEventListener('DOMContentLoaded',()=>{});
 async function who(){if(!modOn)return;people=await api('/api/players');draw()}
