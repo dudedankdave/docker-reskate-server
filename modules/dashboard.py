@@ -370,7 +370,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <script>
 const $=id=>document.getElementById(id);
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
-const RULE={restart:["Neustart erlaubt","ok"],rollover:["nur Rollover","warn"],empty:["aus","mut"]};
+const RULE={restart:["Neustart ok · ≤ 3 Spieler","ok"],rollover:["Nur per Rollover · mehr als 3 oder unbekannt","warn"],empty:["aus","mut"]};
 async function api(p){const r=await fetch(p);if(r.status==401){location.reload();throw 0}if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
 async function servers(){
  const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
