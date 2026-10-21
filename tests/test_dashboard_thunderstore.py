@@ -243,6 +243,52 @@ class LayersFitTest(unittest.TestCase):
                 self.assertEqual(d.layers_fit("c", "2.1.1"), want)
 
 
+class PoolsTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d.POOLS_FILE = self.tmp.name + "/pools.json"
+        self.live = {"1": [], "2": ["B"]}
+        self.sent = []
+        lib = ["A", "B", "C"]
+        maps = lambda *a: {n: {"pool": list(p), "available": lib, "live": True} for n, p in self.live.items()}  # noqa: E731
+        self.patches = [mock.patch.object(self.d, "server_maps", maps),
+                        mock.patch.object(self.d, "server_details", lambda: {"1": {"name": "x - Main"}, "2": {"name": "x - Skate 2"}}),
+                        mock.patch.object(self.d, "moderate", lambda body: self.sent.append((body["server"], body["text"])))]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_seed_names_pools_after_the_role_and_all_maps_stays_builtin(self):
+        snap = self.d.pools_action({"action": "reapply", "server": "1"})
+        self.assertEqual(snap["pools"], {"Skate 2": ["B"]})
+        self.assertEqual(snap["assign"], {"1": "Alle Maps", "2": "Skate 2"})
+        self.assertEqual(self.sent, [])
+
+    def test_assign_set_and_delete_apply_console_commands(self):
+        d = self.d
+        d.pools_action({"action": "create", "server": "1", "name": "Mine"})
+        self.assertEqual(self.sent, [])   # a copy of "all maps" is still all maps; the live pool was empty already
+        d.pools_action({"action": "set", "server": "1", "name": "Mine", "map": "C", "on": False})
+        self.assertEqual(self.sent, [("1", "map-pool remove C")])   # empty live pool: removal materializes all-but-C
+        self.live["1"] = ["A", "B"]
+        self.sent.clear()
+        d.pools_action({"action": "set", "server": "1", "name": "Mine", "map": "C", "on": True})
+        self.assertEqual(self.sent, [("1", "map-pool clear")])
+        self.sent.clear()
+        d.pools_action({"action": "assign", "server": "1", "name": "Skate 2"})
+        self.assertEqual(self.sent, [("1", "map-pool remove A")])
+        with self.assertRaises(ValueError):
+            d.pools_action({"action": "delete", "server": "1", "name": "Skate 2"})
+        d.pools_action({"action": "delete", "server": "1", "name": "Mine"})
+        with self.assertRaises(ValueError):
+            d.pools_action({"action": "set", "server": "1", "name": "Skate 2", "map": "B", "on": False})
+
+
 class ServerMapsOnlyTest(unittest.TestCase):
     def test_refreshing_one_server_keeps_the_others(self):
         d = load()

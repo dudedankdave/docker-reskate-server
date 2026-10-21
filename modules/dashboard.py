@@ -421,6 +421,153 @@ def upload_layers(server, text):
     return f"world-layers.json written for server {', '.join(sorted(targets))} ({len(text) // 1024} KB)"
 
 
+POOLS_FILE = f"{SHARED}/pools.json"
+POOLS_LOCK = threading.Lock()
+ALL_MAPS = "Alle Maps"   # the built-in pool: no pool set on the server, every map allowed
+
+
+def library():
+    """Every map any server has installed (all servers load the same shared store), de-duplicated case-insensitively."""
+    names = {}
+    for item in server_maps().values():
+        for n in item.get("available", []):
+            names.setdefault(n.lower(), n)
+    return sorted(names.values(), key=str.lower)
+
+
+def load_pools():
+    try:
+        with open(POOLS_FILE) as f:
+            data = json.load(f)
+        return ({str(k): [str(x) for x in v] for k, v in data["pools"].items() if k != ALL_MAPS},
+                {str(k): str(v) for k, v in data["assign"].items()})
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return None
+
+
+def save_pools(pools, assign):
+    tmp = POOLS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"pools": pools, "assign": assign}, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, POOLS_FILE)
+
+
+def seed_pools():
+    """First start: one named pool per distinct pool the servers run now (named after the server's role)."""
+    pools, assign = {}, {}
+    details = server_details()
+    for number, item in sorted(server_maps(True).items(), key=lambda kv: (len(kv[0]), kv[0])):
+        if not item["pool"]:
+            assign[number] = ALL_MAPS
+            continue
+        key = sorted(x.lower() for x in item["pool"])
+        for name, maps in pools.items():
+            if sorted(x.lower() for x in maps) == key:
+                assign[number] = name
+                break
+        else:
+            role = (details.get(number, {}).get("name") or "").rsplit(" - ", 1)[-1].strip() or f"Server {number}"
+            name = role if role not in pools and role != ALL_MAPS else f"{role} {number}"
+            pools[name], assign[number] = list(item["pool"]), name
+    return pools, assign
+
+
+def pools_state():
+    state = load_pools()
+    if state is None:
+        state = seed_pools()
+        save_pools(*state)
+    pools, assign = state
+    for number in server_maps():
+        assign.setdefault(number, ALL_MAPS)
+    return pools, assign
+
+
+def pools_snapshot(pools, assign):
+    lib = library()
+    known = {n.lower() for n in lib}
+    extra = [n for maps in pools.values() for n in maps if n.lower() not in known]
+    drift = {}
+    for number, item in server_maps().items():
+        if item.get("live"):
+            want = {x.lower() for x in pools.get(assign.get(number, ALL_MAPS), [])}
+            drift[number] = want != {x.lower() for x in item["pool"]}
+    servers = sorted(server_maps(), key=lambda n: (len(n), n))
+    return {"pools": pools, "assign": assign, "library": sorted(set(lib) | set(extra), key=str.lower), "drift": drift,
+            "servers": servers}
+
+
+def apply_pool(number, target, lib):
+    """Bring the running server's map pool to `target` (empty list = every map) with console commands; returns how many."""
+    live = server_maps(True, number).get(number)
+    if not live or not live.get("live"):
+        raise RuntimeError(f"server {number}: settings not readable")
+    have, want = {x.lower(): x for x in live["pool"]}, {x.lower(): x for x in target}
+    if not want or {x.lower() for x in lib} <= set(want):
+        commands = ["map-pool clear"] if have else []
+    elif not have:
+        commands = [f"map-pool remove {n}" for n in lib if n.lower() not in want]   # the first remove turns "all" into all-but-this
+    else:
+        commands = [f"map-pool add {want[k]}" for k in want if k not in have] + [f"map-pool remove {have[k]}" for k in have if k not in want]
+    for command in commands:
+        moderate({"server": number, "action": "console", "text": command})
+    return len(commands)
+
+
+def pools_action(body):
+    """{action: create|assign|set|delete|reapply, server, name, map, on}; saves first, then applies to the servers concerned."""
+    action, server = str(body.get("action", "")), str(body.get("server", ""))
+    with POOLS_LOCK:
+        pools, assign = pools_state()
+        lib = library()
+        targets = []
+        if action in ("create", "assign", "delete", "reapply") and not server.isalnum():
+            raise ValueError("a server is needed")
+        if action == "create":
+            name = " ".join(str(body.get("name", "")).split())[:40]
+            if not name:
+                raise ValueError("the pool needs a name")
+            if name.lower() == ALL_MAPS.lower() or name.lower() in {k.lower() for k in pools}:
+                raise ValueError("a pool with that name exists")
+            pools[name] = list(pools.get(assign.get(server, ALL_MAPS)) or lib)
+            assign[server], targets = name, [server]
+        elif action == "assign":
+            name = str(body.get("name", ""))
+            if name != ALL_MAPS and name not in pools:
+                raise ValueError("unknown pool")
+            assign[server], targets = name, [server]
+        elif action == "set":
+            name, wanted = str(body.get("name", "")), str(body.get("map", ""))
+            if name not in pools or not wanted:
+                raise ValueError("unknown pool or map")
+            rest = [m for m in pools[name] if m.lower() != wanted.lower()]
+            if body.get("on"):
+                rest.append(next((m for m in lib if m.lower() == wanted.lower()), wanted))
+            if not rest:
+                raise ValueError("a pool needs at least one map")
+            pools[name] = rest
+            targets = [n for n, p in assign.items() if p == name]
+        elif action == "delete":
+            name = str(body.get("name", ""))
+            if name not in pools:
+                raise ValueError("unknown pool")
+            others = [n for n, p in assign.items() if p == name and n != server]
+            if others:
+                raise ValueError(f"the pool is still used by server {', '.join(others)}")
+            del pools[name]
+            assign[server], targets = ALL_MAPS, [server]
+        elif action == "reapply":
+            targets = [server]
+        else:
+            raise ValueError(f"unknown action {action!r}")
+        save_pools(pools, assign)
+        for number in targets:
+            if number in server_maps():
+                apply_pool(number, pools.get(assign.get(number, ALL_MAPS), []), lib)
+        MAPS["at"] = 0
+        return pools_snapshot(pools, assign)
+
+
 def demux(data):
     """Text of a Docker log stream (8-byte frame headers unless the container has a TTY)."""
     out, i = [], 0
@@ -684,8 +831,9 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <button type="button" data-a="say">Say</button><button type="button" data-a="announce">Announce</button></form>
 <div class="mut" id="mres"></div></section>
 <section id="cmdsec" data-v="befehle"><h2>Server-Befehle</h2>
-<div class="bar"><select id="csrv"></select><span class="mut" id="cinfo"></span></div>
+<div class="bar"><select id="csrv"></select></div>
 <div class="cgrid">
+<div class="card" id="mapcard"><h3>Läuft gerade</h3><div class="pic" id="mappic"></div><div class="mut" id="mapinfo"></div></div>
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
@@ -695,7 +843,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
-<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"><select id="poolscope" title="Gilt für"><option value="one">nur dieser Server</option><option value="all">alle Server</option><option value="noranked">alle außer Ranked</option></select><button data-c="map-pool">Pool zeigen</button><button data-c="map-pool clear">Alle Maps erlauben</button></div>
+<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
+<div class="crow" id="poolnewrow" hidden><input id="poolname" maxlength="40" placeholder="Name des neuen Pools (Kopie des gewählten)" style="flex:1;min-width:160px"><button id="poolmk">Anlegen</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
 <details class="adv"><summary>Erweitert: Befehl frei eingeben</summary><div class="bar"><select id="cat"></select><input id="cmd" maxlength="300" list="cmdsug" placeholder="Befehl, z. B. status oder map grom"><datalist id="cmdsug"></datalist><button id="csend">Senden</button></div></details>
 <div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers.</div>
@@ -807,12 +956,16 @@ async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textConten
  const t=await l.json();o.textContent='> '+c+'\\n'+(t.text||'(keine Log-Zeilen)');o.scrollTop=o.scrollHeight}
 let cmdAt=0;
 async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
- if(force||!mapsCache[sv]||Date.now()-cmdAt>20000){cmdAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1&server='+encodeURIComponent(sv):'')))}catch(e){}}
+ if(force||!mapsCache[sv]||!POOLS||Date.now()-cmdAt>20000){cmdAt=Date.now();await loadPools();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1&server='+encodeURIComponent(sv):'')))}catch(e){}}
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const sig=JSON.stringify(groups);if(sel.dataset.sig===sig&&sel.options.length)return;sel.dataset.sig=sig;const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
- fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv,pool,av);drawFlags(sv,x.flags);
- $('cinfo').textContent='Karte: '+((x.map||'?').replace(/[.]$/,''))+' · Pool: '+(pool.length||'alle')+' · installiert: '+av.length}
+ fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv);drawFlags(sv,x.flags);
+ drawMapCard((x.map||'').replace(/[.]$/,''),pool.length,av.length)}
+function drawMapCard(name,np,na){const pic=$('mappic'),sig=name;
+ if(pic.dataset.name!=sig){pic.dataset.name=sig;pic.replaceChildren(el('span',0,name||'?'));
+  if(name&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}}
+ $('mapinfo').textContent=(name||'Karte unbekannt')+' · Pool: '+(np||'alle')+' · installiert: '+na}
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
@@ -836,23 +989,29 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
  put(real,[...box.childNodes])}
-function poolTargets(sv){const m=$('poolscope').value;if(m=='one')return [sv];
- return [...$('csrv').options].filter(o=>m=='all'||!/ranked/i.test(o.textContent)).map(o=>o.value)}
-const known={};
-function remember(sv,list){let m=known[sv];if(!m){m=known[sv]=new Map();try{for(const n of JSON.parse(localStorage.getItem('km'+sv)||'[]'))m.set(n.toLowerCase(),n)}catch(e){}}
- let add=false;for(const n of list)if(typeof n=='string'&&n&&!m.has(n.toLowerCase())){m.set(n.toLowerCase(),n);add=true}
- if(add)try{localStorage.setItem('km'+sv,JSON.stringify([...m.values()]))}catch(e){}
- return [...m.values()].sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()))}
-function drawPool(sv,pool,av){const real=$('poollist'),box=document.createElement('div'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
- const names=[...av],have=new Set(names.map(x=>x.toLowerCase()));
- for(const n of remember(sv,[...pool,...av]))if(!have.has(n.toLowerCase())){have.add(n.toLowerCase());names.push(n)}
- $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps sind erlaubt (alle Schalter an). Schaltest du eine Map aus, gilt ab dann der Pool aus den übrigen Maps.';
- for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
-  const low=n.toLowerCase(),isOn=wanted(sv,'pool:'+low,all||on.has(low)),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
-  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);for(const t of poolTargets(sv))toggle(t,'pool:'+low,cb.checked,'map-pool '+(cb.checked?'add ':'remove ')+n,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase());return !p.length||p.includes(low)})};
+let POOLS=null;
+const loadPools=async()=>{try{POOLS=await api('/api/pools')}catch(e){}};
+const ci=(a,b)=>a.toLowerCase().localeCompare(b.toLowerCase());
+let pq=Promise.resolve(),pqn=0;
+function poolPost(body){pqn++;const p=pq.then(()=>post('/api/pools',body)).catch(e=>{$('cout').textContent='Fehler: '+e.message}).finally(async()=>{if(--pqn==0){await loadPools();await cmdMaps(true)}});pq=p.catch(()=>{});return p}
+function drawPool(sv){if(!POOLS)return;const real=$('poollist'),box=document.createElement('div'),f=$('poolfilter').value.trim().toLowerCase(),cur=POOLS.assign[sv]||'Alle Maps',isAll=cur=='Alle Maps',on=new Set((POOLS.pools[cur]||[]).map(n=>n.toLowerCase()));
+ const sel=$('poolsel'),opts=[['Alle Maps','Alle Maps ('+POOLS.library.length+')'],...Object.keys(POOLS.pools).sort(ci).map(k=>[k,k+' ('+POOLS.pools[k].length+')'])],sig=JSON.stringify(opts);
+ if(sel.dataset.sig!=sig){sel.dataset.sig=sig;sel.replaceChildren(...opts.map(o=>new Option(o[1],o[0])))}
+ sel.value=cur;$('pooldel').disabled=isAll;
+ const users=Object.keys(POOLS.assign).filter(n=>POOLS.assign[n]==cur).sort((a,b)=>a-b),h=$('poolhint');
+ h.textContent=(isAll?'Alle Maps ist fest: jede installierte Map ist erlaubt. Wähle einen eigenen Pool oder lege einen neuen an, um Maps abzuschalten.':on.size+' von '+POOLS.library.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.')+' Genutzt von Server '+users.join(', ')+'.'+(POOLS.drift[sv]?' Der laufende Server weicht gerade ab.':'');
+ if(!isAll&&POOLS.drift[sv]){const b=el('button',0,'Neu anwenden');b.onclick=()=>poolPost({action:'reapply',server:sv});h.append(' ',b)}
+ for(const n of POOLS.library){if(f&&!n.toLowerCase().includes(f))continue;
+  const low=n.toLowerCase(),isOn=isAll||on.has(low),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;cb.disabled=isAll;
+  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);const l=(POOLS.pools[cur]||[]).filter(m=>m.toLowerCase()!=low);if(cb.checked)l.push(n);POOLS.pools[cur]=l;poolPost({action:'set',server:sv,name:cur,map:n,on:cb.checked})};
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
  if(!box.children.length)box.append(el('div','mut','Keine Treffer.'));
  put(real,[...box.childNodes])}
+$('poolsel').onchange=()=>{const sv=$('csrv').value;POOLS.assign[sv]=$('poolsel').value;drawPool(sv);poolPost({action:'assign',server:sv,name:$('poolsel').value})};
+$('poolnew').onclick=()=>{$('poolnewrow').hidden=!$('poolnewrow').hidden;if(!$('poolnewrow').hidden)$('poolname').focus()};
+$('poolmk').onclick=()=>{const n=$('poolname').value.trim();if(!n)return;$('poolname').value='';$('poolnewrow').hidden=true;poolPost({action:'create',server:$('csrv').value,name:n})};
+$('poolname').onkeydown=e=>{if(e.key=='Enter')$('poolmk').click()};
+$('pooldel').onclick=e=>{const sv=$('csrv').value,cur=POOLS&&POOLS.assign[sv];if(cur&&cur!='Alle Maps')armed(e.target,()=>poolPost({action:'delete',server:sv,name:cur}))};
 const layName=()=>{const f=$('layfile').files[0];$('laydroptxt').textContent=f?f.name+' ('+Math.ceil(f.size/1024)+' KB), bereit zum Hochladen':'world-layers.json hierher ziehen oder klicken'};
 $('layfile').onchange=layName;
 for(const ev of['dragenter','dragover'])$('laydrop').addEventListener(ev,e=>{e.preventDefault();$('laydrop').classList.add('over')});
@@ -860,7 +1019,7 @@ for(const ev of['dragleave','drop'])$('laydrop').addEventListener(ev,e=>{e.preve
 $('laydrop').addEventListener('drop',e=>{if(e.dataTransfer&&e.dataTransfer.files.length){$('layfile').files=e.dataTransfer.files;layName()}});
 $('laygo').onclick=async()=>{const f=$('layfile').files[0],o=$('cout');if(!f){o.textContent='Erst eine world-layers.json auswählen.';return}
  try{const r=await post('/api/layers',{server:$('layscope').value=='*'?'*':$('csrv').value,content:await f.text()});o.textContent=r.text+'\\nDanach "Layer-Sync" einschalten.';delete mapsCache[$('csrv').value];await cmdMaps(true)}catch(e){o.textContent='Fehler: '+e.message}};
-$('poolfilter').oninput=()=>{const sv=$('csrv').value,x=mapsCache[sv]||{pool:[],available:[]};drawPool(sv,x.pool||[],x.available||[])};
+$('poolfilter').oninput=()=>drawPool($('csrv').value);
 $('crot').onchange=()=>{const x=mapsCache[$('csrv').value];if(x&&x.flags&&x.flags.rotation>0)sendCmd('rotation '+$('crot').value).then(()=>sleep(1200)).then(()=>cmdMaps(true))};
 $('ctodgo').onclick=()=>sendCmd('tod '+$('ctod').value);
 document.addEventListener('DOMContentLoaded',()=>{});
@@ -1076,6 +1235,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/maps":
                 return self.json(200, server_maps(q.get("fresh") == "1", q.get("server") or None))
+            if url.path == "/api/pools":
+                with POOLS_LOCK:
+                    return self.json(200, pools_snapshot(*pools_state()))
             if url.path == "/api/serverinfo":
                 return self.json(200, server_info(q.get("server", "")))
             if url.path == "/api/secret":
@@ -1165,6 +1327,21 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: {text}")
         self.json(200, {"ok": True, "text": text})
 
+    def pools(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 8192)) or b"{}")
+            result = pools_action(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except (RuntimeError, OSError) as e:
+            return self.json(502, {"error": str(e)})
+        say(f"dashboard: pools {body.get('action')} {body.get('name', '')} server {body.get('server', '')}")
+        self.json(200, result)
+
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/logout":
@@ -1177,6 +1354,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.addmap()
         if path == "/api/layers":
             return self.layers()
+        if path == "/api/pools":
+            return self.pools()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()
