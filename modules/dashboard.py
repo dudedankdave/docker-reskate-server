@@ -37,6 +37,8 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import base64
+from functools import reduce
+from math import gcd
 import glob
 import gzip
 import hashlib
@@ -589,7 +591,10 @@ def ann_clean(item):
     text = " ".join(str(item.get("text", "")).split())[:ANN_TEXT]
     if not text:
         raise ValueError("the announcement is empty")
-    return {"text": text, "on": bool(item.get("on", True))}
+    every, offset = int(item.get("every") or 0), int(item.get("offset") or 0)
+    if not (0 <= every <= 1440 and 0 <= offset <= 1440):
+        raise ValueError("the interval and the offset are 0 to 1440 minutes")
+    return {"text": text, "on": bool(item.get("on", True)), "every": every, "offset": offset}
 
 
 def ann_load():
@@ -624,8 +629,57 @@ def ann_save(state):
     os.replace(tmp, ANN_FILE)
 
 
-def ann_effective(state, number):
-    return [m["text"] for m in state["global"] if m["on"]] + [m["text"] for m in state["servers"].get(number, {}).get("messages", []) if m["on"]]
+def ann_schedule(items):
+    """[(text, every minutes, offset minutes)] -> {messages, interval, deviation}. The server has one interval and runs its
+    list round-robin, so different intervals become a longer list: over the cycle (the least common multiple of the
+    intervals) every announcement gets as many slots as it is due, spread evenly, each in a slot of its own so nothing
+    runs at the same time; `offset` picks where in the cycle the first one goes. `deviation` is how far (fraction) the
+    whole minutes of the slot length push an announcement off its interval."""
+    if not items:
+        return {"messages": [], "interval": 0, "deviation": 0}
+    everys = {e for _, e, _ in items}
+    if len(everys) == 1:   # one common interval: a plain rotation, the order is the stagger
+        return {"messages": [t for t, _, _ in items], "interval": everys.pop(), "deviation": 0}
+    cycle = reduce(lambda x, y: x * y // gcd(x, y), everys)
+    counts = [cycle // e for _, e, _ in items]
+    total = sum(counts)
+    if cycle > 1440 or total > 80:
+        raise ValueError("the intervals do not fit into each other; use intervals that are multiples of each other (10, 20, 30, 60)")
+    slot = max(1, min((cycle // total, cycle // total + 1), key=lambda m: abs(m * total - cycle)))
+    slots = [None] * total
+    for i in sorted(range(len(items)), key=lambda i: -counts[i]):
+        c, best = counts[i], None
+        manual = items[i][2]
+        for start in ([manual / slot] if manual else range(max(1, round(total / c)))):
+            taken, cost = [], 0
+            for j in range(c):
+                target = round(start + j * total / c) % total
+                free = [x for x in range(total) if slots[x] is None and x not in taken]
+                pos = min(free, key=lambda x: min((x - target) % total, (target - x) % total))
+                cost += min((pos - target) % total, (target - pos) % total)
+                taken.append(pos)
+            if best is None or cost < best[0]:
+                best = (cost, taken)
+        for pos in best[1]:
+            slots[pos] = i
+    real = slot * total
+    deviation = max(abs(real / counts[i] / items[i][1] - 1) for i in range(len(items)))
+    return {"messages": [items[i][0] for i in slots], "interval": slot, "deviation": round(deviation, 3)}
+
+
+def ann_plan(state, number):
+    """What the server should run: {messages, interval (None = leave it), deviation, error}."""
+    mine = state["servers"].get(number, {})
+    items = [m for m in state["global"] if m["on"]] + [m for m in mine.get("messages", []) if m["on"]]
+    base = int(mine.get("interval") or 0)
+    try:
+        plan = ann_schedule([(m["text"], m.get("every") or base or 10, m.get("offset") or 0) for m in items])
+        plan["error"] = ""
+        if not base and not any(m.get("every") for m in items):
+            plan["interval"] = None
+    except ValueError as e:
+        plan = {"messages": [m["text"] for m in items], "interval": base or None, "deviation": 0, "error": str(e)}
+    return plan
 
 
 def ann_snapshot(state):
@@ -633,7 +687,7 @@ def ann_snapshot(state):
     return {"global": state["global"], "servers": state["servers"],
             "live": {n: ({"messages": v[0], "interval": v[1]} if (v := live_announcements(n)) is not None else None) for n in details},
             "roles": {n: (r.get("name") or "").rsplit(" - ", 1)[-1].strip() for n, r in details.items()},
-            "effective": {n: ann_effective(state, n) for n in details}}
+            "plans": {n: ann_plan(state, n) for n in details}}
 
 
 def ann_apply(state, number):
@@ -641,7 +695,8 @@ def ann_apply(state, number):
     live = live_announcements(number)
     if live is None:
         raise RuntimeError(f"server {number}: settings not readable")
-    want, interval = ann_effective(state, number), int(state["servers"].get(number, {}).get("interval") or 0)
+    plan = ann_plan(state, number)
+    want, interval = plan["messages"], plan["interval"]
     commands = []
     if live[0] != want:
         commands = ["announcements clear"] + [f"announcements add {t}" for t in want]
@@ -684,7 +739,7 @@ def ann_action(body):
                 if not 0 <= i < len(items):
                     raise ValueError("no such announcement")
                 if action == "edit":
-                    items[i] = ann_clean({"text": body.get("text", items[i]["text"]), "on": body.get("on", items[i]["on"])})
+                    items[i] = ann_clean({k: body.get(k, items[i].get(k)) for k in ("text", "on", "every", "offset")})
                 elif action == "delete":
                     del items[i]
                 elif action == "move":
@@ -953,7 +1008,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}.annrow>input:not(.annnum){flex:1 1 220px}.annnum{width:64px;flex:none}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px)) clamp(32px,5vw,64px) max(var(--gut),env(safe-area-inset-left,0px));width:100%;margin:0;display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(40px,5.5vw,72px)}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 clamp(12px,1.4vw,18px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:clamp(10px,1.2vw,16px)}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cmdstack{display:grid;gap:clamp(12px,1.6vw,24px);margin-top:clamp(10px,1.4vw,18px)}.toprow{display:grid;grid-template-columns:clamp(240px,24vw,340px) minmax(0,1fr);gap:clamp(10px,1.2vw,16px);align-items:stretch}.toprow .pic{aspect-ratio:16/10}.twocol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(10px,1.2vw,16px);align-items:start}.col{display:grid;gap:clamp(10px,1.2vw,16px);align-content:start;min-width:0}@media(max-width:900px){.toprow,.twocol{grid-template-columns:minmax(0,1fr)}}.term{background:var(--bg);border:1px solid var(--line);border-radius:6px;margin:8px 0;font:12px/1.45 ui-monospace,monospace}.term pre{background:transparent;border:0;height:220px;max-height:none;margin:0;border-radius:6px 6px 0 0}.prompt{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line)}.prompt span{color:var(--ok);font-weight:700}.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:inherit;font:inherit;padding:0}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
@@ -1020,8 +1075,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <section data-v="befehle"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
-<section data-v="ansagen"><h2>Ansagen für alle Server</h2><div class="card"><div class="mut">Diese Ansagen laufen auf jedem Server, zusätzlich zu den eigenen. Das Spiel zeigt sie reihum im eingestellten Intervall.</div><div class="annlist" id="annglobal"></div><div class="crow"><input id="annnew-global" maxlength="220" placeholder="Neue Ansage für alle Server" style="flex:1;min-width:200px"><button id="annadd-global">Hinzufügen</button></div><div class="crow"><span class="mut">Intervall für alle Server</span><input id="anniv-all" type="number" min="1" max="1440" value="10" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-all">Setzen</button></div></div></section>
-<section data-v="ansagen"><h2>Ansagen pro Server <select id="annsrv"></select></h2><div class="card"><div class="mut" id="annstate"></div><div class="annlist" id="annserver"></div><div class="crow"><input id="annnew-server" maxlength="220" placeholder="Neue Ansage nur für diesen Server" style="flex:1;min-width:200px"><button id="annadd-server">Hinzufügen</button></div><div class="crow"><span class="mut">Intervall dieses Servers</span><input id="anniv-server" type="number" min="1" max="1440" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-server">Setzen</button><button id="annre">Neu anwenden</button></div><div class="mut" id="annlive"></div></div></section>
+<section data-v="ansagen"><h2>Ansagen für alle Server</h2><div class="card"><div class="mut">Diese Ansagen laufen auf jedem Server, zusätzlich zu den eigenen. Das Spiel zeigt sie reihum im eingestellten Intervall.</div><div class="annlist" id="annglobal"></div><div class="crow"><input id="annnew-global" maxlength="220" placeholder="Neue Ansage für alle Server" style="flex:1;min-width:200px"><button id="annadd-global">Hinzufügen</button></div><div class="crow"><span class="mut">Standard-Intervall für alle Server</span><input id="anniv-all" type="number" min="1" max="1440" value="10" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-all">Setzen</button></div></div></section>
+<section data-v="ansagen"><h2>Ansagen pro Server <select id="annsrv"></select></h2><div class="card"><div class="mut" id="annstate"></div><div class="annlist" id="annserver"></div><div class="crow"><input id="annnew-server" maxlength="220" placeholder="Neue Ansage nur für diesen Server" style="flex:1;min-width:200px"><button id="annadd-server">Hinzufügen</button></div><div class="crow"><span class="mut">Standard-Intervall dieses Servers</span><input id="anniv-server" type="number" min="1" max="1440" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-server">Setzen</button><button id="annre">Neu anwenden</button></div><div class="mut" id="annlive"></div></div></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -1324,18 +1379,20 @@ function annRows(scope,list){const box=document.createElement('div');
  list.forEach((m,i)=>{const row=el('div','annrow'),lb=el('label','tgl'+(m.on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=m.on;
   cb.onchange=()=>annPost({action:'edit',scope,index:i,on:cb.checked});lb.append(cb,el('span','sw'));
   const t=document.createElement('input');t.value=m.text;t.maxLength=220;t.onchange=()=>annPost({action:'edit',scope,index:i,text:t.value});
+  const num=(key,ph,tip)=>{const n=document.createElement('input');n.type='number';n.min=0;n.max=1440;n.className='annnum';n.placeholder=ph;n.title=tip;n.value=m[key]||'';n.onchange=()=>annPost({action:'edit',scope,index:i,[key]:+n.value||0});return n};
+  const ev=num('every','Std.','Eigener Takt in Minuten (leer = Standard-Intervall des Servers)'),of=num('offset','0','Versatz in Minuten: wann im Ablauf diese Ansage zuerst kommt, damit sie nicht gleichzeitig mit anderen läuft');
   const up=el('button',0,'↑'),dn=el('button',0,'↓'),del=el('button',0,'✕');up.disabled=i==0;dn.disabled=i==list.length-1;
   up.onclick=()=>annPost({action:'move',scope,index:i,dir:'up'});dn.onclick=()=>annPost({action:'move',scope,index:i,dir:'down'});del.onclick=()=>armed(del,()=>annPost({action:'delete',scope,index:i}));
-  row.append(lb,t,up,dn,del);box.append(row)});
+  row.append(lb,t,el('span','mut','alle'),ev,el('span','mut','Min · Versatz'),of,up,dn,del);box.append(row)});
  if(!list.length)box.append(el('div','mut','Noch keine Ansagen.'));return [...box.childNodes]}
 function annDraw(){if(!ANN)return;const sel=$('annsrv'),nums=Object.keys(ANN.servers).sort((a,b)=>a-b),keep=sel.value,sig=JSON.stringify(nums.map(n=>[n,ANN.roles[n]]));
  if(sel.dataset.sig!=sig){sel.dataset.sig=sig;sel.replaceChildren(...nums.map(n=>new Option(n+' '+(ANN.roles[n]||''),n)))}
  if(nums.includes(keep))sel.value=keep;const sv=sel.value;
  put($('annglobal'),annRows('global',ANN.global));
- if(!sv)return;const S=ANN.servers[sv],live=ANN.live[sv],eff=ANN.effective[sv];
+ if(!sv)return;const S=ANN.servers[sv],live=ANN.live[sv],plan=ANN.plans[sv],eff=plan.messages;
  put($('annserver'),annRows(sv,S.messages));
  if(document.activeElement!==$('anniv-server'))$('anniv-server').value=S.interval||(live?live.interval:'')||'';
- $('annstate').textContent='Auf diesem Server laufen '+eff.length+' Ansagen ('+ANN.global.filter(m=>m.on).length+' von allen + '+S.messages.filter(m=>m.on).length+' eigene), alle '+(live?live.interval:'?')+' Minuten.';
+ $('annstate').textContent='Auf diesem Server laufen '+(ANN.global.filter(m=>m.on).length+S.messages.filter(m=>m.on).length)+' Ansagen ('+ANN.global.filter(m=>m.on).length+' von allen + '+S.messages.filter(m=>m.on).length+' eigene). Der Server zeigt alle '+(plan.interval||(live?live.interval:'?'))+' Minuten eine Ansage reihum'+(new Set(eff).size<eff.length?' (Takte als Ablauf mit '+eff.length+' Plätzen eingebaut)':'')+'.'+(plan.error?' Achtung: '+plan.error+'.':plan.deviation>0.02?' Die Takte passen nicht ganz ineinander (Abweichung bis '+Math.round(plan.deviation*100)+' %, weil der Server nur ganze Minuten kann).':'');
  const same=live&&JSON.stringify(live.messages)==JSON.stringify(eff)&&(!S.interval||S.interval==live.interval);
  $('annlive').textContent=live?(same?'Der laufende Server stimmt überein.':'Der laufende Server weicht ab (geändert per Konsole?). Mit „Neu anwenden“ gleichst du ihn an.'):'Server nicht lesbar.'}
 $('annsrv').onchange=annDraw;

@@ -329,6 +329,29 @@ class AnnouncementsTest(unittest.TestCase):
                 d.ann_action(bad)
 
 
+class AnnouncementScheduleTest(unittest.TestCase):
+    def test_one_common_interval_is_a_plain_rotation(self):
+        d = load()
+        self.assertEqual(d.ann_schedule([("a", 10, 0), ("b", 10, 5)]), {"messages": ["a", "b"], "interval": 10, "deviation": 0})
+
+    def test_different_intervals_get_slots_of_their_own(self):
+        d = load()
+        out = d.ann_schedule([("a", 10, 0), ("b", 10, 0), ("c", 20, 0)])
+        self.assertEqual((out["interval"], out["deviation"]), (4, 0))
+        slots = out["messages"]
+        self.assertEqual((len(slots), slots.count("a"), slots.count("b"), slots.count("c")), (5, 2, 2, 1))
+        out = d.ann_schedule([("a", 10, 0), ("b", 60, 0)])
+        self.assertEqual((len(out["messages"]), out["messages"].count("b")), (7, 1))
+        self.assertLess(out["deviation"], 0.1)
+
+    def test_offset_moves_the_first_slot(self):
+        d = load()
+        out = d.ann_schedule([("a", 10, 0), ("b", 30, 20)])
+        self.assertEqual(out["messages"].index("b"), 2)
+        with self.assertRaises(ValueError):
+            d.ann_schedule([("a", 97, 0), ("b", 89, 0)])
+
+
 class ServerMapsOnlyTest(unittest.TestCase):
     def test_refreshing_one_server_keeps_the_others(self):
         d = load()
