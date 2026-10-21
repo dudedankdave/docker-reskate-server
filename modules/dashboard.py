@@ -65,7 +65,7 @@ import zipfile
 import zlib
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8780").rstrip("/")
@@ -2667,7 +2667,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/toollog":
                 return self.json(200, tool_log(q.get("name", "")))
             if url.path == "/api/events":
-                path = "/v1/events?" + "&".join(f"{k}={q[k]}" for k in ("after", "server", "scope") if q.get(k))
+                path = "/v1/events?" + urlencode({k: q[k] for k in ("after", "server", "scope") if q.get(k)})
                 return self.json(200, bridge(path))
         except ValueError as e:
             return self.json(400, {"error": str(e)})

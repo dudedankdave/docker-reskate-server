@@ -27,6 +27,7 @@ Every request needs `Authorization: Bearer $BRIDGE_TOKEN`. Settings: BRIDGE_TOKE
 BRIDGE_BIND (default 127.0.0.1), BRIDGE_PORT (default 8780), BRIDGE_BUFFER (events kept, default 5000).
 Reads servers.json like the rollover; standard library only."""
 import calendar
+import hmac
 import json
 import os
 import re
@@ -60,6 +61,15 @@ BUFFER = max(100, int(os.environ.get("BRIDGE_BUFFER", "5000")))
 POLL = 3     # seconds between log reads
 
 BLOCKED = {"quit", "exit", "stop", "restart", "shutdown", "update", "reload"}
+# Control characters (all but tab). The servers have a TTY, so Ctrl-C (\x03) or Ctrl-\\ typed through attach
+# would stop the server past BLOCKED; they are refused in inputs and dropped from every line typed.
+CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+SECRET_LINE = re.compile(r"^(\s*/?password\s+)(?!off\s*$)\S.*$", re.I)
+
+
+def masked(line):
+    """The line as audits and logs show it: a join password becomes ***."""
+    return SECRET_LINE.sub(r"\1***", line)
 
 # name -> label, console line template ({arg} placeholders), inputs. `admin` ones are only for
 # callers that vouch for an admin (the bridge cannot check who is behind `by`).
@@ -264,7 +274,7 @@ def type_into(info, line, timeout=10):
         first = head.split(b"\r\n", 1)[0].decode("latin-1")
         if " 101 " not in first and " 200 " not in first:
             raise RuntimeError(f"docker attach: {first or 'no answer'}")
-        sock.sendall(line.encode("utf-8") + b"\n")
+        sock.sendall(CONTROL.sub("", line).encode("utf-8") + b"\n")
     finally:
         sock.close()
 
@@ -273,6 +283,8 @@ def clean(value, limit):
     value = str(value or "").strip()
     if not value or "\n" in value or "\r" in value:
         raise ValueError("every input is one non-empty line")
+    if CONTROL.search(value):
+        raise ValueError("control characters are not allowed")
     return value[:limit]
 
 
@@ -314,14 +326,14 @@ def do(number, action, args, by, slot=None):
             say(f"bridge: could not type into {info['Name']}: {e}")
     if not sent:
         raise RuntimeError("could not type into the console")
-    note = f"{by or 'someone'} used the bridge{' (slot ' + slot + ')' if slot else ''}: {line[:300]}"
+    note = f"{by or 'someone'} used the bridge{' (slot ' + slot + ')' if slot else ''}: {masked(line)[:300]}"
     module = by.startswith("module:")
     if not module:
         say(f"bridge: server {number}: {note}")
     push(number, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), note, ["audit"] if module else ["admin", "audit"],
          kind="audit", slot=slot)
     where = f" slot {slot}" if slot else ""
-    return f"Sent to server {number}{where}: {line[:300]}" + (f" ({sent} containers)" if sent > 1 else "")
+    return f"Sent to server {number}{where}: {masked(line)[:300]}" + (f" ({sent} containers)" if sent > 1 else "")
 
 
 SECRET = re.compile(r"PASSWORD|TOKEN|SECRET|WEBHOOK|_KEY$|^KEY$", re.I)
@@ -377,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def authorized(self):
-        if self.headers.get("Authorization", "") == f"Bearer {TOKEN}":
+        if hmac.compare_digest(self.headers.get("Authorization", "").encode(), f"Bearer {TOKEN}".encode()):
             return True
         self.reply(401, {"error": "bad or missing token"})
         return False
