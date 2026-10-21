@@ -1123,6 +1123,145 @@ def team_action(body):
     return " ".join(result.get("lines") or ["done"])
 
 
+STEAM_ID = re.compile(r"\d{17}")
+
+
+def player_stats(league, steam_id, name):
+    """One player's standing on a league's boards: per game mode ("" = all modes) and period (all time, the latest
+    year, month and week): points, wins, games played and place. Unranked boards know players by name."""
+    path = f"{SHARED}/{LB_FILES[league]}"
+    out = {"exists": os.path.exists(path), "modes": [], "periods": [], "cells": {}}
+    boards = db_rows(path, "SELECT id, name, kind, created_at FROM boards")
+    keys = [steam_id] + (["name:" + name] if name else [])
+    mine = {r["board"]: r for r in db_rows(
+        path, f"SELECT board, points, wins, played FROM scores WHERE steam_id IN ({','.join('?' * len(keys))}) "
+              "ORDER BY points", keys)}
+    latest = {}
+    for b in boards:
+        base, _, mode = b["id"].partition(":")
+        kind = base.split("-")[0]
+        if kind in ("general", "year", "month", "week") and (kind not in latest or base > latest[kind]):
+            latest[kind] = base
+    out["periods"] = [{"kind": k, "base": latest[k]} for k in ("general", "year", "month", "week") if k in latest]
+    names = {b["id"]: b["name"] for b in boards}
+    for period in out["periods"]:
+        period["name"] = names.get(period["base"], period["base"])
+    modes = sorted({b["id"].partition(":")[2] for b in boards if ":" in b["id"]})
+    out["modes"] = [{"mode": "", "name": "Alle Modi"}] + [
+        {"mode": m, "name": (names.get(f"general:{m}") or m).replace("All Time - ", "")} for m in modes]
+    for m in out["modes"]:
+        for period in out["periods"]:
+            bid = period["base"] + (":" + m["mode"] if m["mode"] else "")
+            row = mine.get(bid)
+            if not row or not row["points"]:
+                continue
+            ahead = db_rows(path, "SELECT COUNT(*) AS n FROM scores WHERE board = ? AND points > ?", (bid, row["points"]))
+            of = db_rows(path, "SELECT COUNT(*) AS n FROM scores WHERE board = ? AND points > 0", (bid,))
+            out["cells"].setdefault(m["mode"], {})[period["kind"]] = {
+                "points": row["points"], "wins": row["wins"], "played": row["played"],
+                "rank": (ahead[0]["n"] if ahead else 0) + 1, "of": of[0]["n"] if of else 0}
+    return out
+
+
+def player_profile(steam_id, name=""):
+    """Moderator view of one player: Steam profile link, team, all teams to pick from and stats per league."""
+    steam_id = str(steam_id)
+    if not STEAM_ID.fullmatch(steam_id):
+        raise ValueError("a SteamID64 is needed")
+    name = str(name or "")[:64]
+    teams = db_rows(f"{SHARED}/teams.db", "SELECT t.id, t.tag, t.name, (SELECT COUNT(*) FROM members m WHERE m.team = t.id) AS members "
+                                         "FROM teams t ORDER BY t.name COLLATE NOCASE")
+    mine = db_rows(f"{SHARED}/teams.db", "SELECT t.tag, t.name, m.role FROM members m JOIN teams t ON t.id = m.team WHERE m.steam_id = ?",
+                   (steam_id,))
+    known = db_rows(f"{SHARED}/teams.db", "SELECT name FROM known WHERE steam_id = ?", (steam_id,))
+    name = name or (known[0]["name"] if known else "")
+    link = db_rows(f"{SHARED}/teams.db", "SELECT discord_id FROM links WHERE steam_id = ?", (steam_id,))
+    discord = link[0]["discord_id"] if link and re.fullmatch(r"\d{5,25}", str(link[0]["discord_id"])) else ""
+    return {"steam_id": steam_id, "name": name, "steam": f"https://steamcommunity.com/profiles/{steam_id}",
+            "discord": f"https://discord.com/users/{discord}" if discord else "",
+            "team": ({"tag": mine[0]["tag"].upper(), "name": mine[0]["name"], "role": mine[0]["role"]} if mine else None),
+            "teams": [{"tag": t["tag"].upper(), "name": t["name"], "members": t["members"]} for t in teams],
+            "stats": {league: player_stats(league, steam_id, name) for league in LB_FILES}}
+
+
+STEAM_CACHE = {}
+
+
+def steam_info(steam_id):
+    """What Steam shows publicly about an account (the profile's XML, no API key): name, avatar, VAC and trade ban,
+    limited account, privacy, member since. Cached for ten minutes; {"error"} when Steam can not be reached."""
+    steam_id = str(steam_id)
+    if not STEAM_ID.fullmatch(steam_id):
+        raise ValueError("a SteamID64 is needed")
+    hit = STEAM_CACHE.get(steam_id)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    try:
+        req = urllib.request.Request(f"https://steamcommunity.com/profiles/{steam_id}?xml=1", headers={"User-Agent": "reskate-dashboard"})
+        with urllib.request.urlopen(req, timeout=8) as res:
+            xml = res.read(200000).decode("utf-8", "replace")
+    except OSError as e:
+        return {"error": f"Steam is not reachable ({e.__class__.__name__})"}
+
+    def text(tag):          # the profile is flat XML: <tag>value</tag> or <tag><![CDATA[value]]></tag>
+        m = re.search(rf"<{tag}>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</{tag}>", xml, re.S)
+        return m.group(1).strip() if m else ""
+    if not text("steamID64"):
+        return {"error": text("error") or "no such Steam profile"}
+    avatar = text("avatarMedium")
+    info = {"name": text("steamID"), "avatar": avatar if re.fullmatch(r"https://[\w.-]+\.steamstatic\.com/[\w./-]+", avatar) else "", "privacy": text("privacyState"), "vac": text("vacBanned") == "1",
+            "trade_ban": text("tradeBanState"), "limited": text("isLimitedAccount") == "1", "since": text("memberSince")}
+    STEAM_CACHE[steam_id] = (time.time(), info)
+    return info
+
+
+def player_search(text):
+    """Players that are not online too: names seen on a server (teams.db) and names on the boards. [{steam_id, name}]"""
+    text = str(text or "").strip()
+    if len(text) < 2:
+        return []
+    like = "%" + text.replace("%", "").replace("_", "") + "%"
+    found = {}
+    for r in db_rows(f"{SHARED}/teams.db", "SELECT steam_id, name FROM known WHERE steam_id = ? OR name LIKE ? ORDER BY seen DESC LIMIT 20",
+                     (text, like)):
+        found[r["steam_id"]] = r["name"]
+    for file in LB_FILES.values():
+        for r in db_rows(f"{SHARED}/{file}", "SELECT steam_id, name FROM players WHERE steam_id = ? OR name LIKE ? LIMIT 20", (text, like)):
+            if STEAM_ID.fullmatch(r["steam_id"]):
+                found.setdefault(r["steam_id"], r["name"])
+    return [{"steam_id": k, "name": v} for k, v in list(found.items())[:15]]
+
+
+def player_team(body):
+    """{steam_id, name, team}: put a player into the team with that tag ("" = out of any team). The teams module has no
+    admin verb, so it goes the way a player's own commands do: the team's owner invites, the player joins."""
+    profile = player_profile(body.get("steam_id"), body.get("name"))
+    sid, name, tag = profile["steam_id"], profile["name"], str(body.get("team", "")).strip().upper()
+    who = {"steam_id": sid, "name": name or sid}
+
+    def run(actor, verb, args=None):
+        result = bridge("/v1/teams/act", {"who": actor, "verb": verb, "args": args or {}})
+        if not result.get("ok"):
+            raise ValueError((result.get("lines") or ["not possible"])[0])
+
+    current = profile["team"]
+    if current and current["tag"] == tag:
+        return "already in that team"
+    if current:
+        run(who, "leave")
+    if not tag:
+        return "out of the team"
+    if tag not in {t["tag"] for t in profile["teams"]}:
+        raise ValueError("unknown team")
+    snap = next((t for t in teams_snapshot()["teams"] if t["tag"] == tag), None)
+    owner = next((m for m in (snap or {}).get("members", []) if m["role"] == "owner"), None)
+    if not owner:
+        raise ValueError("that team has no owner")
+    run({"steam_id": owner["steam_id"], "name": owner["name"]}, "invite", {"player": sid})
+    run(who, "join", {"team": tag})
+    return f"in team {tag}"
+
+
 def demux(data):
     """Text of a Docker log stream (8-byte frame headers unless the container has a TTY)."""
     out, i = [], 0
@@ -1593,7 +1732,7 @@ main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px))
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
 .tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:6px}
 table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}th{color:var(--mut);font-weight:500}
-td .act{display:flex;gap:6px;flex-wrap:wrap}td button{padding:3px 8px;font-size:13px}button.arm{border-color:var(--bad);color:var(--bad)}
+td .act{display:flex;gap:6px;flex-wrap:wrap}.pdet{display:grid;gap:8px;padding:6px 0;min-width:0}.pdet h4{margin:6px 0 0;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.pdet .tablewrap{background:var(--bg)}.avatar{border-radius:4px}.pill.ok{color:var(--ok)}.pill.bad{color:var(--bad)}.pill.warn{color:var(--warn)}.pdet a{padding:3px 8px;border:1px solid var(--line);border-radius:5px;font-size:13px}td button{padding:3px 8px;font-size:13px}button.arm{border-color:var(--bad);color:var(--bad)}
 #find,#srvtools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}#srvtools{margin:8px 0 0}#find input,#srvtools input{flex:1;min-width:140px;font:inherit;padding:7px 10px;border-radius:5px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 0 max(var(--gut),env(safe-area-inset-left,0px))}nav button.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 .off{display:none!important}section.closed>*:not(h2){display:none}.fold{margin-left:auto;padding:1px 9px}th[data-k]{cursor:pointer;user-select:none;white-space:nowrap}th[data-k]:hover{color:var(--fg)}
@@ -1922,23 +2061,77 @@ let sortK='name',sortD=1;
 function cmp(a,b){let x,y;if(sortK=='server'){x=(parseInt(a.server)||0)*10+(a.slot=='B'?1:0);y=(parseInt(b.server)||0)*10+(b.slot=='B'?1:0)}
  else if(sortK=='team'){x=(a.team||'\\uffff').toLowerCase();y=(b.team||'\\uffff').toLowerCase()}else{x=a.name.toLowerCase();y=b.name.toLowerCase()}
  return (x<y?-1:x>y?1:0)*sortD}
+const opened=new Set(),profs={},picks={};let offline=[],offQ='';
+const PKIND=[['general','Gesamt'],['year','Jahr'],['month','Monat'],['week','Woche']];
+function link(href,text){const a=el('a',0,text);a.href=href;a.target='_blank';a.rel='noopener noreferrer';return a}
+const steams={};
+async function loadSteam(id){if(steams[id])return;steams[id]={};try{steams[id]=await api('/api/steam?steam_id='+id)}catch(e){steams[id]={error:e.message}}draw()}
+function steamRow(id){const d=steams[id],row=el('div','crow');if(!d||!Object.keys(d).length){row.append(el('span','mut','Steam-Status wird geladen …'));return row}
+ if(d.error){row.append(el('span','mut','Steam-Status nicht verfügbar: '+d.error));return row}
+ if(d.avatar){const i=el('img','avatar');i.src=d.avatar;i.alt='';i.width=32;i.height=32;i.referrerPolicy='no-referrer';row.append(i)}
+ const pill=(t,c)=>row.append(el('span','pill '+c,t));
+ row.append(el('b',0,d.name||'?'));
+ pill(d.vac?'VAC-Ban':'Kein VAC-Ban',d.vac?'bad':'ok');
+ if(d.trade_ban&&d.trade_ban!='None')pill('Trade-Ban: '+d.trade_ban,'warn');
+ if(d.limited)pill('Limitiertes Konto','warn');
+ pill(d.privacy=='public'?'Profil öffentlich':'Profil '+(d.privacy||'privat'),d.privacy=='public'?'':'warn');
+ if(d.since)row.append(el('span','mut','Steam seit '+d.since));
+ return row}
+async function openProfile(p,fresh){const id=p.steam_id;loadSteam(id);if(!fresh&&profs[id])return;
+ try{profs[id]=await api('/api/player?steam_id='+encodeURIComponent(id)+'&name='+encodeURIComponent(p.name||''))}catch(e){profs[id]={error:e.message}}draw()}
+function toggleProfile(p){if(opened.has(p.steam_id))opened.delete(p.steam_id);else{opened.add(p.steam_id);openProfile(p)}draw()}
+async function setPlayerTeam(p,tag){say_('…');
+ try{const r=await post('/api/playerteam',{steam_id:p.steam_id,name:p.name,team:tag});say_('Team: '+(r.text||'ok'));delete picks[p.steam_id]}catch(e){say_('Fehler: '+e.message)}
+ await openProfile(p,true);who()}
+function statsTable(st){
+ const t=el('table'),hd=el('tr');hd.append(el('th',0,'Modus'));for(const [k,l] of PKIND){const per=st.periods.find(x=>x.kind==k);if(per)hd.append(el('th','lbn',l+(k=='general'?'':' · '+per.name)))}
+ t.append(hd);
+ for(const m of st.modes){const cells=st.cells[m.mode]||{};if(m.mode&&!Object.keys(cells).length)continue;const tr=el('tr');tr.append(el('td',0,m.name));
+  for(const [k] of PKIND){if(!st.periods.some(x=>x.kind==k))continue;const c=cells[k],td=el('td','lbn');
+   if(c){td.textContent=c.points+' P · '+c.wins+'/'+c.played+' · #'+c.rank;td.title=c.points+' Punkte, '+c.wins+' Siege in '+c.played+' Spielen, Platz '+c.rank+' von '+c.of}else td.textContent='–';tr.append(td)}
+  t.append(tr)}
+ return t}
+function profileBox(p){const d=profs[p.steam_id],box=el('div','pdet');
+ if(!d){box.append(el('span','mut','Lade …'));return box}
+ if(d.error){box.append(el('span','mut','Fehler: '+d.error));return box}
+ const top=el('div','crow');top.append(link(d.steam,'Steam-Profil'));if(d.discord)top.append(link(d.discord,'Discord-Profil'));else top.append(el('span','mut','Discord nicht verknüpft'));
+ const sel=el('select');sel.append(new Option('Kein Team',''));for(const t of d.teams)sel.append(new Option('['+t.tag+'] '+t.name+' ('+t.members+')',t.tag));
+ sel.value=picks[p.steam_id]!==undefined?picks[p.steam_id]:(d.team?d.team.tag:'');sel.onchange=()=>{picks[p.steam_id]=sel.value};
+ const go=el('button',0,'Team setzen');go.onclick=()=>setPlayerTeam(p,sel.value);
+ const tr=el('div','crow');tr.append(el('span','mut','Team'),sel,go);
+ if(d.team)tr.append(el('span','mut','aktuell: ['+d.team.tag+'] '+d.team.name+' · '+d.team.role));
+ box.append(top,steamRow(p.steam_id),tr);
+ for(const league of ['unranked','ranked']){const st=d.stats[league],h=el('h4',0,league=='ranked'?'Ranked':'Unranked');box.append(h);
+  const none=!Object.keys(st.cells).length;if(!st.exists||none){box.append(el('div','mut',st.exists?'Noch keine Punkte.':'Keine Datenbank.'));continue}
+  const w=el('div','tablewrap');w.append(statsTable(st));box.append(w)}
+ return box}
 function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySelector('#plist tbody'),tb=document.createElement('tbody');
  const rows=people.filter(p=>!q||(p.name+' '+p.steam_id+' '+(p.team||'')).toLowerCase().includes(q)).sort(cmp);
  for(const th of document.querySelectorAll('#plist th[data-k]'))th.textContent=({name:'Spieler',team:'Team',server:'Server'})[th.dataset.k]+(th.dataset.k==sortK?(sortD>0?' ▲':' ▼'):'');
  document.querySelector('#modsec h2').firstChild.textContent='Moderator · '+people.length+' online ';
- if(!rows.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=4;tr.append(td);tb.append(tr);put(real,[...tb.childNodes]);return}
+ const online=new Set(people.map(p=>p.steam_id)),off=q.length>=2&&offQ==q?offline.filter(o=>!online.has(o.steam_id)):[];
+ if(!rows.length&&!off.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=4;tr.append(td);tb.append(tr);put(real,[...tb.childNodes]);return}
+ const detail=p=>{const tr=el('tr'),td=el('td');td.colSpan=4;td.append(profileBox(p));tr.append(td);return tr};
  for(const p of rows){const tr=el('tr'),n=el('td'),tm=el('td','mut',p.team||''),s=el('td','mut'),a=el('td'),w=el('div','act');
   n.append(el('div',0,p.name),el('div','mut',p.steam_id));s.textContent=p.server+(p.slot||'')+' '+p.role;
   const base={server:p.server,slot:p.slot,player:p.name,steam_id:p.steam_id};
   const add=(l,f)=>{const b=el('button',0,l);b.onclick=()=>f(b);w.append(b)};
+  add(opened.has(p.steam_id)?'Details ▲':'Details',()=>toggleProfile(p));
   add('Nachricht',()=>act({...base,action:'msg',text:$('mtext').value}));
   add('Kick',b=>act({...base,action:'kick'},b));
   add('Ban',b=>act({...base,action:'ban',text:$('mtext').value},b));
   if(tpOn)add('Teleport',()=>act({...base,action:'tp',target:$('mtext').value}));
-  a.append(w);tr.append(n,tm,s,a);tb.append(tr)}
+  a.append(w);tr.append(n,tm,s,a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
+ if(off.length){const tr=el('tr'),td=el('td','mut','Nicht online (Spieler, die schon auf den Servern oder Ranglisten waren)');td.colSpan=4;tr.append(td);tb.append(tr)}
+ for(const p of off){const tr=el('tr'),n=el('td'),a=el('td'),b=el('button',0,opened.has(p.steam_id)?'Details ▲':'Details');
+  n.append(el('div',0,p.name),el('div','mut',p.steam_id));b.onclick=()=>toggleProfile(p);a.append(b);
+  tr.append(n,el('td'),el('td','mut','offline'),a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
  put(real,[...tb.childNodes])}
+let offT=0;
+function findOffline(){const q=$('q').value.trim().toLowerCase();clearTimeout(offT);if(q.length<2){offline=[];offQ='';return}
+ offT=setTimeout(async()=>{try{offline=await api('/api/playersearch?q='+encodeURIComponent(q));offQ=q;draw()}catch(e){}},300)}
 for(const th of document.querySelectorAll('#plist th[data-k]'))th.onclick=()=>{if(sortK==th.dataset.k)sortD=-sortD;else{sortK=th.dataset.k;sortD=1}draw()};
-$('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
+$('q').oninput=()=>{draw();findOffline()};$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
 $('cat').onchange=()=>{const v=$('cat').value;if(!v)return;$('cmd').value=v;$('cmd').focus();const i=v.search(/[<\\[]/);if(i>0)$('cmd').setSelectionRange(i,v.length);$('cat').value=''};
 let cmdNames=null;
@@ -2264,6 +2457,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, server_secret(q.get("server", "")))
             if url.path == "/api/players":
                 return self.json(200, players() if MOD else [])
+            if url.path == "/api/player":
+                if not MOD:
+                    return self.json(403, {"error": "forbidden"})
+                return self.json(200, player_profile(q.get("steam_id", ""), q.get("name", "")))
+            if url.path == "/api/steam":
+                if not MOD:
+                    return self.json(403, {"error": "forbidden"})
+                return self.json(200, steam_info(q.get("steam_id", "")))
+            if url.path == "/api/playersearch":
+                return self.json(200, player_search(q.get("q", "")) if MOD else [])
             if url.path == "/api/containers":
                 return self.json(200, containers())
             if url.path == "/api/toollog":
@@ -2406,6 +2609,23 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: team {body.get('action')} {body.get('team', body.get('id', ''))} {body.get('key', body.get('player', ''))}")
         self.json(200, {"ok": True, "text": text})
 
+    def playerteam(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 2048)) or b"{}")
+            text = player_team(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except urllib.error.HTTPError as e:
+            return self.json(502, {"error": f"bridge: {e.code} {e.read()[:200].decode(errors='replace')}"})
+        except (RuntimeError, OSError, urllib.error.URLError) as e:
+            return self.json(502, {"error": str(e)})
+        say(f"dashboard: player {body.get('steam_id')} team '{body.get('team', '')}'")
+        self.json(200, {"ok": True, "text": text})
+
     def option(self):
         if not self.logged_in():
             return self.json(401, {"error": "login"})
@@ -2463,6 +2683,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.option()
         if path == "/api/team":
             return self.team()
+        if path == "/api/playerteam":
+            return self.playerteam()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()

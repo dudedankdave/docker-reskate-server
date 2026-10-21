@@ -670,6 +670,119 @@ class SyncLinksTest(unittest.TestCase):
         self.assertEqual(self.d.sync_plan(store, {"1": ["a-One-1.0.0"]}), {})
 
 
+class PlayerTest(unittest.TestCase):
+    ANN, BO, NEW = "76561198000000001", "76561198000000002", "76561198000000005"
+
+    def setUp(self):
+        import sqlite3
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.executescript(
+            "CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT, tag TEXT, motto TEXT DEFAULT '', description TEXT DEFAULT '',"
+            " logo TEXT DEFAULT '', league TEXT DEFAULT '', category TEXT DEFAULT '', open INTEGER DEFAULT 0, created REAL DEFAULT 0);"
+            "CREATE TABLE members (steam_id TEXT PRIMARY KEY, team INT, role TEXT, joined REAL);"
+            "CREATE TABLE known (steam_id TEXT PRIMARY KEY, name TEXT, seen REAL);"
+            "CREATE TABLE invites (team INT, steam_id TEXT, at REAL);"
+            "CREATE TABLE applications (id INTEGER PRIMARY KEY, steam_id TEXT, applicant TEXT, name TEXT, tag TEXT, status TEXT, created REAL,"
+            " decided_by TEXT, decided_at REAL, message TEXT DEFAULT '');"
+            "CREATE TABLE links (steam_id TEXT, discord_id TEXT, at REAL);"
+            "INSERT INTO teams (id, name, tag) VALUES (1, 'Crew', 'crw'), (2, 'Other', 'oth');"
+            f"INSERT INTO members VALUES ('{self.ANN}', 1, 'member', 2), ('{self.BO}', 1, 'owner', 1);"
+            f"INSERT INTO known VALUES ('{self.ANN}', 'Ann', 0), ('{self.BO}', 'Bo', 0), ('{self.NEW}', 'Newbie', 0);"
+            f"INSERT INTO links VALUES ('{self.ANN}', '123456789012345678', 0);")
+        con.commit()
+        con.close()
+        con = sqlite3.connect(f"{self.tmp.name}/leaderboard-unranked.db")
+        con.executescript(
+            "CREATE TABLE boards (id TEXT, name TEXT, kind TEXT, created_at REAL, closed_at REAL);"
+            "CREATE TABLE players (steam_id TEXT, name TEXT);"
+            "CREATE TABLE scores (board TEXT, steam_id TEXT, points INT, wins INT, played INT);"
+            "INSERT INTO boards VALUES ('general', 'All Time', 'general', 0, NULL), ('general:skate', 'All Time - S.K.A.T.E.', 'mode', 0, NULL),"
+            " ('week-2026-42', 'Week 42', 'week', 0, NULL), ('week-2026-43', 'Week 43', 'week', 1, NULL);"
+            "INSERT INTO players VALUES ('name:Ann', 'Ann');"
+            "INSERT INTO scores VALUES ('general', 'name:Ann', 12, 2, 5), ('general', 'name:Zed', 40, 4, 6), ('general:skate', 'name:Ann', 7, 1, 2),"
+            " ('week-2026-43', 'name:Ann', 3, 0, 1), ('week-2026-42', 'name:Ann', 99, 9, 9);")
+        con.commit()
+        con.close()
+        self.calls = []
+
+        def bridge(path, body=None):
+            self.calls.append(body)
+            return {"ok": True, "lines": ["Done."]}
+        self.d.bridge = bridge
+
+    def test_profile_links_team_and_stats_per_mode_and_period(self):
+        out = self.d.player_profile(self.ANN)
+        self.assertEqual(out["steam"], f"https://steamcommunity.com/profiles/{self.ANN}")
+        self.assertEqual(out["discord"], "https://discord.com/users/123456789012345678")
+        self.assertEqual((out["name"], out["team"]["tag"]), ("Ann", "CRW"))
+        self.assertEqual([t["tag"] for t in out["teams"]], ["CRW", "OTH"])
+        cells = out["stats"]["unranked"]["cells"]
+        self.assertEqual(cells[""]["general"], {"points": 12, "wins": 2, "played": 5, "rank": 2, "of": 2})   # Zed leads
+        self.assertEqual(cells["skate"]["general"]["points"], 7)
+        self.assertEqual(cells[""]["week"]["points"], 3)                  # the latest week, not week 42
+        self.assertEqual(out["stats"]["ranked"]["cells"], {})
+        self.assertEqual(self.d.player_profile(self.BO)["discord"], "")
+
+    def test_steam_status_from_the_public_profile(self):
+        xml = (b"<profile><steamID64>76561198000000001</steamID64><steamID><![CDATA[Ann]]></steamID><privacyState>public</privacyState>"
+               b"<avatarMedium><![CDATA[https://avatars.fastly.steamstatic.com/abc_medium.jpg]]></avatarMedium><vacBanned>1</vacBanned>"
+               b"<tradeBanState>None</tradeBanState><isLimitedAccount>0</isLimitedAccount><memberSince>June 24, 2012</memberSince></profile>")
+
+        class Res:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, n=-1):
+                return xml
+        calls = []
+        with mock.patch.object(self.d.urllib.request, "urlopen", lambda *a, **k: calls.append(a) or Res()):
+            info = self.d.steam_info(self.ANN)
+            self.d.steam_info(self.ANN)
+        self.assertEqual((info["name"], info["vac"], info["limited"], info["since"]), ("Ann", True, False, "June 24, 2012"))
+        self.assertTrue(info["avatar"].startswith("https://avatars."))
+        self.assertEqual(len(calls), 1)                                  # cached
+
+    def test_steam_unreachable_is_a_message_not_a_crash(self):
+        def down(*a, **k):
+            raise OSError("no route")
+        with mock.patch.object(self.d.urllib.request, "urlopen", down):
+            self.assertIn("not reachable", self.d.steam_info("76561198000000077")["error"])
+
+    def test_bad_steam_id_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.d.player_profile("12")
+
+    def test_search_finds_offline_players(self):
+        self.assertEqual([p["name"] for p in self.d.player_search("newb")], ["Newbie"])
+        self.assertEqual(self.d.player_search("a"), [])
+
+    def test_assign_invites_as_the_owner_then_joins(self):
+        self.d.player_team({"steam_id": self.NEW, "team": "crw"})
+        self.assertEqual([(c["verb"], c["who"]["steam_id"]) for c in self.calls], [("invite", self.BO), ("join", self.NEW)])
+        self.assertEqual(self.calls[1]["args"], {"team": "CRW"})
+
+    def test_assign_leaves_the_old_team_first_and_none_removes(self):
+        self.d.player_team({"steam_id": self.ANN, "team": ""})
+        self.assertEqual([c["verb"] for c in self.calls], ["leave"])
+        self.calls.clear()
+        self.assertEqual(self.d.player_team({"steam_id": self.ANN, "team": "CRW"}), "already in that team")
+        self.assertEqual(self.calls, [])
+        with self.assertRaises(ValueError):
+            self.d.player_team({"steam_id": self.NEW, "team": "oth"})        # no owner to invite
+
+    def test_a_refusal_of_the_teams_module_is_reported(self):
+        self.d.bridge = lambda path, body=None: {"ok": False, "lines": ["That team is full."]}
+        with self.assertRaisesRegex(ValueError, "full"):
+            self.d.player_team({"steam_id": self.NEW, "team": "crw"})
+
+
 class TeamsTest(unittest.TestCase):
     def setUp(self):
         import sqlite3
