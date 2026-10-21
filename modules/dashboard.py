@@ -528,6 +528,10 @@ def install_package(body):
             docker_put_link(c["id"], "/data/Mods", f"{owner}-{name}", f"{MODS_STORE}/packages/{owner}-{name}-{version}")
         moderate({"server": number, "action": "console", "text": "maps reload"})
     MAPS["at"] = 0
+    try:
+        sync_links()                          # every server has every map; each keeps its own pool
+    except (RuntimeError, OSError, ValueError, urllib.error.URLError) as e:
+        say(f"dashboard: map sync after install failed: {e}")
     return {"text": f"{owner}-{name} {version} linked on server {', '.join(sorted(targets))}", "names": store_names(f"{owner}-{name}")}
 
 
@@ -562,6 +566,88 @@ def upload_layers(server, text):
 POOLS_FILE = f"{SHARED}/pools.json"
 POOLS_LOCK = threading.Lock()
 ALL_MAPS = "Alle Maps"   # the built-in pool: no pool set on the server, every map allowed
+
+
+PKG_DIR = re.compile(r"^([A-Za-z0-9_]+)-([A-Za-z0-9_]+)-(\d+)\.(\d+)\.(\d+)$")
+RELOAD_PENDING = set()
+
+
+def store_maps():
+    """{"Owner-Name": {"folder", "names"}} of the newest version of every map package in the shared store
+    (names = the map names it declares, lower case); packages without maps are left out."""
+    best = {}
+    try:
+        folders = os.listdir(f"{MODS_STORE}/packages")
+    except OSError:
+        return {}
+    for folder in folders:
+        m = PKG_DIR.match(folder)
+        if not m:
+            continue
+        key, version = f"{m.group(1)}-{m.group(2)}", tuple(int(x) for x in m.groups()[2:])
+        if key in best and best[key][0] >= version:
+            continue
+        try:
+            with open(f"{MODS_STORE}/packages/{folder}/reskate-levels.json", encoding="utf-8-sig") as f:
+                names = {level["displayName"].lower() for level in json.load(f).get("levels", [])
+                         if isinstance(level, dict) and level.get("displayName")}
+        except (OSError, ValueError, AttributeError):
+            continue
+        if names:
+            best[key] = (version, {"folder": folder, "names": names})
+    return {k: v[1] for k, v in best.items()}
+
+
+def sync_plan(store, linked):
+    """{server: [package]} to link so that every server has every map package of the store. `linked` is
+    {server: ["Owner-Name-1.0.0", ...]} as found in each server's Mods folder. A package is skipped on a server where one
+    of its map names is already provided by another package (the server refuses a name that two packages share);
+    between two clashing packages the one more servers have linked wins."""
+    spread = {}
+    for mods in linked.values():
+        for pkg in {PKG_DIR.sub(r"\1-\2", x) for x in mods}:
+            spread[pkg] = spread.get(pkg, 0) + 1
+    plan = {}
+    for number, mods in linked.items():
+        have = {PKG_DIR.sub(r"\1-\2", x) for x in mods}
+        taken = set()
+        for pkg in have:
+            taken |= store.get(pkg, {}).get("names", set())
+        todo = []
+        for pkg in sorted((k for k in store if k not in have), key=lambda k: (-spread.get(k, 0), k.lower())):
+            if store[pkg]["names"] & taken:
+                continue
+            taken |= store[pkg]["names"]
+            todo.append(pkg)
+        if todo:
+            plan[number] = todo
+    return plan
+
+
+def sync_links(numbers=None, apply=True):
+    """Link every map package of the store into the servers' Mods folders (the servers share the store but only load what
+    is linked), then `maps reload`: right away on a server within the player rule, later (the next sync) on a busy one."""
+    rows = server_details()
+    store = store_maps()
+    items = server_maps(True)
+    linked = {n: list(items.get(n, {}).get("mods", [])) for n in rows if (numbers is None or n in numbers) and items.get(n, {}).get("live")}
+    plan = sync_plan(store, linked)
+    if apply:
+        status = {r.get("server"): r for r in bridge("/v1/servers")}
+        for number in sorted(set(plan) | RELOAD_PENDING):
+            if number not in rows:
+                continue
+            for pkg in plan.get(number, []):
+                for c in rows[number]["containers"]:
+                    docker_put_link(c["id"], "/data/Mods", pkg, f"{MODS_STORE}/packages/{store[pkg]['folder']}")
+            if plan.get(number):
+                RELOAD_PENDING.add(number)
+            row = status.get(int(number) if number.isdigit() else number) or status.get(number) or {}
+            if restart_rule(row.get("players")) == "restart":
+                moderate({"server": number, "action": "console", "text": "maps reload"})
+                RELOAD_PENDING.discard(number)
+        MAPS["at"] = 0
+    return {"plan": plan, "pending": sorted(RELOAD_PENDING)}
 
 
 def library():
@@ -653,7 +739,8 @@ def apply_pool(number, target, lib):
 
 
 def pools_action(body):
-    """{action: create|assign|set|delete|reapply, server, name, map, on}; saves first, then applies to the servers concerned."""
+    """{action: create|assign|set|delete|reapply|sync, server, name, map, on}; saves first, links any map package the servers
+    concerned are missing, then applies to them. sync links every map package of the store on every server."""
     action, server = str(body.get("action", "")), str(body.get("server", ""))
     with POOLS_LOCK:
         pools, assign = pools_state()
@@ -696,9 +783,15 @@ def pools_action(body):
             assign[server], targets = ALL_MAPS, [server]
         elif action == "reapply":
             targets = [server]
+        elif action == "sync":
+            pass
         else:
             raise ValueError(f"unknown action {action!r}")
         save_pools(pools, assign)
+        if action == "sync":
+            sync_links()
+        elif targets:
+            sync_links(set(targets))          # a pool can name maps the server has not linked yet
         for number in targets:
             if number in server_maps():
                 apply_pool(number, pools.get(assign.get(number, ALL_MAPS), []), lib)
@@ -1486,7 +1579,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
 </div>
-<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
+<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><button id="poolsync" title="Verlinkt jede Map aus dem gemeinsamen Speicher auf jedem Server, damit sie dort wählbar ist (jeder Server behält seinen eigenen Pool)">Maps abgleichen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
 <div class="crow" id="poolnewrow" hidden><input id="poolname" maxlength="40" placeholder="Name des neuen Pools (Kopie des gewählten)" style="flex:1;min-width:160px"><button id="poolmk">Anlegen</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
 </div>
@@ -1716,6 +1809,7 @@ $('poolsel').onchange=()=>{const sv=$('csrv').value;POOLS.assign[sv]=$('poolsel'
 $('poolnew').onclick=()=>{$('poolnewrow').hidden=!$('poolnewrow').hidden;if(!$('poolnewrow').hidden)$('poolname').focus()};
 $('poolmk').onclick=()=>{const n=$('poolname').value.trim();if(!n)return;$('poolname').value='';$('poolnewrow').hidden=true;poolPost({action:'create',server:$('csrv').value,name:n})};
 $('poolname').onkeydown=e=>{if(e.key=='Enter')$('poolmk').click()};
+$('poolsync').onclick=e=>armed(e.target,()=>poolPost({action:'sync'}));
 $('pooldel').onclick=e=>{const sv=$('csrv').value,cur=POOLS&&POOLS.assign[sv];if(cur&&cur!='Alle Maps')armed(e.target,()=>poolPost({action:'delete',server:sv,name:cur}))};
 const layName=()=>{const f=$('layfile').files[0];$('laydroptxt').textContent=f?f.name+' ('+Math.ceil(f.size/1024)+' KB), bereit zum Hochladen':'world-layers.json hierher ziehen oder klicken'};
 $('layfile').onchange=layName;

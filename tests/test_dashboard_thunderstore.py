@@ -271,7 +271,9 @@ class PoolsTest(unittest.TestCase):
         maps = lambda *a: {n: {"pool": list(p), "available": lib, "live": True} for n, p in self.live.items()}  # noqa: E731
         self.patches = [mock.patch.object(self.d, "server_maps", maps),
                         mock.patch.object(self.d, "server_details", lambda: {"1": {"name": "x - Main"}, "2": {"name": "x - Skate 2"}}),
-                        mock.patch.object(self.d, "moderate", lambda body: self.sent.append((body["server"], body["text"])))]
+                        mock.patch.object(self.d, "moderate", lambda body: self.sent.append((body["server"], body["text"]))),
+                        mock.patch.object(self.d, "sync_links", lambda numbers=None, apply=True: self.synced.append(numbers))]
+        self.synced = []
         for p in self.patches:
             p.start()
 
@@ -279,6 +281,11 @@ class PoolsTest(unittest.TestCase):
         for p in self.patches:
             p.stop()
         self.tmp.cleanup()
+
+    def test_a_pool_change_links_missing_packages_first(self):
+        self.d.pools_action({"action": "assign", "server": "1", "name": "Skate 2"})
+        self.d.pools_action({"action": "sync"})
+        self.assertEqual(self.synced, [{"1"}, None])
 
     def test_seed_names_pools_after_the_role_and_all_maps_stays_builtin(self):
         snap = self.d.pools_action({"action": "reapply", "server": "1"})
@@ -624,3 +631,40 @@ class ServerOptionTest(unittest.TestCase):
         self.assertEqual(pathlib.Path(path).read_text(), "# mine\nMAX_PLAYERS=30\nSPEED_CHECK=kick\n")
         self.d.server_option({"server": "1", "action": "forget"})
         self.assertEqual(pathlib.Path(path).read_text(), "# mine\nMAX_PLAYERS=30\n")
+
+
+class SyncLinksTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.MODS_STORE = self.tmp.name
+
+    def package(self, folder, *names, levels=True):
+        path = pathlib.Path(self.tmp.name, "packages", folder)
+        path.mkdir(parents=True)
+        if levels:
+            (path / "reskate-levels.json").write_text(json.dumps({"levels": [{"displayName": n} for n in names]}))
+
+    def test_store_maps_takes_the_newest_version_with_maps(self):
+        self.package("a-One-1.0.0", "One")
+        self.package("a-One-1.10.0", "One")
+        self.package("a-One-1.9.0", "One")
+        self.package("b-Deck-1.0.0", levels=False)
+        self.assertEqual(self.d.store_maps(), {"a-One": {"folder": "a-One-1.10.0", "names": {"one"}}})
+
+    def test_plan_links_what_is_missing_and_keeps_name_clashes_out(self):
+        store = {"a-One": {"folder": "a-One-1.0.0", "names": {"one"}},
+                 "b-Two": {"folder": "b-Two-1.0.0", "names": {"two"}},
+                 "builders-Olay": {"folder": "builders-Olay-1.0.0", "names": {"olay way"}},
+                 "snuf-Olay": {"folder": "snuf-Olay-1.0.0", "names": {"olay way"}}}
+        linked = {"1": ["a-One-1.0.0", "snuf-Olay-1.0.0"], "2": ["a-One-1.0.0"], "3": []}
+        plan = self.d.sync_plan(store, linked)
+        self.assertEqual(plan["1"], ["b-Two"])
+        self.assertEqual(plan["2"], ["snuf-Olay", "b-Two"])           # the Olay Way more servers have wins
+        self.assertEqual(plan["3"], ["a-One", "snuf-Olay", "b-Two"])
+        self.assertNotIn("builders-Olay", sum(plan.values(), []))
+
+    def test_nothing_missing_nothing_planned(self):
+        store = {"a-One": {"folder": "a-One-1.0.0", "names": {"one"}}}
+        self.assertEqual(self.d.sync_plan(store, {"1": ["a-One-1.0.0"]}), {})
