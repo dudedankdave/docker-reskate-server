@@ -37,6 +37,7 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import base64
+import calendar
 import glob
 import gzip
 import hashlib
@@ -826,6 +827,23 @@ def package_maps(mods, pool=()):
     return BUILTIN_MAPS + sorted(names - set(BUILTIN_MAPS), key=str.lower)
 
 
+LAYERS_SEEN = {}
+
+
+def layers_loaded(cid, started):
+    """Did the server read world-layers.json when it started? It only does that at start, so a file uploaded later is
+    ignored until the next restart ("World layers: N from world-layers.json." in the first minutes of its log)."""
+    key = (cid, started)
+    if key not in LAYERS_SEEN:
+        try:
+            begin = calendar.timegm(time.strptime(started[:19], "%Y-%m-%dT%H:%M:%S"))
+            text = demux(docker_get(f"/containers/{cid}/logs?stdout=1&stderr=1&since={begin}&until={begin + 240}"))
+        except (RuntimeError, OSError, ValueError):
+            return None
+        LAYERS_SEEN[key] = "from world-layers.json" in text
+    return LAYERS_SEEN[key]
+
+
 def layers_fit(cid, version):
     """'ok' when world-layers.json was uploaded for this server version, 'old' when for another one, 'unknown' when
     nobody recorded it (a file copied in by hand)."""
@@ -837,7 +855,7 @@ def layers_fit(cid, version):
     return "ok" if built and built == version else "old"
 
 
-def live_maps(cid, version=""):
+def live_maps(cid, version="", started=""):
     """(current map, pool, installed packages, on/off flags) as the running server has them now: its saved settings file
     and the links in its Mods folder, not the environment it was started with."""
     with tar_of(cid, "/data/ReSkateServer.json") as t:
@@ -854,6 +872,8 @@ def live_maps(cid, version=""):
     except (RuntimeError, OSError, tarfile.TarError):
         flags["layers_file"] = False
     flags["layers_fit"] = layers_fit(cid, version) if flags["layers_file"] else "missing"
+    if flags["layers_file"] and started and layers_loaded(cid, started) is False:
+        flags["layers_fit"] = "unloaded"
     try:
         with tar_of(cid, "/data/Mods") as t:
             mods = sorted(m.linkname.rsplit("/", 1)[-1] for m in t.getmembers() if m.issym())
@@ -875,7 +895,7 @@ def server_maps(fresh=False, only=None):
         item = {"map": env.get("MAP", ""), "pool": split(env.get("MAP_POOL", "")), "mods": split(env.get("MODS", "")), "live": False}
         for c in row["containers"]:
             try:
-                item["map"], item["pool"], item["mods"], item["flags"] = live_maps(c["id"], c.get("version", ""))
+                item["map"], item["pool"], item["mods"], item["flags"] = live_maps(c["id"], c.get("version", ""), c.get("started", ""))
                 item["live"] = True
                 break
             except (RuntimeError, OSError, ValueError, KeyError, tarfile.TarError):
@@ -935,7 +955,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px)) clamp(32px,5vw,64px) max(var(--gut),env(safe-area-inset-left,0px));width:100%;margin:0;display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(40px,5.5vw,72px)}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 clamp(12px,1.4vw,18px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:clamp(10px,1.2vw,16px)}
-.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
+.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.consolecard{grid-column:span 2;position:sticky;top:8px;z-index:5;align-self:start}.term{background:var(--bg);border:1px solid var(--line);border-radius:6px;margin:8px 0;font:12px/1.45 ui-monospace,monospace}.term pre{background:transparent;border:0;height:220px;max-height:none;margin:0;border-radius:6px 6px 0 0}.prompt{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line)}.prompt span{color:var(--ok);font-weight:700}.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:inherit;font:inherit;padding:0}@media(max-width:700px){.consolecard{grid-column:auto;position:static}}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
 .card.open{display:grid;grid-template-columns:clamp(200px,24vw,300px) minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
 .tsrow{display:grid;grid-template-columns:64px minmax(0,1fr) 150px auto;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:6px}.tspic{position:relative;width:64px;height:48px;border-radius:4px;background:var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut)}.tsmain{min-width:0;overflow-wrap:anywhere}.tsmain .mut{font-size:12px}.tsname a{font-weight:600}.tsstat{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-size:13px}.tsrow .act{display:flex;gap:6px}@media(max-width:700px){.tsrow{grid-template-columns:64px minmax(0,1fr)}.tsstat{text-align:left;grid-column:2}.tsrow .act{grid-column:1/-1}}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
@@ -971,6 +991,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="bar"><select id="csrv"></select></div>
 <div class="cgrid">
 <div class="card" id="mapcard"><h3>Läuft gerade</h3><div class="pic" id="mappic"></div><div class="mut" id="mapinfo"></div></div>
+<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div><div class="mut">Das Terminal zeigt das laufende Log des gewählten Servers. Befehle wirken sofort; nach einem Neustart gelten wieder die Einstellungen des Servers.</div></div>
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
 <div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
@@ -983,9 +1004,6 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
 <div class="crow" id="poolnewrow" hidden><input id="poolname" maxlength="40" placeholder="Name des neuen Pools (Kopie des gewählten)" style="flex:1;min-width:160px"><button id="poolmk">Anlegen</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
-<details class="adv"><summary>Erweitert: Befehl frei eingeben</summary><div class="bar"><select id="cat"></select><input id="cmd" maxlength="300" list="cmdsug" placeholder="Befehl, z. B. status oder map grom"><datalist id="cmdsug"></datalist><button id="csend">Senden</button></div></details>
-<div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers.</div>
-<pre id="cout">Antwort des Servers erscheint hier (letzte Log-Zeilen).</pre>
 </section>
 <section data-v="befehle"><h2>Maps suchen (Thunderstore)</h2>
 <form class="bar" id="tsform"><input id="tsq" maxlength="60" placeholder="Suche, z. B. plaza, skatepark, Name"><select id="tsrv"></select><select id="tssort" title="Sortierung"><option value="created">Neueste Maps</option><option value="downloads">Meiste Downloads</option><option value="updated">Zuletzt aktualisiert</option><option value="rating">Beste Bewertung</option><option value="name">Name</option></select><select id="tsdir" title="Richtung"><option value="desc">absteigend</option><option value="asc">aufsteigend</option></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tsall" style="flex:none;min-width:0">alle Pakete</label><button>Suchen</button></form>
@@ -1087,12 +1105,19 @@ function mod(d){modOn=d.mod;tpOn=d.tp;$('modsec').hidden=!d.mod;$('cmdsec').hidd
  if(!m.options.length){for(const id of['msrv','csrv'])d.servers.forEach(s=>$(id).add(new Option(s.server+' '+s.role,s.server)));$('tsrv').add(new Option('alle Server','*'));d.servers.forEach(s=>$('tsrv').add(new Option(s.server+' '+s.role,s.server)));
   const sug=$('cmdsug');for(const l of Object.values(CATALOG))for(const [cmd] of l)sug.append(new Option(cmd));
   const c=$('cat');c.add(new Option('Befehlskatalog …',''));for(const [g,l] of Object.entries(CATALOG)){const o=document.createElement('optgroup');o.label=g;for(const [cmd,txt] of l)o.append(new Option(txt+' · '+cmd,cmd));c.append(o)}}}
-async function sendCmd(c){c=c.trim();if(!c)return;const o=$('cout');o.textContent='Sende: '+c+' …';
+const TL=[],thist=[];let tlast=0,tsrv='',thi=0;
+function tdraw(){const p=$('cout'),b=p.scrollTop+p.clientHeight>=p.scrollHeight-24;p.textContent=TL.join('\\n');if(b)p.scrollTop=p.scrollHeight}
+function tprint(t){for(const l of String(t).split('\\n'))TL.push(l);if(TL.length>500)TL.splice(0,TL.length-500);tdraw()}
+async function termPoll(){if(view!='befehle')return;const sv=$('csrv').value;if(!sv)return;
+ if(sv!=tsrv){tsrv=sv;tlast=0;TL.length=0;$('termsrv').textContent='· Server '+sv;tprint('— Log von Server '+sv+' —')}
+ const d=await api('/api/events?'+new URLSearchParams({after:tlast,server:sv,scope:'log'}));if(sv!=$('csrv').value)return;
+ const first=tlast==0;tlast=d.last;const ev=first?d.events.slice(-60):d.events;
+ if(ev.length)tprint(ev.map(e=>(e.time||'').slice(11,19)+' '+e.text).join('\\n'))}
+setInterval(()=>termPoll().catch(()=>{}),1500);
+async function sendCmd(c){c=c.trim();if(!c)return;tprint('> '+c);if(thist[thist.length-1]!=c)thist.push(c);thi=thist.length;
  const r=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('csrv').value,action:'console',text:c})});
- const d=await r.json();if(!r.ok){o.textContent='Fehler: '+(d.error||r.status);return}
- await new Promise(x=>setTimeout(x,1500));
- const l=await fetch('/api/mod',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'dashboard'},body:JSON.stringify({server:$('csrv').value,action:'log',count:14})});
- const t=await l.json();o.textContent='> '+c+'\\n'+(t.text||'(keine Log-Zeilen)');o.scrollTop=o.scrollHeight}
+ const d=await r.json().catch(()=>({}));if(!r.ok){tprint('Fehler: '+(d.error||r.status));return}
+ setTimeout(()=>termPoll().catch(()=>{}),700)}
 let cmdAt=0;
 async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
  if(force||!mapsCache[sv]||!POOLS||Date.now()-cmdAt>20000){cmdAt=Date.now();await loadPools();try{Object.assign(mapsCache,await api('/api/maps'+(force?'?fresh=1&server='+encodeURIComponent(sv):'')))}catch(e){}}
@@ -1108,17 +1133,17 @@ function drawMapCard(name,np,na){const pic=$('mappic'),sig=name;
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
-async function fire(c,sv){const o=$('cout');o.textContent='> '+c;
+async function fire(c,sv){tprint('> '+c+(sv&&sv!=$('csrv').value?'  (Server '+sv+')':''));
  const r=await fetch('/api/mod',{method:'POST',headers:HDR,body:JSON.stringify({server:sv||$('csrv').value,action:'console',text:c})});
  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.error||r.status)}}
 const pend={},qs={};
 const wanted=(sv,k,cur)=>{const p=pend[sv+'|'+k];return p&&Date.now()-p.at<12000?p.want:cur};
 function toggle(sv,k,val,cmd,check){const key=sv+'|'+k;pend[key]={want:val,at:Date.now()};
- const sent=(qs[sv]||Promise.resolve()).then(()=>fire(cmd,sv)).catch(e=>{delete pend[key];$('cout').textContent='Fehler: '+e.message;throw e});
+ const sent=(qs[sv]||Promise.resolve()).then(()=>fire(cmd,sv)).catch(e=>{delete pend[key];tprint('Fehler: '+e.message);throw e});
  qs[sv]=sent.catch(()=>{});
  sent.then(async()=>{for(let i=0;i<14;i++){await sleep(i?350:200);delete mapsCache[sv];if($('csrv').value==sv)await cmdMaps(true);else Object.assign(mapsCache,await api('/api/maps?fresh=1&server='+encodeURIComponent(sv)));if(check(mapsCache[sv]||{})==val)break}
   if(pend[key]&&pend[key].want===val)delete pend[key];if($('csrv').value==sv)await cmdMaps(true)}).catch(()=>{if($('csrv').value==sv)cmdMaps(true)})}
-const FIT={ok:['ok','passt zur Spielversion dieses Servers'],old:['bad','stammt von einer anderen Version als dieser Server, bitte neu hochladen'],unknown:['warn','vorhanden, aber ohne Versionsangabe (von Hand kopiert), bitte neu hochladen'],missing:['bad','fehlt (nötig für Layer-Sync und Zeit-Vote)']};
+const FIT={unloaded:['bad','liegt auf dem Server, wurde beim Start aber nicht geladen (das passiert nur beim Start). Layer-Sync geht erst nach dem nächsten Neustart'],ok:['ok','passt zur Spielversion dieses Servers'],old:['bad','stammt von einer anderen Version als dieser Server, bitte neu hochladen'],unknown:['warn','vorhanden, aber ohne Versionsangabe (von Hand kopiert), bitte neu hochladen'],missing:['bad','fehlt (nötig für Layer-Sync und Zeit-Vote)']};
 function drawLayFit(fl){const t=$('laystate');t.textContent='';if(!fl)return;const [c,m]=FIT[fl.layers_fit]||FIT.missing,b=el('span','fit '+c,c=='ok'?'✓':c=='warn'?'?':'✗');t.append(b,' world-layers.json '+m)}
 const FLAGS=[['vote_map','Map-Vote','votes map on','votes map off'],['vote_kick','Kick-Vote','votes kick on','votes kick off'],['vote_tod','Zeit-Vote','votes tod on','votes tod off'],['rotation','Map-Rotation',null,'rotation off'],['layer_sync','Layer-Sync','layer-sync on','layer-sync off']];
 function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div');drawLayFit(fl);
@@ -1132,7 +1157,7 @@ let POOLS=null;
 const loadPools=async()=>{try{POOLS=await api('/api/pools')}catch(e){}};
 const ci=(a,b)=>a.toLowerCase().localeCompare(b.toLowerCase());
 let pq=Promise.resolve(),pqn=0;
-function poolPost(body){pqn++;const p=pq.then(()=>post('/api/pools',body)).catch(e=>{$('cout').textContent='Fehler: '+e.message}).finally(async()=>{if(--pqn==0){await loadPools();await cmdMaps(true)}});pq=p.catch(()=>{});return p}
+function poolPost(body){pqn++;const p=pq.then(()=>post('/api/pools',body)).catch(e=>{tprint('Fehler: '+e.message)}).finally(async()=>{if(--pqn==0){await loadPools();await cmdMaps(true)}});pq=p.catch(()=>{});return p}
 function drawPool(sv){if(!POOLS)return;const real=$('poollist'),box=document.createElement('div'),f=$('poolfilter').value.trim().toLowerCase(),cur=POOLS.assign[sv]||'Alle Maps',isAll=cur=='Alle Maps',on=new Set((POOLS.pools[cur]||[]).map(n=>n.toLowerCase()));
  const sel=$('poolsel'),opts=[['Alle Maps','Alle Maps ('+POOLS.library.length+')'],...Object.keys(POOLS.pools).sort(ci).map(k=>[k,k+' ('+POOLS.pools[k].length+')'])],sig=JSON.stringify(opts);
  if(sel.dataset.sig!=sig){sel.dataset.sig=sig;sel.replaceChildren(...opts.map(o=>new Option(o[1],o[0])))}
@@ -1156,8 +1181,8 @@ $('layfile').onchange=layName;
 for(const ev of['dragenter','dragover'])$('laydrop').addEventListener(ev,e=>{e.preventDefault();$('laydrop').classList.add('over')});
 for(const ev of['dragleave','drop'])$('laydrop').addEventListener(ev,e=>{e.preventDefault();$('laydrop').classList.remove('over')});
 $('laydrop').addEventListener('drop',e=>{if(e.dataTransfer&&e.dataTransfer.files.length){$('layfile').files=e.dataTransfer.files;layName()}});
-$('laygo').onclick=async()=>{const f=$('layfile').files[0],o=$('cout');if(!f){o.textContent='Erst eine world-layers.json auswählen.';return}
- try{const r=await post('/api/layers',{server:$('layscope').value=='*'?'*':$('csrv').value,content:await f.text()});o.textContent=r.text+'\\nDanach "Layer-Sync" einschalten.';delete mapsCache[$('csrv').value];await cmdMaps(true)}catch(e){o.textContent='Fehler: '+e.message}};
+$('laygo').onclick=async()=>{const f=$('layfile').files[0];if(!f){tprint('Erst eine world-layers.json auswählen.');return}
+ try{const r=await post('/api/layers',{server:$('layscope').value=='*'?'*':$('csrv').value,content:await f.text()});tprint(r.text+'\\nDanach "Layer-Sync" einschalten.');delete mapsCache[$('csrv').value];await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 $('poolfilter').oninput=()=>drawPool($('csrv').value);
 $('crot').onchange=()=>{const x=mapsCache[$('csrv').value];if(x&&x.flags&&x.flags.rotation>0)sendCmd('rotation '+$('crot').value).then(()=>sleep(1200)).then(()=>cmdMaps(true))};
 $('ctodgo').onclick=()=>sendCmd('tod '+$('ctod').value);
@@ -1191,7 +1216,16 @@ for(const th of document.querySelectorAll('#plist th[data-k]'))th.onclick=()=>{i
 $('q').oninput=draw;$('find').onsubmit=e=>e.preventDefault();
 for(const b of document.querySelectorAll('#srvtools button'))b.onclick=()=>act({server:$('msrv').value,action:b.dataset.a,text:$('stext').value}).then(()=>{$('stext').value=''});
 $('cat').onchange=()=>{const v=$('cat').value;if(!v)return;$('cmd').value=v;$('cmd').focus();const i=v.search(/[<\\[]/);if(i>0)$('cmd').setSelectionRange(i,v.length);$('cat').value=''};
-$('csend').onclick=()=>sendCmd($('cmd').value);$('cmd').onkeydown=e=>{if(e.key=='Enter')sendCmd($('cmd').value)};
+let cmdNames=null;
+const cmdList=()=>cmdNames||(cmdNames=[...new Set(Object.values(CATALOG).flat().map(x=>x[0].replace(/\\s*[<\\[].*$/,'')))].sort());
+$('cmd').onkeydown=e=>{const i=$('cmd');
+ if(e.key=='Enter'){const v=i.value;i.value='';sendCmd(v)}
+ else if(e.key=='ArrowUp'){e.preventDefault();if(thi>0)i.value=thist[--thi]}
+ else if(e.key=='ArrowDown'){e.preventDefault();thi=Math.min(thi+1,thist.length);i.value=thist[thi]||''}
+ else if(e.key=='Tab'){e.preventDefault();const v=i.value,hit=cmdList().filter(n=>n.startsWith(v));if(!hit.length)return;
+  let p=hit[0];for(const n of hit)while(!n.startsWith(p))p=p.slice(0,-1);if(p.length>v.length)i.value=p;else if(hit.length>1)tprint(hit.join('   '))}};
+$('term').onclick=e=>{if(!getSelection().toString())$('cmd').focus()};
+$('termclear').onclick=()=>{TL.length=0;tdraw()};
 for(const b of document.querySelectorAll('[data-c]'))b.onclick=()=>{const c=b.dataset.c;if(c=='map-pool clear')return armed(b,()=>sendCmd(c).then(()=>cmdMaps(true)));sendCmd(c)};
 const HDR={'Content-Type':'application/json','X-Requested-With':'dashboard'};
 const post=(u,b)=>fetch(u,{method:'POST',headers:HDR,body:JSON.stringify(b)}).then(async r=>{const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||r.status);return d});
@@ -1273,7 +1307,7 @@ async function toollog(){const n=$('tool').value;if(n)$('toollog').textContent=(
 $('tool').onchange=toollog;
 
 let ANN=null;
-const annErr=e=>{$('cout').textContent='Fehler: '+e.message};
+const annErr=e=>{tprint('Fehler: '+e.message)};
 async function annLoad(){try{ANN=await api('/api/ann');annDraw()}catch(e){annErr(e)}}
 const annPost=b=>post('/api/ann',b).then(d=>{ANN=d;annDraw();if(d.errors&&d.errors.length)alert_(d.errors.join(' · '))}).catch(annErr);
 const alert_=t=>{$('annlive').textContent=t};
