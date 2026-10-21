@@ -794,6 +794,23 @@ def apply_pool(number, target, lib):
     return len(commands)
 
 
+def persist_pool(number, target, lib):
+    """Save the pool for the server's next start (MAP_POOL), and a start map (MAP) that is in it: the environment of the
+    container would otherwise bring the old pool and start map back at every restart. An empty pool = every map."""
+    if any("," in n for n in target):
+        return                                           # a comma list cannot carry that name
+    every = not target or {x.lower() for x in lib} <= {x.lower() for x in target}
+    changes = {"MAP_POOL": "off" if every else ",".join(target)}
+    if every:
+        changes["MAP"] = None
+    else:
+        row = server_details().get(number) or {}
+        start = env_read(number).get("MAP") or (row.get("env") or {}).get("MAP") or ""
+        if start.lower() not in {x.lower() for x in target}:
+            changes["MAP"] = target[0]
+    env_write(number, changes)
+
+
 def pools_action(body):
     """{action: create|assign|set|delete|reapply|sync, server, name, map, on}; saves first, links any map package the servers
     concerned are missing, then applies to them. sync links every map package of the store on every server."""
@@ -850,7 +867,12 @@ def pools_action(body):
             sync_links(set(targets))          # a pool can name maps the server has not linked yet
         for number in targets:
             if number in server_maps():
-                apply_pool(number, pools.get(assign.get(number, ALL_MAPS), []), lib)
+                wanted = pools.get(assign.get(number, ALL_MAPS), [])
+                apply_pool(number, wanted, lib)
+                try:
+                    persist_pool(number, wanted, lib)
+                except OSError as e:
+                    say(f"dashboard: pool of server {number} not saved for the next start: {e}")
         MAPS["at"] = 0
         return pools_snapshot(pools, assign)
 
@@ -1480,7 +1502,7 @@ def pw_memory(number, word=None):
 
 MARK = "# set by the dashboard"
 MANAGED = {"SERVER_PASSWORD": True, "ENFORCE_TUNING": False, "SCORE_CHECK": False, "SPEED_CHECK": False, "BOARD_CHECK": False,
-           "LEADERBOARD_LEAGUE": False}      # the settings keys the dashboard writes (True = a secret)
+           "LEADERBOARD_LEAGUE": False, "MAP_POOL": False, "MAP": False}      # the settings keys the dashboard writes (True = a secret)
 
 
 def env_path(number, secret):
@@ -2097,10 +2119,10 @@ function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div')
   row.append(el('span','mut',label),sel);rows.append(row)}
  put(cs,[...rows.childNodes]);
 
- const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga'},keys=Object.keys(sv_);
+ const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga',MAP_POOL:'Map-Pool',MAP:'Startmap'},keys=Object.keys(sv_);
  const lg=$('lgsel');if(document.activeElement!==lg)lg.value=sv_.LEADERBOARD_LEAGUE||mc.league||'ranked';lg.onchange=()=>optBody(sv,{action:'league',value:lg.value,persist:true}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message));
  $('lgforget').disabled=!keys.length;$('lgforget').onclick=()=>armed($('lgforget'),()=>optBody(sv,{action:'forget'}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message)));
- $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
+ $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus',MAP_POOL:v=>v=='off'?'alle Maps':v.split(',').length+' Maps'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
 $('pwset').onclick=async()=>{const sv=$('csrv').value,w=$('pwnew').value.trim();if(!sv||!w)return;
  try{await optBody(sv,{action:'password',value:w});$('pwnew').value='';tprint('Passwort von Server '+sv+' gesetzt');await sleep(600);await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 let POOLS=null;

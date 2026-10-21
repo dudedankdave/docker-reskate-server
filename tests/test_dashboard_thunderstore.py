@@ -271,6 +271,32 @@ class LayersLoadedTest(unittest.TestCase):
             self.assertFalse(d.layers_loaded("c2", old))
 
 
+class PersistPoolTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+
+    def saved(self):
+        return self.d.env_read("1")
+
+    def test_pool_and_a_start_map_in_it_are_saved_for_the_next_start(self):
+        lib = ["A", "B", "C"]
+        rows = {"1": {"env": {"MAP": "C"}, "containers": []}}
+        with mock.patch.object(self.d, "server_details", return_value=rows):
+            self.d.persist_pool("1", ["A", "B"], lib)
+            self.assertEqual(self.saved(), {"MAP_POOL": "A,B", "MAP": "A"})
+            self.d.persist_pool("1", ["B", "C"], lib)          # the saved start map A is outside again
+            self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
+            self.d.persist_pool("1", ["B", "C"], lib)          # nothing to change when it is inside
+            self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
+            self.d.persist_pool("1", [], lib)                  # all maps: no start map needed
+            self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            self.d.persist_pool("1", ["A", "B,x"], lib)        # a comma cannot be carried in the list
+            self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+
+
 class LayersFitTest(unittest.TestCase):
     def test_fit_compares_the_recorded_version(self):
         d = load()
