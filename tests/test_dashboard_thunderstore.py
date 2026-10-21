@@ -347,6 +347,14 @@ class TeamLogoTest(unittest.TestCase):
         self.assertLessEqual(len(self.d.LOGO_CACHE), self.d.LOGO_ENTRIES)
         self.assertIn("https://example.com/a.png", self.d.LOGO_CACHE)
 
+    def test_a_host_with_both_address_families_is_fine(self):
+        both = [(10, 1, 6, "", ("2606:50c0:8003::154", 443, 0, 0)), (2, 1, 6, "", ("185.199.110.133", 443))]
+        seen = []
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=both), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda host, address, *a: seen.append(address) or (200, "image/png", b"x", "")):
+            self.d.team_logo("https://example.com/a.png")
+        self.assertEqual(seen, ["185.199.110.133"])
+
     def test_follows_a_few_redirects_and_checks_each_step(self):
         steps = iter([(302, "", b"", "https://raw.example.org/x.png"), (200, "image/png", b"ok", "")])
         seen = []

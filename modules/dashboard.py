@@ -1181,7 +1181,7 @@ def team_logo(url):
         if u.scheme != "https" or not u.hostname or u.port:
             raise ValueError("a logo link has to be https")
         try:
-            found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)})
+            found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)}, key=lambda ip: (ip.version, int(ip)))
         except (OSError, ValueError):
             raise ValueError("the logo host does not resolve") from None
         if not found or any(not ip.is_global for ip in found):
