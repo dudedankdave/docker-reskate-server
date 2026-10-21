@@ -602,10 +602,19 @@ def upload_layers(server, text):
     targets = [n for n in rows if server == "*" or n == server]
     if not targets:
         raise ValueError("no running container for that server")
+    version = ""
     for number in targets:
         for c in rows[number]["containers"]:
             docker_put_file(c["id"], "/data", "world-layers.json", text.encode())
             docker_put_file(c["id"], "/data", LAYERS_BUILD, (c.get("version") or "").encode())
+            version = version or c.get("version") or ""
+    try:   # the copy a server without the file (new volume) puts back at its start
+        for name, body in (("world-layers.json", text.encode()), (LAYERS_BUILD, version.encode())):
+            with open(f"{SHARED}/{name}.tmp", "wb") as f:
+                f.write(body)
+            os.replace(f"{SHARED}/{name}.tmp", f"{SHARED}/{name}")
+    except OSError as e:
+        say(f"dashboard: shared copy of world-layers.json not written: {e}")
     MAPS["at"] = 0
     return f"world-layers.json written for server {', '.join(sorted(targets))} ({len(text) // 1024} KB)"
 
