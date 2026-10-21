@@ -303,6 +303,42 @@ class PersistPoolTest(unittest.TestCase):
             self.assertEqual(self.saved(), {"MAP_POOL": "A,C"})   # the container start map C is in it
 
 
+class TeamLogoTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        self.d.LOGO_CACHE.clear()
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, logo TEXT)")
+        con.executemany("INSERT INTO teams (logo) VALUES (?)",
+                        [("https://example.com/a.png",), ("http://example.com/b.png",), ("https://127.0.0.1/c.png",), ("https://example.com:8443/d.png",)])
+        con.commit()
+        con.close()
+
+    def test_only_saved_https_public_standard_port_links(self):
+        for url in ("https://example.com/other.png", "http://example.com/b.png", "https://127.0.0.1/c.png", "https://example.com:8443/d.png"):
+            with self.assertRaises(ValueError, msg=url):
+                self.d.team_logo(url)
+
+    def test_fetches_a_plain_picture_and_caches_it(self):
+        class Resp:
+            headers = {"Content-Type": "image/png; charset=binary"}
+            def read(self, n): return b"\x89PNG"
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        calls = []
+        class Opener:
+            def open(self, req, timeout): calls.append(req.full_url); return Resp()
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d.urllib.request, "build_opener", return_value=Opener()):
+            self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"\x89PNG"))
+            self.d.team_logo("https://example.com/a.png")
+        self.assertEqual(len(calls), 1)
+
+
 class LayersFitTest(unittest.TestCase):
     def test_fit_compares_the_recorded_version(self):
         d = load()

@@ -43,6 +43,7 @@ from math import gcd
 import glob
 import gzip
 import hashlib
+import ipaddress
 import re
 import shutil
 import stat
@@ -1138,6 +1139,43 @@ def lb_snapshot(league, board="general", limit=100):
             "exists": os.path.exists(path)}
 
 
+LOGO_CACHE = {}
+LOGO_MAX = 1_500_000
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def team_logo(url):
+    """(content type, bytes) of a team's logo link, fetched here because the page may not load other hosts. Only a link that
+    is saved on a team, https on the standard port, a public address, no redirects, a plain picture up to 1.5 MB."""
+    if url in LOGO_CACHE and time.time() - LOGO_CACHE[url][0] < 3600:
+        return LOGO_CACHE[url][1], LOGO_CACHE[url][2]
+    if not any(r["logo"] == url for r in db_rows(f"{SHARED}/teams.db", "SELECT logo FROM teams")):
+        raise ValueError("not a team logo")
+    u = urlparse(url)
+    if u.scheme != "https" or not u.hostname or u.port:
+        raise ValueError("a logo link has to be https")
+    try:
+        found = {ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)}
+    except (OSError, ValueError):
+        raise ValueError("the logo host does not resolve") from None
+    if not found or any(not ip.is_global for ip in found):
+        raise ValueError("the logo host is not a public address")
+    req = urllib.request.Request(url, headers={"User-Agent": "reskate-dashboard", "Accept": "image/*"})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=10) as r:
+            data, kind = r.read(LOGO_MAX + 1), r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+    except (urllib.error.URLError, OSError) as e:
+        raise ValueError(f"the logo could not be fetched: {e}") from None
+    if len(data) > LOGO_MAX or kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+        raise ValueError("not a plain picture")
+    LOGO_CACHE[url] = (time.time(), kind, data)
+    return kind, data
+
+
 def teams_snapshot():
     """The teams (Discord bot / bridge keep them in /shared/teams.db): profile, members with their All Time points on both
     leagues' boards, open applications. Read-only here; changes go through the bridge (team_action)."""
@@ -1841,7 +1879,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
 .sv{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.sv.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.svleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.svpic{border-radius:0;margin:0;padding:0}.svtop{position:absolute;left:0;right:0;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:8px 10px 16px;background:linear-gradient(rgba(0,0,0,.78),transparent);color:#fff;text-align:left}.svtop h3{flex:1;color:#fff}.svmapname{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:18px 10px 8px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:#fff;font-size:13px;font-weight:600;text-align:left}.sv.offline .svpic{filter:grayscale(1);opacity:.6}.svbody{padding:0 12px;display:grid;gap:10px}.svstat{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}.svstat .pill{margin:0 0 0 auto}.svcount{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.svpills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.svpills .pill{margin:0}.pill.acc{color:var(--acc)}.svact{display:flex;gap:8px;flex-wrap:wrap}.svact button{flex:1 1 auto;margin:0}.svright{padding:12px 14px 14px 2px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-content:start}.svsec{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}.svsec h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.svsec .kv{margin:0}.svright .wide{grid-column:1/-1}.svcode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.svcode code,.svsec code{font:12px ui-monospace,monospace;word-break:break-all}.svrun{margin-bottom:8px}.svrun b{font-size:15px}.svraw summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:8px}@media(max-width:700px){.sv.open{display:flex}.svright{padding:0 12px 12px}}
-.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.tm.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.tmleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.tmband{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 12px;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 52% 34%),hsl(var(--h) 58% 20%))}.tmband h3{flex:1 1 120px;min-width:0;font-size:16px;color:#fff}.tmpills{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}.tmtag{color:var(--acc);font-weight:700}.tmband .tmtag{background:rgba(0,0,0,.35);color:#fff;border-radius:4px;padding:2px 8px}.tmband .pill{margin:0}.tmbody{padding:0 12px;display:grid;gap:10px}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts{gap:20px}.tmpts b{font-size:26px;line-height:1;font-variant-numeric:tabular-nums}.tmchips{display:flex;flex-wrap:wrap;gap:6px}.tmchip{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:2px 9px;font-size:12px}.tmright{padding:12px 12px 12px 2px;min-width:0}@media(max-width:700px){.tm.open{display:flex}.tmright{padding:12px}}.tmform{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px 14px}.tmfld{display:grid;gap:3px;min-width:0;font-size:12px}.tmfld.wide{grid-column:1/-1}.tmfld input,.tmfld select{font:inherit;font-size:14px;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-width:0;width:100%;box-sizing:border-box}button.primary{justify-self:start}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
+.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.tm.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.tmleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.tmband{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 12px;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 52% 34%),hsl(var(--h) 58% 20%))}.tmlogo{width:40px;height:40px;border-radius:8px;object-fit:cover;background:rgba(0,0,0,.3);flex:none}.tmlogo.big{width:72px;height:72px}.tmprev{display:flex;align-items:center;min-height:20px;font-size:12px}.tmband h3{flex:1 1 120px;min-width:0;font-size:16px;color:#fff}.tmpills{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}.tmtag{color:var(--acc);font-weight:700}.tmband .tmtag{background:rgba(0,0,0,.35);color:#fff;border-radius:4px;padding:2px 8px}.tmband .pill{margin:0}.tmbody{padding:0 12px;display:grid;gap:10px}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts{gap:20px}.tmpts b{font-size:26px;line-height:1;font-variant-numeric:tabular-nums}.tmchips{display:flex;flex-wrap:wrap;gap:6px}.tmchip{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:2px 9px;font-size:12px}.tmright{padding:12px 12px 12px 2px;min-width:0}@media(max-width:700px){.tm.open{display:flex}.tmright{padding:12px}}.tmform{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px 14px}.tmfld{display:grid;gap:3px;min-width:0;font-size:12px}.tmfld.wide{grid-column:1/-1}.tmfld input,.tmfld select{font:inherit;font-size:14px;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-width:0;width:100%;box-sizing:border-box}button.primary{justify-self:start}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -2427,6 +2465,7 @@ function tmDraw(){const d=TM;if(!d)return;
   let hue=0;for(const ch of t.tag)hue=(hue*31+ch.charCodeAt(0))%360;c.style.setProperty('--h',hue);
   const pl=el('div','tmpills');pl.append(pill(t.open?'offen':'nur Einladung',t.open?'ok':'warn'));
   if(t.league)pl.append(pill(t.league=='both'?'beide Ligen':t.league=='ranked'?'Ranked':'Unranked','acc'));if(t.category)pl.append(pill(t.category,'mut'));
+  if(t.logo){const lg=el('img','tmlogo');lg.alt='';lg.onerror=()=>lg.remove();lg.src='/api/teamlogo?u='+encodeURIComponent(t.logo);band.append(lg)}
   band.append(el('span','tmtag','['+t.tag+']'),el('h3',0,t.name),pl);
   const body=el('div','tmbody'),pts=el('div','tmpts');for(const [l,n] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b',0,t.points[l]),el('div','mut',n));x.title=n+', Gesamtpunkte';pts.append(x)}
   const mm=el('div');mm.append(el('b',0,t.members.length),el('div','mut','Mitglieder'+(t.invites?' (+'+t.invites+')':'')));if(t.invites)mm.title=t.invites+' eingeladen';pts.append(mm);body.append(pts);
@@ -2438,10 +2477,12 @@ function tmDraw(){const d=TM;if(!d)return;
   if(open){const r=el('div','tmright');r.append(tmManage(t));c.append(r)}box.append(c)}
  if(d.exists&&!d.teams.length)box.append(el('div','mut','Noch keine Teams. Bewerbungen kommen aus dem Spiel mit /team apply.'));
  $('tmlist').replaceChildren(...box.childNodes)}
+function logoPreview(url){const b=el('div','tmprev');if(!url){b.append(el('span','mut','Kein Logo gesetzt'));return b}
+ const im=el('img','tmlogo big');im.alt='Logo';im.onload=()=>{b.dataset.ok='1'};im.onerror=()=>{im.remove();b.append(el('span','mut','Das Logo lässt sich nicht laden (https, öffentlich erreichbar, PNG/JPG/WebP/GIF bis 1,5 MB).'))};im.src='/api/teamlogo?u='+encodeURIComponent(url);b.append(im);return b}
 function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='14px';
- const form=el('div','tmform'),vals={},fld=(label,key,val,ph,wide)=>{const l=el('label','tmfld'+(wide?' wide':'')),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'?300:60;vals[key]=[i,val||''];l.append(el('span','mut',label),i);return l};
+ const form=el('div','tmform'),vals={},fld=(label,key,val,ph,wide,extra)=>{const l=el('label','tmfld'+(wide?' wide':'')),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'?300:60;vals[key]=[i,val||''];l.append(el('span','mut',label),i);if(extra)l.append(extra);return l};
  const sel=(label,key,opts,val)=>{const l=el('label','tmfld'),x=document.createElement('select');for(const [v,n] of opts)x.add(new Option(n,v));x.value=val;vals[key]=[x,val];l.append(el('span','mut',label),x);return l};
- form.append(fld('Motto','motto',t.motto),fld('Kategorie','category',t.category,'z. B. Casual'),fld('Beschreibung','description',t.description,'',true),fld('Tag','tag',t.tag),fld('Logo-Link','logo',t.logo,'https://…'),
+ form.append(fld('Motto','motto',t.motto),fld('Kategorie','category',t.category,'z. B. Casual'),fld('Beschreibung','description',t.description,'',true),fld('Tag','tag',t.tag),fld('Logo-Link','logo',t.logo,'https://…',false,logoPreview(t.logo)),
   sel('Liga','league',[['','keine Angabe'],['ranked','Ranked'],['unranked','Unranked'],['both','beide']],t.league||''),sel('Beitritt','open',[['yes','offen'],['no','nur Einladung']],t.open?'yes':'no'));
  const save=el('button','primary','Änderungen speichern');save.disabled=true;
  const dirty=()=>Object.values(vals).some(([x,o])=>x.value!==o);form.addEventListener('input',()=>{save.disabled=!dirty()});form.addEventListener('change',()=>{save.disabled=!dirty()});
@@ -2556,6 +2597,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/tsimg":
                 kind, data = ts_image(q.get("u", ""))
                 return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=86400")])
+            if url.path == "/api/teamlogo":
+                kind, data = team_logo(q.get("u", ""))
+                return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=3600")])
             if url.path == "/api/mapname":
                 return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/maps":
