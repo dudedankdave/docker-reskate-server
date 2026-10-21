@@ -32,4 +32,4 @@ DASHBOARD_PASSWORD=... BRIDGE_TOKEN=... docker compose -p tools -f docker-compos
   that port, with `X-Forwarded-Proto` and `X-Forwarded-For` set (the session cookie gets `Secure` behind HTTPS).
 - Login with `DASHBOARD_PASSWORD` (8+ characters, else it refuses to start). Session cookie is signed, HttpOnly,
   SameSite=Strict; 5 wrong passwords from one address lock it out for 5 minutes.
-- The Docker socket is mounted read-only and only GET calls are made. Leave `DASHBOARD_DOCKER` out to run without it.
+- Docker goes through the `dockerproxy` service (`RESKATE_MODE=dockerproxy`, [`modules/dockerproxy.py`](../modules/dockerproxy.py)), never the real socket: a Docker socket is root on the host whether it is mounted `:ro` or not. The proxy passes on the dashboard's reads, restarts of game servers and its file writes into a game server's `/data` and `/data/Mods`, refuses everything else, and hides secret env values of the tool containers. The dashboard then runs as uid 1000. Leave `DASHBOARD_DOCKER` out to run without Docker.
