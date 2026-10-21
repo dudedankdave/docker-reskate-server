@@ -344,7 +344,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <nav id="nav"></nav>
 <main>
 <section data-v="uebersicht"><h2>Server</h2><div class="grid" id="servers"></div></section>
-<section data-v="uebersicht"><h2>Tools &amp; Container</h2><div class="grid" id="containers"></div></section>
+<section data-v="uebersicht"><h2>Tools</h2><div class="grid" id="tools"></div></section>
+<section data-v="uebersicht"><h2>Server-Container</h2><div class="grid" id="containers"></div></section>
 <section data-v="chat"><h2>Chat</h2><div class="tabs" id="tabs"></div><pre id="chat">-</pre>
 <form id="sayform" autocomplete="off"><input id="saytext" maxlength="200" placeholder="Nachricht an den Server-Chat"><button>Senden</button></form></section>
 <section id="modsec" data-v="moderator"><h2>Moderator</h2>
@@ -389,12 +390,15 @@ async function servers(){
   box.append(c)}
 }
 async function containers(){
- const d=await api('/api/containers'),box=$('containers');box.replaceChildren();
- if(!d.docker){box.append(el('div','mut','Docker-Socket nicht eingebunden (DASHBOARD_DOCKER).'));return}
+ const d=await api('/api/containers'),srv=$('containers'),tl=$('tools');srv.replaceChildren();tl.replaceChildren();
+ if(!d.docker){srv.append(el('div','mut','Docker-Socket nicht eingebunden (DASHBOARD_DOCKER).'));return}
  const t=$('tool');if(!t.options.length)d.containers.filter(c=>c.tool).forEach(c=>t.add(new Option(c.name)));
- for(const c of d.containers){const e=el('div','card'),run=c.state=='running';
+ const order=c=>(c.state=='running'?0:1);
+ for(const c of d.containers.slice().sort((a,b)=>order(a)-order(b)||a.name.localeCompare(b.name))){const e=el('div','card'),run=c.state=='running';
   const hd=el('div','head');hd.append(el('h3',0,c.name),el('span','pill '+(run?'ok':'bad'),c.state));
-  e.append(hd,el('div','mut',c.image+' · '+c.status));box.append(e)}
+  e.append(hd,el('div','mut',c.image+' · '+c.status));(c.tool?tl:srv).append(e)}
+ if(!tl.children.length)tl.append(el('div','mut','Keine Tools gefunden.'));
+ if(!srv.children.length)srv.append(el('div','mut','Keine Server-Container gefunden.'))
 }
 const CATALOG={
  'Karte':[['map <name>','Map wechseln'],['maps','Bekannte Maps'],['map-pool','Pool anzeigen'],['map-pool add <map>','Map in den Pool'],['map-pool remove <map>','Map aus dem Pool'],['map-pool clear','Alle Maps erlauben'],['rotation <minutes>','Rotation (Minuten)'],['rotation off','Rotation aus'],['park <construction|historic|financial> <layout>','Park-Layout'],['park random','Parks zufällig'],['layer-sync on','Layer-Sync an'],['layer-sync off','Layer-Sync aus'],['tod <default|morning|noon|afternoon|evening|night>','Tageszeit']],
