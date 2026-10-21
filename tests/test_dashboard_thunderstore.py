@@ -430,7 +430,7 @@ class LeaderboardTest(unittest.TestCase):
             "('week-2026-43:jam','Week 43 - Jam','mode',2,NULL);"
             "INSERT INTO players VALUES ('1','Ann'),('2','Bo'),('3','Cy');"
             "INSERT INTO scores VALUES ('general','1',50,1,3),('general','2',80,2,4),('general','3',0,0,1),('week-2026-43:jam','1',9,0,1);"
-            "INSERT INTO ledger (at,board,steam_id,points,reason,server) VALUES (5,'general','2',30,'jam win','2');")
+            "INSERT INTO ledger (at,board,steam_id,points,reason,server) VALUES (5,'general','2',30,'jam win','2'),(5,'week-2026-43','2',30,'jam win','2'),(5,'general:jam','2',30,'jam win','2');")
         con.commit()
         con.close()
         con = sqlite3.connect(f"{self.tmp.name}/teams.db")
@@ -449,6 +449,8 @@ class LeaderboardTest(unittest.TestCase):
         self.assertEqual([b["id"] for b in out["boards"]], ["general", "week-2026-43", "week-2026-43:jam"])
         self.assertEqual(out["boards"][2]["kind"], "week")
         self.assertEqual(out["recent"][0]["name"], "Bo")
+        self.assertEqual(len(out["recent"]), 1)          # one award counted on three boards shows once
+        self.assertEqual(out["recent"][0]["boards"], 3)
         self.assertEqual(out["stats"]["awards"], 1)
 
     def test_mode_board_and_unknown_board(self):

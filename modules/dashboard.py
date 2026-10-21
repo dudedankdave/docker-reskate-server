@@ -952,9 +952,11 @@ def lb_snapshot(league, board="general", limit=100):
             t["members"] += 1
     for i, r in enumerate(rows):
         r["rank"] = i + 1
-    recent = db_rows(path, "SELECT l.at, p.name, l.board, l.points, l.reason, l.server FROM ledger l "
-                           "LEFT JOIN players p USING (steam_id) ORDER BY l.id DESC LIMIT 25")
-    stats = (db_rows(path, "SELECT (SELECT COUNT(*) FROM players) AS players, (SELECT COUNT(*) FROM ledger) AS awards, "
+    # one award is written to every board it counts on (all time, year, month, week, each also per game): show it once
+    recent = db_rows(path, "SELECT l.at, p.name, l.points, l.reason, l.server, COUNT(*) AS boards FROM ledger l "
+                           "LEFT JOIN players p USING (steam_id) GROUP BY l.at, l.steam_id, l.points, l.reason, l.server "
+                           "ORDER BY MAX(l.id) DESC LIMIT 25")
+    stats = (db_rows(path, "SELECT (SELECT COUNT(*) FROM players) AS players, (SELECT COUNT(*) FROM (SELECT 1 FROM ledger GROUP BY at, steam_id, points, reason, server)) AS awards, "
                            "(SELECT MAX(at) FROM ledger) AS last") or [{}])[0]
     return {"league": league, "board": board, "boards": boards, "total": len(rows), "rows": rows[:limit],
             "teams": sorted(standing.values(), key=lambda t: -t["points"]), "recent": recent, "stats": stats,
@@ -1697,7 +1699,7 @@ function lbDraw(){const d=LB.data;if(!d)return;
  for(const x of d.teams){if(q&&!(x.name+' '+x.tag).toLowerCase().includes(q))continue;const tr=el('tr'),c=el('td');c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','lbn',x.members),el('td','lbn',x.points));tt.append(tr)}
  if(!d.teams.length){const tr=el('tr'),td=el('td','mut','Noch keine Team-Punkte auf diesem Board.');td.colSpan=3;tr.append(td);tt.append(tr)}
  const rc=$('lbrecent');rc.textContent='';const rh=el('tr');for(const [l,n] of [['Letzte Vergaben',0],['Punkte',1]])rh.append(el('th',n?'lbn':'',l));rc.append(rh);
- for(const r of d.recent){const tr=el('tr'),c=el('td');c.append(r.name||'?',el('div','mut',lbFmt(r.at)+' · '+r.reason+(r.server?' · Server '+r.server:'')));tr.append(c,el('td','lbn',(r.points>0?'+':'')+r.points));rc.append(tr)}
+ for(const r of d.recent){const tr=el('tr'),c=el('td');c.append(r.name||'?',el('div','mut',lbFmt(r.at)+' · '+r.reason+(r.server?' · '+(/YARD ([0-9]+)/.exec(r.server)?'Server '+/YARD ([0-9]+)/.exec(r.server)[1]:r.server):'')));tr.append(c,el('td','lbn',(r.points>0?'+':'')+r.points));rc.append(tr)}
  if(!d.recent.length){const tr=el('tr'),td=el('td','mut','Noch nichts vergeben.');td.colSpan=2;tr.append(td);rc.append(tr)}}
 $('lbboard').onchange=()=>{LB.board=$('lbboard').value;lbLoad()};
 $('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;lbLoad()};
