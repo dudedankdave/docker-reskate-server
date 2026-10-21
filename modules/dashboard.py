@@ -671,7 +671,7 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
 </div>
-<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"><button data-c="map-pool">Pool zeigen</button><button data-c="map-pool clear">Alle Maps erlauben</button></div>
+<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"><select id="poolscope" title="Gilt für"><option value="one">nur dieser Server</option><option value="all">alle Server</option><option value="noranked">alle außer Ranked</option></select><button data-c="map-pool">Pool zeigen</button><button data-c="map-pool clear">Alle Maps erlauben</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
 <details class="adv"><summary>Erweitert: Befehl frei eingeben</summary><div class="bar"><select id="cat"></select><input id="cmd" maxlength="300" list="cmdsug" placeholder="Befehl, z. B. status oder map grom"><datalist id="cmdsug"></datalist><button id="csend">Senden</button></div></details>
 <div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers.</div>
@@ -809,6 +809,8 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
  put(real,[...box.childNodes])}
+function poolTargets(sv){const m=$('poolscope').value;if(m=='one')return [sv];
+ return [...$('csrv').options].filter(o=>m=='all'||!/ranked/i.test(o.textContent)).map(o=>o.value)}
 const known={};
 function remember(sv,list){let m=known[sv];if(!m){m=known[sv]=new Map();try{for(const n of JSON.parse(localStorage.getItem('km'+sv)||'[]'))m.set(n.toLowerCase(),n)}catch(e){}}
  let add=false;for(const n of list)if(typeof n=='string'&&n&&!m.has(n.toLowerCase())){m.set(n.toLowerCase(),n);add=true}
@@ -820,7 +822,7 @@ function drawPool(sv,pool,av){const real=$('poollist'),box=document.createElemen
  $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps sind erlaubt (alle Schalter an). Schaltest du eine Map aus, gilt ab dann der Pool aus den übrigen Maps.';
  for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
   const low=n.toLowerCase(),isOn=wanted(sv,'pool:'+low,all||on.has(low)),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
-  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'pool:'+low,cb.checked,'map-pool '+(cb.checked?'add ':'remove ')+n,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase());return !p.length||p.includes(low)})};
+  cb.onchange=()=>{lb.classList.toggle('on',cb.checked);for(const t of poolTargets(sv))toggle(t,'pool:'+low,cb.checked,'map-pool '+(cb.checked?'add ':'remove ')+n,x=>{const p=(x.pool||[]).map(m=>m.toLowerCase());return !p.length||p.includes(low)})};
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
  if(!box.children.length)box.append(el('div','mut','Keine Treffer.'));
  put(real,[...box.childNodes])}
