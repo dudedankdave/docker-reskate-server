@@ -98,6 +98,16 @@ class ServerDetailsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.d.server_info("1")
 
+    def test_off_means_no_password(self):
+        def docker(path):
+            raw = json.loads(ServerDetailsTest.docker(self, path)) if not path.startswith("/containers/c1/logs") else None
+            if raw and "Config" in raw:
+                raw["Config"]["Env"] = [e for e in raw["Config"]["Env"] if not e.startswith("SERVER_PASSWORD")] + ["SERVER_PASSWORD=off"]
+                return json.dumps(raw).encode()
+            return ServerDetailsTest.docker(self, path)
+        with mock.patch.object(self.d, "docker_get", docker):
+            self.assertFalse(self.d.server_info("9")["locked"])
+
 
 if __name__ == "__main__":
     unittest.main()

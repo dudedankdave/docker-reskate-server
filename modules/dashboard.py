@@ -427,7 +427,8 @@ def server_details():
                                   "started": info["State"].get("StartedAt", ""), "port": env.get("PORT", ""),
                                   "health": (info["State"].get("Health") or {}).get("Status", ""), "id": c["Id"]})
         row["name"] = env.get("SERVER_NAME", row["name"])
-        row["password"] = env.get("SERVER_PASSWORD", "") or row["password"]
+        word = env.get("SERVER_PASSWORD", "")
+        row["password"] = word if word.lower() not in ("", "off") else row["password"]
         for k, v in env.items():
             if k not in SKIP and not any(h in k for h in HIDE):
                 row["env"][k] = v[:200]
@@ -548,7 +549,7 @@ async function servers(){
   const c=el('div','card srv'+(openCards.has(s.server)?' open':'')),[t,k]=RULE[s.rule]||[s.rule,'mut'],h=el('div','head');
   h.append(el('span','num','#'+s.server),el('h3',0,s.role||('Server '+s.server)));
   if(s.locked){const sh=shown[s.server],on=sh&&sh.until>Date.now(),lk=el('button','lock',on?'🔓 '+sh.pw:'🔒');lk.title=on?'Passwort (verschwindet nach 15 s)':'Passwortgeschützt, Klick zeigt das Passwort';
-   lk.onclick=async e=>{e.stopPropagation();try{const d=await api('/api/secret?server='+s.server);shown[s.server]={pw:d.pw||d.password||'(leer)',until:Date.now()+15000};servers()}catch(x){lk.title='Fehler: '+x.message}};h.append(lk)}
+   lk.onclick=async e=>{e.stopPropagation();try{const r=await fetch('/api/secret?server='+s.server,{headers:{'X-Requested-With':'dashboard'}}),d=await r.json();if(!r.ok)throw new Error(d.error||r.status);shown[s.server]={pw:d.password,until:Date.now()+15000};servers()}catch(x){lk.title='Fehler: '+x.message}};h.append(lk)}
   c.append(h);
   c.onclick=async e=>{if(e.target.closest('button,a,input,.detail'))return;
    if(openCards.has(s.server))openCards.delete(s.server);else{openCards.add(s.server);delete infoAt[s.server]}
