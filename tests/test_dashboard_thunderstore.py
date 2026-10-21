@@ -328,7 +328,7 @@ class TeamLogoTest(unittest.TestCase):
 
         def fetch(host, address, path, limit):
             calls.append((host, address, path))
-            return 200, "image/png; charset=binary", b"\x89PNG"
+            return 200, "image/png; charset=binary", b"\x89PNG", ""
         with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
                 mock.patch.object(self.d, "_fetch_pinned", fetch):
             self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"\x89PNG"))
@@ -337,15 +337,36 @@ class TeamLogoTest(unittest.TestCase):
 
     def test_redirects_and_other_types_are_refused_and_the_cache_is_capped(self):
         with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]):
-            for answer in ((302, "text/html", b""), (200, "image/svg+xml", b"<svg/>")):
+            for answer in ((302, "text/html", b"", ""), (200, "image/svg+xml", b"<svg/>", "")):
                 with mock.patch.object(self.d, "_fetch_pinned", lambda *a, answer=answer: answer), self.assertRaises(ValueError):
                     self.d.team_logo("https://example.com/a.png")
         self.d.LOGO_CACHE.update({f"u{n}": (1e18, "image/png", b"") for n in range(self.d.LOGO_ENTRIES)})
         with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
-                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (200, "image/png", b"x")):
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (200, "image/png", b"x", "")):
             self.d.team_logo("https://example.com/a.png")
         self.assertLessEqual(len(self.d.LOGO_CACHE), self.d.LOGO_ENTRIES)
         self.assertIn("https://example.com/a.png", self.d.LOGO_CACHE)
+
+    def test_follows_a_few_redirects_and_checks_each_step(self):
+        steps = iter([(302, "", b"", "https://raw.example.org/x.png"), (200, "image/png", b"ok", "")])
+        seen = []
+
+        def fetch(host, address, path, limit):
+            seen.append((host, path))
+            return next(steps)
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", fetch):
+            self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"ok"))
+        self.assertEqual(seen, [("example.com", "/a.png"), ("raw.example.org", "/x.png")])
+        self.d.LOGO_CACHE.clear()
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (302, "", b"", "http://example.com/plain.png")), \
+                self.assertRaises(ValueError):
+            self.d.team_logo("https://example.com/a.png")        # a redirect to http is refused
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (302, "", b"", "https://example.com/loop.png")), \
+                self.assertRaises(ValueError):
+            self.d.team_logo("https://example.com/a.png")        # an endless chain stops
 
 
 class LayersFitTest(unittest.TestCase):

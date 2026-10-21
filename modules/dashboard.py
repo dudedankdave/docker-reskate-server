@@ -65,7 +65,7 @@ import zipfile
 import zlib
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8780").rstrip("/")
@@ -1157,37 +1157,45 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 
 
 def _fetch_pinned(hostname, address, path, limit):
-    """(status, content type, body up to limit + 1 bytes) of GET https://hostname/path, asked at `address`."""
+    """(status, content type, body up to limit + 1 bytes, Location) of GET https://hostname/path, asked at `address`."""
     conn = _PinnedHTTPS(hostname, address, timeout=10, context=ssl.create_default_context())
     try:
         conn.request("GET", path, headers={"User-Agent": "reskate-dashboard", "Accept": "image/*"})
         r = conn.getresponse()
-        return r.status, r.getheader("Content-Type", ""), r.read(limit + 1)
+        return r.status, r.getheader("Content-Type", ""), r.read(limit + 1), r.getheader("Location", "")
     finally:
         conn.close()
 
 
 def team_logo(url):
     """(content type, bytes) of a team's logo link, fetched here because the page may not load other hosts. Only a link that
-    is saved on a team, https on the standard port, a public address (the checked one is the one connected to), no
-    redirects, a plain picture up to 1.5 MB."""
+    is saved on a team; every step (the link and up to 3 redirects) is https on the standard port at a public address (the
+    checked one is the one connected to); a plain picture up to 1.5 MB."""
     if url in LOGO_CACHE and time.time() - LOGO_CACHE[url][0] < 3600:
         return LOGO_CACHE[url][1], LOGO_CACHE[url][2]
     if not any(r["logo"] == url for r in db_rows(f"{SHARED}/teams.db", "SELECT logo FROM teams")):
         raise ValueError("not a team logo")
-    u = urlparse(url)
-    if u.scheme != "https" or not u.hostname or u.port:
-        raise ValueError("a logo link has to be https")
-    try:
-        found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)})
-    except (OSError, ValueError):
-        raise ValueError("the logo host does not resolve") from None
-    if not found or any(not ip.is_global for ip in found):
-        raise ValueError("the logo host is not a public address")
-    try:
-        status, kind, data = _fetch_pinned(u.hostname, str(found[0]), (u.path or "/") + (f"?{u.query}" if u.query else ""), LOGO_MAX)
-    except (OSError, http.client.HTTPException, ssl.SSLError) as e:
-        raise ValueError(f"the logo could not be fetched: {e}") from None
+    at = url
+    for _ in range(4):
+        u = urlparse(at)
+        if u.scheme != "https" or not u.hostname or u.port:
+            raise ValueError("a logo link has to be https")
+        try:
+            found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)})
+        except (OSError, ValueError):
+            raise ValueError("the logo host does not resolve") from None
+        if not found or any(not ip.is_global for ip in found):
+            raise ValueError("the logo host is not a public address")
+        try:
+            status, kind, data, where = _fetch_pinned(u.hostname, str(found[0]), (u.path or "/") + (f"?{u.query}" if u.query else ""), LOGO_MAX)
+        except (OSError, http.client.HTTPException, ssl.SSLError) as e:
+            raise ValueError(f"the logo could not be fetched: {e}") from None
+        if status in (301, 302, 303, 307, 308) and where:
+            at = urljoin(at, where)
+            continue
+        break
+    else:
+        raise ValueError("too many redirects")
     kind = kind.split(";")[0].strip().lower()
     if status != 200 or len(data) > LOGO_MAX or kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
         raise ValueError("not a plain picture")
