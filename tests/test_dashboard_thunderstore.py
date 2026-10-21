@@ -125,3 +125,29 @@ class MapNameTest(unittest.TestCase):
                            ("[rotation] Changing the map to Isle of Grom.", "Isle of Grom"),
                            ("Changing map to Macba.", "Macba")):
             self.assertEqual(next(g for g in mod.MAP.match(line).groups() if g), name)
+
+
+class LiveMapsTest(unittest.TestCase):
+    def test_pool_and_mods_from_the_running_server(self):
+        import io
+        import tarfile
+        d = load()
+
+        def archive(path):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as t:
+                if path.endswith("ReSkateServer.json"):
+                    raw = json.dumps({"maps": {"map": "Industrial Zone", "pool": ["Industrial Zone", "Pattonville"]}, "server": {"password": "x"}}).encode()
+                    info = tarfile.TarInfo("ReSkateServer.json")
+                    info.size = len(raw)
+                    t.addfile(info, io.BytesIO(raw))
+                else:
+                    for name, target in (("A-One", "/mods/packages/A-One-1.0.0"), ("B-Two", "/mods/packages/B-Two-2.1.3")):
+                        info = tarfile.TarInfo("Mods/" + name)
+                        info.type = tarfile.SYMTYPE
+                        info.linkname = target
+                        t.addfile(info)
+            return buf.getvalue()
+
+        with mock.patch.object(d, "docker_get", lambda path: archive(path.split("path=")[1])):
+            self.assertEqual(d.live_maps("c1"), ("Industrial Zone", ["Industrial Zone", "Pattonville"], ["A-One-1.0.0", "B-Two-2.1.3"]))
