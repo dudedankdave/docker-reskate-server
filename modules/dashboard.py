@@ -568,6 +568,143 @@ def pools_action(body):
         return pools_snapshot(pools, assign)
 
 
+ANN_FILE = f"{SHARED}/ansagen.json"
+ANN_LOCK = threading.Lock()
+ANN_TEXT = 220
+
+
+def live_announcements(number):
+    """(messages, interval minutes) of the running server's settings file, None when it cannot be read."""
+    for c in server_details().get(number, {}).get("containers", []):
+        try:
+            with tar_of(c["id"], "/data/ReSkateServer.json") as t:
+                a = json.load(t.extractfile(t.getmember("ReSkateServer.json"))).get("announcements", {})
+            return [m for m in a.get("messages", []) if isinstance(m, str)], int(a.get("interval_minutes") or 0)
+        except (RuntimeError, OSError, ValueError, KeyError, TypeError, tarfile.TarError):
+            continue
+    return None
+
+
+def ann_clean(item):
+    text = " ".join(str(item.get("text", "")).split())[:ANN_TEXT]
+    if not text:
+        raise ValueError("the announcement is empty")
+    return {"text": text, "on": bool(item.get("on", True))}
+
+
+def ann_load():
+    """Stored {global: [...], servers: {n: {messages: [...], interval}}}; the first time seeded from what the servers run now
+    (lines every running server has become global ones)."""
+    try:
+        with open(ANN_FILE) as f:
+            state = json.load(f)
+        state["global"], state["servers"]
+    except (OSError, ValueError, KeyError, TypeError):
+        state = {"global": [], "servers": {}}
+    live = {n: live_announcements(n) for n in server_details()}
+    fresh = {n: v for n, v in live.items() if v is not None and n not in state["servers"]}
+    if fresh:
+        # the test server must not decide what counts as "on every server"
+        probes = [v for n, v in live.items() if v is not None and "test" not in (server_details()[n].get("name") or "").lower().rsplit(" - ", 1)[-1]]
+        everywhere = []
+        if not state["servers"] and len(fresh) == len([v for v in live.values() if v is not None]) and probes:
+            everywhere = [m for m in probes[0][0] if all(m in v[0] for v in probes)]
+        if everywhere:
+            state["global"] = [{"text": m, "on": True} for m in dict.fromkeys(everywhere)]
+        for n, (messages, interval) in fresh.items():
+            state["servers"][n] = {"messages": [{"text": m, "on": True} for m in messages if m not in everywhere], "interval": interval}
+        ann_save(state)
+    return state
+
+
+def ann_save(state):
+    tmp = ANN_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, ANN_FILE)
+
+
+def ann_effective(state, number):
+    return [m["text"] for m in state["global"] if m["on"]] + [m["text"] for m in state["servers"].get(number, {}).get("messages", []) if m["on"]]
+
+
+def ann_snapshot(state):
+    details = server_details()
+    return {"global": state["global"], "servers": state["servers"],
+            "live": {n: ({"messages": v[0], "interval": v[1]} if (v := live_announcements(n)) is not None else None) for n in details},
+            "roles": {n: (r.get("name") or "").rsplit(" - ", 1)[-1].strip() for n, r in details.items()},
+            "effective": {n: ann_effective(state, n) for n in details}}
+
+
+def ann_apply(state, number):
+    """Make the running server's announcement list and interval match the stored ones (console commands only)."""
+    live = live_announcements(number)
+    if live is None:
+        raise RuntimeError(f"server {number}: settings not readable")
+    want, interval = ann_effective(state, number), int(state["servers"].get(number, {}).get("interval") or 0)
+    commands = []
+    if live[0] != want:
+        commands = ["announcements clear"] + [f"announcements add {t}" for t in want]
+    if interval and interval != live[1]:
+        commands.append(f"announcements interval {interval}")
+    for command in commands:
+        moderate({"server": number, "action": "console", "text": command})
+    return len(commands)
+
+
+def ann_action(body):
+    """{action: add|edit|delete|move|interval|reapply, scope: "global"|"<server>", index, text, on, dir, minutes, server}."""
+    action, scope = str(body.get("action", "")), str(body.get("scope", ""))
+    with ANN_LOCK:
+        state = ann_load()
+        servers = list(server_details())
+        if action == "interval":
+            target = str(body.get("server", ""))
+            minutes = int(body.get("minutes"))
+            if not 1 <= minutes <= 1440:
+                raise ValueError("the interval is 1 to 1440 minutes")
+            hit = servers if target == "*" else [target]
+            for n in hit:
+                if n not in state["servers"]:
+                    raise ValueError("unknown server")
+                state["servers"][n]["interval"] = minutes
+        elif action == "reapply":
+            hit = servers if scope in ("", "*", "global") else [scope]
+        else:
+            if scope == "global":
+                items, hit = state["global"], servers
+            elif scope in state["servers"]:
+                items, hit = state["servers"][scope]["messages"], [scope]
+            else:
+                raise ValueError("unknown scope")
+            if action == "add":
+                items.append(ann_clean(body))
+            else:
+                i = int(body.get("index"))
+                if not 0 <= i < len(items):
+                    raise ValueError("no such announcement")
+                if action == "edit":
+                    items[i] = ann_clean({"text": body.get("text", items[i]["text"]), "on": body.get("on", items[i]["on"])})
+                elif action == "delete":
+                    del items[i]
+                elif action == "move":
+                    j = i + (-1 if body.get("dir") == "up" else 1)
+                    if 0 <= j < len(items):
+                        items[i], items[j] = items[j], items[i]
+                else:
+                    raise ValueError(f"unknown action {action!r}")
+        ann_save(state)
+        errors = []
+        for n in hit:
+            try:
+                ann_apply(state, n)
+            except (RuntimeError, OSError, urllib.error.URLError) as e:
+                errors.append(str(e))
+        out = ann_snapshot(state)
+        out["errors"] = errors
+        return out
+
+
 def demux(data):
     """Text of a Docker log stream (8-byte frame headers unless the container has a TTY)."""
     out, i = [], 0
@@ -795,7 +932,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px)) clamp(32px,5vw,64px) max(var(--gut),env(safe-area-inset-left,0px));width:100%;margin:0;display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(40px,5.5vw,72px)}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 clamp(12px,1.4vw,18px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:clamp(10px,1.2vw,16px)}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
@@ -856,6 +993,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <section data-v="befehle"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
+<section data-v="ansagen"><h2>Ansagen für alle Server</h2><div class="card"><div class="mut">Diese Ansagen laufen auf jedem Server, zusätzlich zu den eigenen. Das Spiel zeigt sie reihum im eingestellten Intervall.</div><div class="annlist" id="annglobal"></div><div class="crow"><input id="annnew-global" maxlength="220" placeholder="Neue Ansage für alle Server" style="flex:1;min-width:200px"><button id="annadd-global">Hinzufügen</button></div><div class="crow"><span class="mut">Intervall für alle Server</span><input id="anniv-all" type="number" min="1" max="1440" value="10" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-all">Setzen</button></div></div></section>
+<section data-v="ansagen"><h2>Ansagen pro Server <select id="annsrv"></select></h2><div class="card"><div class="mut" id="annstate"></div><div class="annlist" id="annserver"></div><div class="crow"><input id="annnew-server" maxlength="220" placeholder="Neue Ansage nur für diesen Server" style="flex:1;min-width:200px"><button id="annadd-server">Hinzufügen</button></div><div class="crow"><span class="mut">Intervall dieses Servers</span><input id="anniv-server" type="number" min="1" max="1440" style="width:80px"><span class="mut">Minuten</span><button id="annivgo-server">Setzen</button><button id="annre">Neu anwenden</button></div><div class="mut" id="annlive"></div></div></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -1132,11 +1271,41 @@ async function events(){
 for(const id of['sel','scope'])$(id).onchange=()=>{last=0;lines.length=0;$('events').textContent=''};
 async function toollog(){const n=$('tool').value;if(n)$('toollog').textContent=(await api('/api/toollog?name='+n)).log}
 $('tool').onchange=toollog;
-const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs']];
+
+let ANN=null;
+const annErr=e=>{$('cout').textContent='Fehler: '+e.message};
+async function annLoad(){try{ANN=await api('/api/ann');annDraw()}catch(e){annErr(e)}}
+const annPost=b=>post('/api/ann',b).then(d=>{ANN=d;annDraw();if(d.errors&&d.errors.length)alert_(d.errors.join(' · '))}).catch(annErr);
+const alert_=t=>{$('annlive').textContent=t};
+function annRows(scope,list){const box=document.createElement('div');
+ list.forEach((m,i)=>{const row=el('div','annrow'),lb=el('label','tgl'+(m.on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=m.on;
+  cb.onchange=()=>annPost({action:'edit',scope,index:i,on:cb.checked});lb.append(cb,el('span','sw'));
+  const t=document.createElement('input');t.value=m.text;t.maxLength=220;t.onchange=()=>annPost({action:'edit',scope,index:i,text:t.value});
+  const up=el('button',0,'↑'),dn=el('button',0,'↓'),del=el('button',0,'✕');up.disabled=i==0;dn.disabled=i==list.length-1;
+  up.onclick=()=>annPost({action:'move',scope,index:i,dir:'up'});dn.onclick=()=>annPost({action:'move',scope,index:i,dir:'down'});del.onclick=()=>armed(del,()=>annPost({action:'delete',scope,index:i}));
+  row.append(lb,t,up,dn,del);box.append(row)});
+ if(!list.length)box.append(el('div','mut','Noch keine Ansagen.'));return [...box.childNodes]}
+function annDraw(){if(!ANN)return;const sel=$('annsrv'),nums=Object.keys(ANN.servers).sort((a,b)=>a-b),keep=sel.value,sig=JSON.stringify(nums.map(n=>[n,ANN.roles[n]]));
+ if(sel.dataset.sig!=sig){sel.dataset.sig=sig;sel.replaceChildren(...nums.map(n=>new Option(n+' '+(ANN.roles[n]||''),n)))}
+ if(nums.includes(keep))sel.value=keep;const sv=sel.value;
+ put($('annglobal'),annRows('global',ANN.global));
+ if(!sv)return;const S=ANN.servers[sv],live=ANN.live[sv],eff=ANN.effective[sv];
+ put($('annserver'),annRows(sv,S.messages));
+ if(document.activeElement!==$('anniv-server'))$('anniv-server').value=S.interval||(live?live.interval:'')||'';
+ $('annstate').textContent='Auf diesem Server laufen '+eff.length+' Ansagen ('+ANN.global.filter(m=>m.on).length+' von allen + '+S.messages.filter(m=>m.on).length+' eigene), alle '+(live?live.interval:'?')+' Minuten.';
+ const same=live&&JSON.stringify(live.messages)==JSON.stringify(eff)&&(!S.interval||S.interval==live.interval);
+ $('annlive').textContent=live?(same?'Der laufende Server stimmt überein.':'Der laufende Server weicht ab (geändert per Konsole?). Mit „Neu anwenden“ gleichst du ihn an.'):'Server nicht lesbar.'}
+$('annsrv').onchange=annDraw;
+for(const k of ['global','server'])$('annadd-'+k).onclick=()=>{const t=$('annnew-'+k).value.trim();if(!t)return;$('annnew-'+k).value='';annPost({action:'add',scope:k=='global'?'global':$('annsrv').value,text:t})};
+for(const k of ['global','server'])$('annnew-'+k).onkeydown=e=>{if(e.key=='Enter')$('annadd-'+k).click()};
+$('annivgo-all').onclick=()=>armed($('annivgo-all'),()=>annPost({action:'interval',server:'*',minutes:+$('anniv-all').value}));
+$('annivgo-server').onclick=()=>annPost({action:'interval',server:$('annsrv').value,minutes:+$('anniv-server').value});
+$('annre').onclick=()=>annPost({action:'reapply',scope:$('annsrv').value});
+const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen']];
 let tsLoaded=false;
 let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
-function show(v){view=v;mapsAt=0;if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
+function show(v){view=v;mapsAt=0;if(v=='ansagen')annLoad();if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
  for(const s of document.querySelectorAll('section[data-v]'))s.classList.toggle('off',s.dataset.v!=v);
  $('diskwarn').classList.toggle('off',v!='uebersicht');
  for(const b of $('nav').children)b.classList.toggle('on',b.dataset.v==v)}
@@ -1238,6 +1407,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/pools":
                 with POOLS_LOCK:
                     return self.json(200, pools_snapshot(*pools_state()))
+            if url.path == "/api/ann":
+                with ANN_LOCK:
+                    return self.json(200, ann_snapshot(ann_load()))
             if url.path == "/api/serverinfo":
                 return self.json(200, server_info(q.get("server", "")))
             if url.path == "/api/secret":
@@ -1342,6 +1514,21 @@ class Handler(BaseHTTPRequestHandler):
         say(f"dashboard: pools {body.get('action')} {body.get('name', '')} server {body.get('server', '')}")
         self.json(200, result)
 
+    def ann(self):
+        if not self.logged_in():
+            return self.json(401, {"error": "login"})
+        if not MOD or self.headers.get("X-Requested-With") != "dashboard":
+            return self.json(403, {"error": "moderation is off" if not MOD else "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 8192)) or b"{}")
+            result = ann_action(body)
+        except (ValueError, TypeError, AttributeError) as e:
+            return self.json(400, {"error": str(e)})
+        except (RuntimeError, OSError) as e:
+            return self.json(502, {"error": str(e)})
+        say(f"dashboard: announcements {body.get('action')} {body.get('scope', body.get('server', ''))}")
+        self.json(200, result)
+
     def do_POST(self):
         path = urlparse(self.path).path
         if path == "/logout":
@@ -1356,6 +1543,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.layers()
         if path == "/api/pools":
             return self.pools()
+        if path == "/api/ann":
+            return self.ann()
         if path != "/login":
             return self.json(404, {"error": "not found"})
         who = self.address()

@@ -289,6 +289,46 @@ class PoolsTest(unittest.TestCase):
             d.pools_action({"action": "set", "server": "1", "name": "Skate 2", "map": "B", "on": False})
 
 
+class AnnouncementsTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d.ANN_FILE = self.tmp.name + "/ansagen.json"
+        self.live = {"1": (["Join", "One"], 10), "2": (["Join"], 60), "9": ([], 5)}
+        self.sent = []
+        names = {"1": "x - Main", "2": "x - Skate 2", "9": "x - Test"}
+        self.patches = [mock.patch.object(self.d, "live_announcements", lambda n: self.live.get(n)),
+                        mock.patch.object(self.d, "server_details", lambda: {n: {"name": v} for n, v in names.items()}),
+                        mock.patch.object(self.d, "moderate", lambda body: self.sent.append((body["server"], body["text"])))]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_seed_moves_shared_lines_to_global_and_ignores_the_test_server(self):
+        out = self.d.ann_action({"action": "reapply", "scope": "1"})
+        self.assertEqual([m["text"] for m in out["global"]], ["Join"])
+        self.assertEqual([m["text"] for m in out["servers"]["1"]["messages"]], ["One"])
+        self.assertEqual(out["servers"]["1"]["interval"], 10)
+        self.assertEqual(self.sent, [])   # nothing differs from what runs
+
+    def test_edits_rewrite_the_list_and_interval_through_the_console(self):
+        d = self.d
+        d.ann_action({"action": "reapply", "scope": "1"})
+        d.ann_action({"action": "add", "scope": "2", "text": "  New   line "})
+        self.assertEqual(self.sent, [("2", "announcements clear"), ("2", "announcements add Join"), ("2", "announcements add New line")])
+        self.sent.clear()
+        d.ann_action({"action": "interval", "server": "1", "minutes": 20})
+        self.assertEqual(self.sent, [("1", "announcements interval 20")])
+        for bad in ({"action": "add", "scope": "1", "text": " "}, {"action": "edit", "scope": "1", "index": 9},
+                    {"action": "interval", "server": "1", "minutes": 0}, {"action": "add", "scope": "7", "text": "x"}):
+            with self.assertRaises(ValueError):
+                d.ann_action(bad)
+
+
 class ServerMapsOnlyTest(unittest.TestCase):
     def test_refreshing_one_server_keeps_the_others(self):
         d = load()
