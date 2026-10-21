@@ -232,3 +232,19 @@ class ServerMapsOnlyTest(unittest.TestCase):
             out = d.server_maps(True, "2")
         self.assertEqual(out["1"]["map"], "keep")
         self.assertEqual(out["2"]["map"], "B")
+
+
+class OnlineCountTest(unittest.TestCase):
+    def test_online_counts_joined_players_not_the_status_count(self):
+        d = load()
+        rows = [{"server": "5", "running": True, "players": 1, "slots": {"a": {"running": True, "players": 1}}}]
+        joined = [{"name": "X", "slot": "B"}, {"name": "Y", "slot": "a"}]
+
+        def fake(path):
+            return rows if path == "/v1/servers" else joined
+
+        with mock.patch.object(d, "bridge", fake), mock.patch.object(d, "server_details", return_value={}):
+            out = d.servers()["servers"][0]
+        self.assertEqual(out["online"], 2)
+        self.assertEqual(out["slots"]["a"]["online"], 1)
+        self.assertEqual(out["players"], 1)

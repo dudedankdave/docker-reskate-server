@@ -618,6 +618,15 @@ def servers():
         known = {}
     for r in rows:
         r["locked"] = bool(known.get(str(r["server"]), {}).get("password"))
+        if r.get("running"):
+            # who has really joined (the bridge follows join/leave lines); the status count can hold a ghost
+            try:
+                joined = bridge(f"/v1/servers/{r['server']}/players")
+                r["online"] = len(joined)
+                for letter, s in r.get("slots", {}).items():
+                    s["online"] = sum(1 for p in joined if str(p.get("slot") or "").lower() == str(letter).lower())
+            except (urllib.error.URLError, OSError, ValueError):
+                pass
     return {"cutoff": CUTOFF, "say": SAY and MOD, "mod": MOD, "tp": bool(TP), "servers": rows}
 
 
@@ -736,10 +745,11 @@ async function servers(){
   if(s.running&&s.map&&imgState[mapName]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[mapName]=='ok'?1:0;im.onload=()=>{imgState[mapName]='ok';im.style.opacity=1};im.onerror=()=>{imgState[mapName]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
   c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Neustart direkt nur bis '+d.cutoff+' Spieler; mehr Spieler oder unbekannt: nur über den Rollover'}));
   const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
-  row('Spieler',s.running?(s.players==null?'?':s.players)+' / '+(s.max||'?'):'offline');
-  if(s.running&&s.players!=null&&s.max){const f=Math.min(1,s.players/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,s.players?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
+  const cnt=s.running?(s.online!=null?s.online:s.players):null;
+  row('Spieler',s.running?(cnt==null?'?':cnt)+' / '+(s.max||'?'):'offline');if(s.running&&s.online!=null&&s.players!=null&&s.players!=s.online)dl.lastChild.title='Beigetreten: '+s.online+'. Der Status zählt '+s.players+' (Verbindungen, die gerade laden oder noch nicht beigetreten sind).';
+  if(s.running&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,s.players?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
   row('Karte',s.running?(mapName||'?'):'–');
-  for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus');
+  for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+((x.online!=null?x.online:x.players)==null?'?':(x.online!=null?x.online:x.players))+' Spieler':'aus');
   c.append(dl);
   if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
   box.append(c)}
