@@ -2120,7 +2120,7 @@ function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySel
  const rows=people.filter(p=>!q||(p.name+' '+p.steam_id+' '+(p.team||'')).toLowerCase().includes(q)).sort(cmp);
  for(const th of document.querySelectorAll('#plist th[data-k]'))th.textContent=({name:'Spieler',team:'Team',server:'Server'})[th.dataset.k]+(th.dataset.k==sortK?(sortD>0?' ▲':' ▼'):'');
  document.querySelector('#modsec h2').firstChild.textContent='Moderator · '+people.length+' online ';
- const online=new Set(people.map(p=>p.steam_id)),offAll=known.filter(o=>!online.has(o.steam_id)&&(!q||(o.name+' '+o.steam_id+' '+(o.team||'')).toLowerCase().includes(q))),off=offAll.slice(0,offShown);
+ const online=new Set(people.map(p=>p.steam_id)),offAll=q.length<2?[]:known.filter(o=>!online.has(o.steam_id)&&(o.name+' '+o.steam_id+' '+(o.team||'')).toLowerCase().includes(q)),off=offAll.slice(0,offShown);
  if(!rows.length&&!off.length){const tr=el('tr'),td=el('td','mut',people.length?'Kein Treffer.':'Niemand online.');td.colSpan=4;tr.append(td);tb.append(tr);put(real,[...tb.childNodes]);return}
  const detail=p=>{const tr=el('tr'),td=el('td');td.colSpan=4;td.append(profileBox(p));tr.append(td);return tr};
  for(const p of rows){const tr=el('tr'),n=el('td'),tm=el('td','mut',p.team||''),s=el('td','mut'),a=el('td'),w=el('div','act');
@@ -2133,7 +2133,7 @@ function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySel
   add('Ban',b=>act({...base,action:'ban',text:$('mtext').value},b));
   if(tpOn)add('Teleport',()=>act({...base,action:'tp',target:$('mtext').value}));
   a.append(w);tr.append(n,tm,s,a);tb.append(tr);if(opened.has(pk(p)))tb.append(detail(p))}
- if(off.length){const tr=el('tr'),td=el('td','mut','Nicht online · '+offAll.length+' Spieler (zuletzt gesehen zuerst)');td.colSpan=4;tr.append(td);tb.append(tr)}
+ if(off.length){const tr=el('tr'),td=el('td','mut','Nicht online · '+offAll.length+' Treffer (aus der Suche)');td.colSpan=4;tr.append(td);tb.append(tr)}
  for(const p of off){const tr=el('tr'),n=el('td'),a=el('td'),b=el('button',0,opened.has(pk(p))?'Details ▲':'Details');
   n.append(el('div',0,p.name),el('div','mut',p.steam_id));b.onclick=()=>toggleProfile(p);a.append(b);
   tr.append(n,el('td','mut',p.team||''),el('td','mut',p.seen?'zuletzt '+new Date(p.seen*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}):'offline'),a);tb.append(tr);if(opened.has(pk(p)))tb.append(detail(p))}
