@@ -71,7 +71,7 @@ var lbOldReplies = map[string]bool{"Leaderboard (/top week, /top event, /boards)
 	"Leaderboards:": true, "Leaderboard admin (/lb help):": true}
 
 var (
-	lbJoinedRe   = regexp.MustCompile(`^(.+) joined \((\d+)(, admin)?\), \d+/\d+ players`)
+	lbJoinedRe   = regexp.MustCompile(`^(.+) joined \((\d+)(?:, ([a-z]+))?\), \d+/\d+ players`)
 	lbModdedRe   = regexp.MustCompile(`^\[anticheat\] (.+)'s mods change scoring or physics: (.*) \(scoring [^)]*\)\.$`)
 	lbClearedRe  = regexp.MustCompile(`^\[anticheat\] (.+) may take part in throwdowns again `)
 	lbSpeedingRe = regexp.MustCompile(`^\[anticheat\] (.+)'s game is running at [\d.]+x speed`)
@@ -613,7 +613,7 @@ func (b *leaderboard) feed(line string) {
 	} else if m := lbJoinedRe.FindStringSubmatch(text); m != nil {
 		forget(m[1])
 		b.online[m[1]] = m[2]
-		b.admins[m[2]] = m[3] != ""
+		b.admins[m[2]] = m[3] == "admin"
 		b.waiting[m[1]] = time.Now().Add(rankCheckAfter)
 	} else if m := leftRe.FindStringSubmatch(text); m != nil {
 		forget(m[1])

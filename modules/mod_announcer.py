@@ -49,7 +49,7 @@ import common  # noqa: E402
 BY = "module:announcer"
 SCHEDULE = os.environ.get("ANNOUNCEMENTS_FILE") or "/shared/announcements.json"
 TICK = 15
-JOINED = re.compile(r"^(.+) joined \((\d+)(?:, admin)?\), \d+/\d+ players")
+JOINED = re.compile(r"^(.+) joined \((\d+)(?:, [a-z]+)?\), \d+/\d+ players")
 LEFT = re.compile(r"^(.+?) left \(")
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
 COMMAND = re.compile(r"^\[command\] (.+) /coach(?: .*)?$")

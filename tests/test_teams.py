@@ -166,6 +166,17 @@ class ProfileTest(TeamsTest):
         self.assertEqual(embed.title, "[AB] Alpha Bravo")
         self.assertIn("Team ranking: #1 of 1", " ".join(f.value for f in embed.fields))
 
+    def test_applications_decided_elsewhere_are_marked_once(self):
+        try:
+            import team_cmds
+        except ImportError:
+            self.skipTest("discord.py is not installed")
+        posted = {"id": 1, "message": "55", "decided_at": 1000.0}
+        accepted = [posted, {"id": 2, "message": "", "decided_at": 1000.0}, {"id": 3, "message": "56", "decided_at": 5.0}]
+        denied = [{"id": 4, "message": "57", "decided_at": 1000.0}]
+        found = team_cmds.decided_apps(accepted, denied, {4}, since=100.0)
+        self.assertEqual([(a["id"], s) for a, s in found], [(1, "accepted")])       # no message / too old / marked already
+
 
 class LeaderboardTeamsTest(unittest.TestCase):
     def setUp(self):

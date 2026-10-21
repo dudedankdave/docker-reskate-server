@@ -157,9 +157,36 @@ async def tell(bot, notes):
             say(f"teams: could not DM {note['discord']}: {e}")
 
 
+def decided_apps(accepted, denied, done, since):
+    """[(application, state)] posted to Discord and decided elsewhere (the dashboard, in game) since `since`,
+    that this bot has not marked yet."""
+    out = []
+    for state, apps in (("accepted", accepted), ("denied", denied)):
+        for app in apps:
+            if app.get("message") and app["id"] not in done and (app.get("decided_at") or 0) >= since:
+                out.append((app, state))
+    return out
+
+
+async def mark_decided(bot, channel, done):
+    """Put the decision on the message of an application that was decided outside Discord, and drop its
+    buttons (a decision made with the buttons here marks its own message)."""
+    accepted = await asyncio.to_thread(bridgeclient.team_applications, "accepted")
+    denied = await asyncio.to_thread(bridgeclient.team_applications, "denied")
+    for app, state in decided_apps(accepted, denied, done, time.time() - 7 * 86400):
+        done.add(app["id"])
+        try:
+            message = await channel.fetch_message(int(app["message"]))
+        except (discord.HTTPException, ValueError):
+            continue                                   # message gone: nothing to mark
+        if message.components:                         # still has its buttons
+            await message.edit(embed=application_embed(app, state, app.get("decided_by") or "an admin"), view=None)
+
+
 async def run_applications(bot):
     """Post each new application into teams_channel, once (the bridge remembers the message)."""
     await bot.wait_until_ready()
+    done = set()                                       # decided applications whose message is marked
     while True:
         try:
             if available() and bot.cfg.get("teams_channel"):
@@ -172,6 +199,7 @@ async def run_applications(bot):
                     view.add_item(Decision("deny", app["id"]))
                     message = await channel.send(embed=application_embed(app), view=view)
                     await asyncio.to_thread(bridgeclient.team_posted, app["id"], message.id)
+                await mark_decided(bot, channel, done)
         except Exception as e:
             say(f"teams: applications: {e!r}")
         await asyncio.sleep(CHECK)

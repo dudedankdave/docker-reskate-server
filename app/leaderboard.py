@@ -54,7 +54,7 @@ except ImportError:  # python3-minimal without libpython3-stdlib
     sqlite3 = None
 
 LINE = re.compile(r"^\[(\d\d:\d\d:\d\d)\] (.*)$")
-JOINED = re.compile(r"^(.+) joined \((\d+)(, admin)?\), \d+/\d+ players")
+JOINED = re.compile(r"^(.+) joined \((\d+)(?:, ([a-z]+))?\), \d+/\d+ players")   # (SteamID64, admin|mod|player)
 # "Name left (reason) [connection details]": the server appends the details in brackets.
 LEFT = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 UP = re.compile(r"^.+ is up on .+ for \d+ players\.$")
@@ -433,7 +433,7 @@ class Leaderboard:
             elif j := JOINED.match(text):
                 name = j.group(1)
                 self.online[name] = j.group(2)
-                (self.admins.add if j.group(3) else self.admins.discard)(j.group(2))
+                (self.admins.add if j.group(3) == "admin" else self.admins.discard)(j.group(2))
                 self.waiting[name] = time.time() + CHECK_AFTER
                 self.modded.pop(name, None), self.speeding.discard(name), self.told.pop(name, None)
             elif left := LEFT.match(text):
