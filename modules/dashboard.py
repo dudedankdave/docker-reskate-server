@@ -41,7 +41,6 @@ import datetime
 from functools import reduce
 from math import gcd
 import glob
-import gzip
 import hashlib
 import ipaddress
 import re
@@ -54,6 +53,7 @@ import json
 import os
 import secrets
 import socket
+import ssl
 import sqlite3
 import sys
 import tarfile
@@ -62,6 +62,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -216,7 +217,7 @@ def ts_fetch(url, limit):
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read(limit + 1)
         if r.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
+            data = zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(data, limit + 1)   # a bomb stops at the limit
         return data, r.headers.get("Content-Type", "")
 
 
@@ -1141,16 +1142,35 @@ def lb_snapshot(league, board="general", limit=100):
 
 LOGO_CACHE = {}
 LOGO_MAX = 1_500_000
+LOGO_ENTRIES = 200
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """https to an address checked beforehand, with the certificate checked against the host name (no second DNS lookup)."""
+
+    def __init__(self, hostname, address, **kwargs):
+        super().__init__(hostname, 443, **kwargs)
+        self.address = address
+
+    def connect(self):
+        self.sock = self._context.wrap_socket(socket.create_connection((self.address, 443), self.timeout), server_hostname=self.host)
+
+
+def _fetch_pinned(hostname, address, path, limit):
+    """(status, content type, body up to limit + 1 bytes) of GET https://hostname/path, asked at `address`."""
+    conn = _PinnedHTTPS(hostname, address, timeout=10, context=ssl.create_default_context())
+    try:
+        conn.request("GET", path, headers={"User-Agent": "reskate-dashboard", "Accept": "image/*"})
+        r = conn.getresponse()
+        return r.status, r.getheader("Content-Type", ""), r.read(limit + 1)
+    finally:
+        conn.close()
 
 
 def team_logo(url):
     """(content type, bytes) of a team's logo link, fetched here because the page may not load other hosts. Only a link that
-    is saved on a team, https on the standard port, a public address, no redirects, a plain picture up to 1.5 MB."""
+    is saved on a team, https on the standard port, a public address (the checked one is the one connected to), no
+    redirects, a plain picture up to 1.5 MB."""
     if url in LOGO_CACHE and time.time() - LOGO_CACHE[url][0] < 3600:
         return LOGO_CACHE[url][1], LOGO_CACHE[url][2]
     if not any(r["logo"] == url for r in db_rows(f"{SHARED}/teams.db", "SELECT logo FROM teams")):
@@ -1159,19 +1179,20 @@ def team_logo(url):
     if u.scheme != "https" or not u.hostname or u.port:
         raise ValueError("a logo link has to be https")
     try:
-        found = {ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)}
+        found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)})
     except (OSError, ValueError):
         raise ValueError("the logo host does not resolve") from None
     if not found or any(not ip.is_global for ip in found):
         raise ValueError("the logo host is not a public address")
-    req = urllib.request.Request(url, headers={"User-Agent": "reskate-dashboard", "Accept": "image/*"})
     try:
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=10) as r:
-            data, kind = r.read(LOGO_MAX + 1), r.headers.get("Content-Type", "").split(";")[0].strip().lower()
-    except (urllib.error.URLError, OSError) as e:
+        status, kind, data = _fetch_pinned(u.hostname, str(found[0]), (u.path or "/") + (f"?{u.query}" if u.query else ""), LOGO_MAX)
+    except (OSError, http.client.HTTPException, ssl.SSLError) as e:
         raise ValueError(f"the logo could not be fetched: {e}") from None
-    if len(data) > LOGO_MAX or kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+    kind = kind.split(";")[0].strip().lower()
+    if status != 200 or len(data) > LOGO_MAX or kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
         raise ValueError("not a plain picture")
+    while len(LOGO_CACHE) >= LOGO_ENTRIES:
+        LOGO_CACHE.pop(next(iter(LOGO_CACHE)))
     LOGO_CACHE[url] = (time.time(), kind, data)
     return kind, data
 

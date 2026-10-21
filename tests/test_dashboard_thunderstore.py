@@ -323,20 +323,29 @@ class TeamLogoTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=url):
                 self.d.team_logo(url)
 
-    def test_fetches_a_plain_picture_and_caches_it(self):
-        class Resp:
-            headers = {"Content-Type": "image/png; charset=binary"}
-            def read(self, n): return b"\x89PNG"
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+    def test_fetches_a_plain_picture_from_the_checked_address_and_caches_it(self):
         calls = []
-        class Opener:
-            def open(self, req, timeout): calls.append(req.full_url); return Resp()
+
+        def fetch(host, address, path, limit):
+            calls.append((host, address, path))
+            return 200, "image/png; charset=binary", b"\x89PNG"
         with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
-                mock.patch.object(self.d.urllib.request, "build_opener", return_value=Opener()):
+                mock.patch.object(self.d, "_fetch_pinned", fetch):
             self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"\x89PNG"))
             self.d.team_logo("https://example.com/a.png")
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls, [("example.com", "93.184.216.34", "/a.png")])
+
+    def test_redirects_and_other_types_are_refused_and_the_cache_is_capped(self):
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]):
+            for answer in ((302, "text/html", b""), (200, "image/svg+xml", b"<svg/>")):
+                with mock.patch.object(self.d, "_fetch_pinned", lambda *a, answer=answer: answer), self.assertRaises(ValueError):
+                    self.d.team_logo("https://example.com/a.png")
+        self.d.LOGO_CACHE.update({f"u{n}": (1e18, "image/png", b"") for n in range(self.d.LOGO_ENTRIES)})
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (200, "image/png", b"x")):
+            self.d.team_logo("https://example.com/a.png")
+        self.assertLessEqual(len(self.d.LOGO_CACHE), self.d.LOGO_ENTRIES)
+        self.assertIn("https://example.com/a.png", self.d.LOGO_CACHE)
 
 
 class LayersFitTest(unittest.TestCase):
