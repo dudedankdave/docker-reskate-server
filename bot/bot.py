@@ -177,7 +177,7 @@ class Bot(discord.Client):
         if channel:
             try:
                 ch = self.get_channel(int(channel)) or await self.fetch_channel(int(channel))
-                await ch.send(f"🛠 **{who}** typed into the console of server {number}: `{line[:300]}`",
+                await ch.send(f"🛠 **{who}** typed into the console of server {number}: `{console.masked(line)[:300]}`",
                               allowed_mentions=discord.AllowedMentions.none())
             except discord.HTTPException as e:
                 say(f"audit post failed: {e}")
