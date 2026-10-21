@@ -101,3 +101,17 @@ class ServerDetailsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MapNameTest(unittest.TestCase):
+    def test_status_map_regex_drops_the_trailing_period(self):
+        spec = importlib.util.spec_from_file_location("status_mod", HERE / "rollover" / "status.py")
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as e:  # the module may need its package context
+            self.skipTest(str(e))
+        for line, name in (("Everyone has loaded Industrial Zone.", "Industrial Zone"),
+                           ("[rotation] Changing the map to Isle of Grom.", "Isle of Grom"),
+                           ("Changing map to Macba.", "Macba")):
+            self.assertEqual(next(g for g in mod.MAP.match(line).groups() if g), name)

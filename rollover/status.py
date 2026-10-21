@@ -38,7 +38,7 @@ UP = re.compile(r"^.+ is up on (.+) for (\d+) players\.$")
 JOINED = re.compile(r"^.+ joined \(\d+(?:, admin)?\), (\d+)/(\d+) players, loaded in \d+ s$")
 LEFT = re.compile(r"^.+ left \(.*\)( \[.*\])?$")
 NETWORK = re.compile(r"^\[network\] (\d+) players, ")
-MAP = re.compile(r"^(?:Everyone has loaded (.+)|\[rotation\] Changing the map to (.+)|Changing map to (.+?))\.?$")
+MAP = re.compile(r"^(?:Everyone has loaded (.+?)|\[rotation\] Changing the map to (.+?)|Changing map to (.+?))\.?$")
 CODE = re.compile(r"^Join code: (\S+)$")
 STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z (.*)$")
 

@@ -305,7 +305,7 @@ def map_image(name):
         IMAGES.clear()
         IMAGES.update(scan_images())
         IMAGES_AT[0] = time.time()
-    path = IMAGES.get(str(name).strip().lower())
+    path = IMAGES.get(str(name).strip().rstrip(".").strip().lower())
     if not path or os.path.getsize(path) > 2_000_000:
         return None
     with open(path, "rb") as f:
@@ -553,13 +553,13 @@ async function servers(){
   c.onclick=async e=>{if(e.target.closest('button,a,input,.detail'))return;
    if(openCards.has(s.server))openCards.delete(s.server);else{openCards.add(s.server);delete infoAt[s.server]}
    await servers()};
-  const pic=el('div','pic');pic.append(el('span',0,s.map||'Kein Bild'));
-  if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(s.map);pic.append(im)}
+  const mapName=(s.map||'').replace(/[.]$/,''),pic=el('div','pic');pic.append(el('span',0,mapName||'Kein Bild'));
+  if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
   c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
   const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
   row('Spieler',s.running?(s.players==null?'?':s.players)+' / '+(s.max||'?'):'offline');
   if(s.running&&s.players!=null&&s.max){const f=Math.min(1,s.players/s.max),bar=el('div',f>=1?'bar full':'bar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,s.players?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
-  row('Karte',s.running?(s.map||'?'):'–');
+  row('Karte',s.running?(mapName||'?'):'–');
   for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus');
   c.append(dl);
   if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();api('/api/serverinfo?server='+s.server).then(i=>{infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
