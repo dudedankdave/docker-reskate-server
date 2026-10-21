@@ -534,7 +534,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(16px,env(safe-area-inset-right,0px),calc((100% - 1100px)/2 + 16px)) 12px max(16px,env(safe-area-inset-left,0px),calc((100% - 1100px)/2 + 16px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto}
 main{padding:20px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px));max-width:1100px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
-.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{white-space:nowrap;display:inline-block;margin-bottom:6px}
+.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.card.open{display:grid;grid-template-columns:230px minmax(0,1fr);column-gap:16px;align-items:start;grid-auto-rows:min-content}.card.open>.head{grid-column:1/-1}.card.open>:not(.head):not(.detail){grid-column:1}.card.open>.detail{grid-column:2;grid-row:2/12;margin-top:0;border-top:0;padding-top:0}.card.open .pic{margin-bottom:6px}.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}.dblock h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dblock .kv{margin:0}@media(max-width:700px){.card.open{display:block}.card.open>.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}}.card.open{grid-column:1/-1}.card.srv{cursor:pointer}.detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;cursor:default}.detail .set{max-height:320px;overflow:auto;font-size:12px;margin-top:6px}.lock{margin-left:auto;font-size:13px;padding:2px 8px}.head .lock+.pill{margin-left:0}.pic{position:relative;width:100%;aspect-ratio:16/9;border-radius:4px;margin-bottom:8px;background:repeating-linear-gradient(135deg,var(--line) 0 8px,var(--card) 8px 16px);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--mut);font-size:13px;text-align:center;padding:6px}.mapimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:13px}.kv dt{color:var(--mut)}.pbar{grid-column:1/-1;box-sizing:border-box;width:100%;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.kv dd{font-variant-numeric:tabular-nums}.pbar span{display:block;height:100%;border-radius:3px;background:var(--ok)}.pbar .warn{background:var(--warn)}.pbar .bad{background:var(--bad)}.pbar.full{overflow:visible;animation:shake .5s ease-in-out infinite}.pbar.full span{box-shadow:0 0 6px var(--bad)}@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-2px)}40%{transform:translateX(2px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}@media(prefers-reduced-motion:reduce){.pbar.full{animation:none}}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}.num{background:var(--line);border-radius:4px;min-width:26px;height:26px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}.head h3{flex:1}.card h3{margin:0;font-size:15px;min-width:0;overflow-wrap:anywhere}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}.pill{display:inline-block;max-width:100%;margin-bottom:6px;box-sizing:border-box}
 .mut{color:var(--mut);font-size:13px}.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid currentColor}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #chat{min-height:120px}pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px;margin:0;max-height:320px;overflow:auto;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all}
@@ -583,28 +583,36 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <script>
 const $=id=>document.getElementById(id);
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
-const RULE={restart:["Neustart ok · ≤ 3 Spieler","ok"],rollover:["Nur per Rollover · mehr als 3 oder unbekannt","warn"],empty:["aus","mut"]};
+const RULE={restart:["Neustart ok · ≤ 3 Spieler","ok"],rollover:["Nur Rollover","warn"],empty:["aus","mut"]};
 async function api(p){const r=await fetch(p);if(r.status==401){location.reload();throw 0}if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
 const openCards=new Set(),infoCache={},infoAt={},shown={};
 let drawTimer=0;const drawn=()=>{clearTimeout(drawTimer);drawTimer=setTimeout(()=>servers().catch(()=>{}),50)};
+const GROUPS=[['Spieler',/^(MAX_PLAYERS|PART|VOICE|NOCLIP|NO_BAIL|BOOSTS|OBJECT|ADMINS|BANS|AFK|KICK_)/],['Votes',/^VOTE_/],['Anti-Cheat',/^(SCORE_|SPEED_|ENFORCE_|BONE_|DISTANCE_)/],
+ ['Maps',/^(MAP|PARK_|LAYER|WORLD_LAYER|ROTATION)/],['Ansagen & Chat',/^(ANNOUNCE|WELCOME|DISCORD|CHAT|COMMANDS)/],['Rangliste & Teams',/^(LEADERBOARD|TEAMS|RANKED|UNRANKED)/],
+ ['Betrieb',/^(UPDATE_|LISTED|PORT|QUERY_PORT|ACTIVITY|SERVER_NAME|RESKATE_)/]];
+function block(title,rows){const b=el('div','dblock');b.append(el('h4',0,title));const dl=el('dl','kv');for(const [k,v] of rows){dl.append(el('dt',0,k));const d=el('dd',0,v);dl.append(d)}b.append(dl);return b}
 function detail(s){const p=el('div','detail'),i=infoCache[s.server];
  if(!i){p.textContent='Lade …';return p}
  if(i.error){p.textContent='Keine Details: '+i.error;return p}
- const dl=el('dl','kv'),row=(a,b)=>{dl.append(el('dt',0,a));const d=el('dd',0,b);dl.append(d);return d};
- row('Servername',i.name||'–');
- for(const c of i.containers){const lab=c.slot?' (Slot '+c.slot+')':'',d=row('Join-Code'+lab,c.code||'unbekannt');
-  if(c.code){const b=el('button',0,'Kopieren');b.style.marginLeft='8px';b.onclick=()=>{navigator.clipboard.writeText(c.code).then(()=>{b.textContent='Kopiert'},()=>{b.textContent='Markieren & Strg+C'})};d.append(b)}
-  row('Version'+lab,(c.version||'?')+(c.revision?' · '+c.revision:'')+' · Port '+(c.port||'?')+(c.health?' · '+c.health:''));
-  row('Gestartet'+lab,c.started?new Date(c.started).toLocaleString():'?')}
- p.append(dl);
+ const grid=el('div','dgrid'),gen=el('div','dblock');gen.append(el('h4',0,'Allgemein'));
+ const g1=el('dl','kv'),row=(dl,a,b)=>{dl.append(el('dt',0,a));const d=el('dd',0,b);dl.append(d);return d};
+ row(g1,'Servername',i.name||'–');
+ for(const c of i.containers){const lab=c.slot?' (Slot '+c.slot+')':'',d=row(g1,'Join-Code'+lab,c.code||'unbekannt');
+  if(c.code){const b=el('button',0,'Kopieren');b.style.marginLeft='8px';b.onclick=()=>{navigator.clipboard.writeText(c.code).then(()=>{b.textContent='Kopiert'},()=>{b.textContent='Markieren & Strg+C'})};d.append(b)}}
+ gen.append(g1);grid.append(gen);
+ const ops=[];for(const c of i.containers){const lab=c.slot?' ('+c.slot+')':'';
+  ops.push(['Version'+lab,(c.version||'?')+(c.revision?' · '+c.revision:'')],['Port'+lab,c.port||'?'],['Zustand'+lab,c.health||'?'],['Gestartet'+lab,c.started?new Date(c.started).toLocaleString():'?'])}
+ grid.append(block('Betrieb',ops));
  const mx=mapsCache[s.server];
- if(mx){const cur=(s.map||mx.map||'').replace(/[.]$/,'');
-  p.append(el('div','mut','Map-Pool ('+(mx.pool.length||'alle')+')'),mx.pool.length?chipRow(mx.pool,cur,false):el('div','mut','Kein Pool gesetzt: alle Maps erlaubt'),
+ if(mx){const cur=(s.map||mx.map||'').replace(/[.]$/,''),b=el('div','dblock');b.append(el('h4',0,'Maps'),el('div','mut','Aktuell: '+(cur||'?')),
+   el('div','mut','Map-Pool ('+(mx.pool.length||'alle')+')'),mx.pool.length?chipRow(mx.pool,cur,false):el('div','mut','Kein Pool gesetzt: alle Maps erlaubt'),
    el('div','mut','Map-Pakete ('+mx.mods.length+')'),mx.mods.length?chipRow(mx.mods,'',true):el('div','mut','Keine Mods'));
-  if(!mx.live)p.append(el('div','mut','Stand vom Containerstart (Live-Daten nicht lesbar)'))}
- const st=el('div','mut','Einstellungen (Umgebung des Containers, ohne Tokens und Webhooks)'),box=el('dl','kv set');
- for(const [k,v] of Object.entries(i.env)){box.append(el('dt',0,k),el('dd',0,v||'(leer)'))}
- p.append(st,box);return p}
+  if(!mx.live)b.append(el('div','mut','Stand vom Containerstart (Live-Daten nicht lesbar)'));grid.append(b)}
+ const buckets=GROUPS.map(g=>[g[0],g[1],[]]),rest=[];
+ for(const [k,v] of Object.entries(i.env)){if(['MODS','MAP_POOL','MAP','SERVER_NAME'].includes(k))continue;const t=buckets.find(x=>x[1].test(k));(t?t[2]:rest).push([k,v||'(leer)'])}
+ for(const [t,,rows] of buckets)if(rows.length&&t!='Betrieb')grid.append(block(t,rows));else if(rows.length){const o=grid.querySelector('.dblock:nth-child(2) dl');for(const [k,v] of rows){o.append(el('dt',0,k));o.append(el('dd',0,v))}}
+ if(rest.length)grid.append(block('Sonstiges',rest));
+ p.append(grid,el('div','mut','Einstellungen aus der Umgebung des Containers (ohne Tokens und Webhooks).'));return p}
 async function servers(){
  const d=await api('/api/servers'),box=$('servers');box.replaceChildren();
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
@@ -620,7 +628,7 @@ async function servers(){
    await servers()};
   const mapName=(s.map||'').replace(/[.]$/,''),pic=el('div','pic');pic.append(el('span',0,mapName||'Kein Bild'));
   if(s.running&&s.map){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/mapimg?name='+encodeURIComponent(mapName);pic.append(im)}
-  c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Grenze: '+d.cutoff+' Spieler'}));
+  c.append(pic,Object.assign(el('span','pill '+k,t),{title:'Neustart direkt nur bis '+d.cutoff+' Spieler; mehr Spieler oder unbekannt: nur über den Rollover'}));
   const dl=el('dl','kv'),row=(a,b)=>dl.append(el('dt',0,a),el('dd',0,b));
   row('Spieler',s.running?(s.players==null?'?':s.players)+' / '+(s.max||'?'):'offline');
   if(s.running&&s.players!=null&&s.max){const f=Math.min(1,s.players/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,s.players?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';dl.append(bar)}
@@ -916,7 +924,10 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError, AttributeError) as e:
             return self.json(400, {"error": str(e)})
         except urllib.error.HTTPError as e:
-            return self.json(502, {"error": f"bridge: {e.code} {e.read()[:200].decode(errors='replace')}"})
+            detail = e.read()[:200].decode(errors="replace")
+            if "could not type into the console" in detail:
+                detail = "Dieser Server hat keine offene Konsole (Container ohne stdin). Er muss einmal neu angelegt werden."
+            return self.json(502, {"error": f"bridge: {e.code} {detail}"})
         except (urllib.error.URLError, OSError) as e:
             return self.json(502, {"error": f"bridge not reachable: {e}"})
         say(f"dashboard: {body.get('action')} on server {body.get('server')}")
