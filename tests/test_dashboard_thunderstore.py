@@ -702,7 +702,7 @@ class PlayerTest(unittest.TestCase):
             "CREATE TABLE scores (board TEXT, steam_id TEXT, points INT, wins INT, played INT);"
             "INSERT INTO boards VALUES ('general', 'All Time', 'general', 0, NULL), ('general:skate', 'All Time - S.K.A.T.E.', 'mode', 0, NULL),"
             " ('week-2026-42', 'Week 42', 'week', 0, NULL), ('week-2026-43', 'Week 43', 'week', 1, NULL);"
-            "INSERT INTO players VALUES ('name:Ann', 'Ann');"
+            "INSERT INTO players VALUES ('name:Ann', 'Ann'), ('name:Zed', 'Zed');"
             "INSERT INTO scores VALUES ('general', 'name:Ann', 12, 2, 5), ('general', 'name:Zed', 40, 4, 6), ('general:skate', 'name:Ann', 7, 1, 2),"
             " ('week-2026-43', 'name:Ann', 3, 0, 1), ('week-2026-42', 'name:Ann', 99, 9, 9);")
         con.commit()
@@ -771,8 +771,11 @@ class PlayerTest(unittest.TestCase):
         con.commit()
         con.close()
         out = self.d.players_known()
-        self.assertEqual([p["name"] for p in out], ["Newbie", "Ann", "Bo", "Boardonly"])      # newest seen first; name-only keys skipped
-        self.assertEqual({p["name"]: p["team"] for p in out}, {"Newbie": "", "Ann": "CRW", "Bo": "CRW", "Boardonly": ""})
+        self.assertEqual([p["name"] for p in out], ["Newbie", "Ann", "Bo", "Boardonly", "Zed"])      # newest seen first
+        self.assertEqual({p["name"]: p["team"] for p in out}, {"Newbie": "", "Ann": "CRW", "Bo": "CRW", "Boardonly": "", "Zed": ""})
+        self.assertEqual([p["steam_id"] for p in out if p["name"] == "Zed"], [""])             # name-only: no Steam ID on file
+        zed = self.d.player_profile("", "Zed")
+        self.assertEqual((zed["team"], zed["stats"]["unranked"]["cells"][""]["general"]["points"]), (None, 40))
 
     def test_assign_invites_as_the_owner_then_joins(self):
         self.d.player_team({"steam_id": self.NEW, "team": "crw"})

@@ -1132,7 +1132,7 @@ def player_stats(league, steam_id, name):
     path = f"{SHARED}/{LB_FILES[league]}"
     out = {"exists": os.path.exists(path), "modes": [], "periods": [], "cells": {}}
     boards = db_rows(path, "SELECT id, name, kind, created_at FROM boards")
-    keys = [steam_id] + (["name:" + name] if name else [])
+    keys = ([steam_id] if steam_id else []) + (["name:" + name] if name else [])
     mine = {r["board"]: r for r in db_rows(
         path, f"SELECT board, points, wins, played FROM scores WHERE steam_id IN ({','.join('?' * len(keys))}) "
               "ORDER BY points", keys)}
@@ -1165,10 +1165,13 @@ def player_stats(league, steam_id, name):
 
 def player_profile(steam_id, name=""):
     """Moderator view of one player: Steam profile link, team, all teams to pick from and stats per league."""
-    steam_id = str(steam_id)
+    steam_id = str(steam_id or "")
+    name = str(name or "")[:64]
+    if not steam_id and name:                  # a player the unranked boards know by name only
+        return {"steam_id": "", "name": name, "steam": "", "discord": "", "team": None, "teams": [],
+                "stats": {league: player_stats(league, "", name) for league in LB_FILES}}
     if not STEAM_ID.fullmatch(steam_id):
         raise ValueError("a SteamID64 is needed")
-    name = str(name or "")[:64]
     teams = db_rows(f"{SHARED}/teams.db", "SELECT t.id, t.tag, t.name, (SELECT COUNT(*) FROM members m WHERE m.team = t.id) AS members "
                                          "FROM teams t ORDER BY t.name COLLATE NOCASE")
     mine = db_rows(f"{SHARED}/teams.db", "SELECT t.tag, t.name, m.role FROM members m JOIN teams t ON t.id = m.team WHERE m.steam_id = ?",
@@ -1227,6 +1230,11 @@ def players_known():
         for r in db_rows(f"{SHARED}/{file}", "SELECT steam_id, name FROM players"):
             if STEAM_ID.fullmatch(r["steam_id"]):
                 found.setdefault(r["steam_id"], {"steam_id": r["steam_id"], "name": r["name"], "seen": 0})
+    have = {r["name"].lower() for r in found.values()}
+    for r in db_rows(f"{SHARED}/{LB_FILES['unranked']}", "SELECT steam_id, name FROM players WHERE steam_id LIKE 'name:%'"):
+        if r["name"].lower() not in have:      # no Steam ID on file: shown by name, stats only
+            have.add(r["name"].lower())
+            found["name:" + r["name"]] = {"steam_id": "", "name": r["name"], "seen": 0}
     for row in found.values():
         row["team"] = (teams.get(row["steam_id"]) or {}).get("tag", "").upper()
     return sorted(found.values(), key=lambda r: (-r["seen"], r["name"].lower()))
@@ -2078,9 +2086,10 @@ function steamRow(id){const d=steams[id],row=el('div','crow');if(!d||!Object.key
  pill(d.privacy=='public'?'Profil öffentlich':'Profil '+(d.privacy||'privat'),d.privacy=='public'?'':'warn');
  if(d.since)row.append(el('span','mut','Steam seit '+d.since));
  return row}
-async function openProfile(p,fresh){const id=p.steam_id;loadSteam(id);if(!fresh&&profs[id])return;
- try{profs[id]=await api('/api/player?steam_id='+encodeURIComponent(id)+'&name='+encodeURIComponent(p.name||''))}catch(e){profs[id]={error:e.message}}draw()}
-function toggleProfile(p){if(opened.has(p.steam_id))opened.delete(p.steam_id);else{opened.add(p.steam_id);openProfile(p)}draw()}
+const pk=p=>p.steam_id||('name:'+p.name);
+async function openProfile(p,fresh){const id=pk(p);if(p.steam_id)loadSteam(p.steam_id);if(!fresh&&profs[id])return;
+ try{profs[id]=await api('/api/player?steam_id='+encodeURIComponent(p.steam_id||'')+'&name='+encodeURIComponent(p.name||''))}catch(e){profs[id]={error:e.message}}draw()}
+function toggleProfile(p){if(opened.has(pk(p)))opened.delete(pk(p));else{opened.add(pk(p));openProfile(p)}draw()}
 async function setPlayerTeam(p,tag){say_('…');
  try{const r=await post('/api/playerteam',{steam_id:p.steam_id,name:p.name,team:tag});say_('Team: '+(r.text||'ok'));delete picks[p.steam_id]}catch(e){say_('Fehler: '+e.message)}
  await openProfile(p,true);who()}
@@ -2092,9 +2101,10 @@ function statsTable(st){
    if(c){td.textContent=c.points+' P · '+c.wins+'/'+c.played+' · #'+c.rank;td.title=c.points+' Punkte, '+c.wins+' Siege in '+c.played+' Spielen, Platz '+c.rank+' von '+c.of}else td.textContent='–';tr.append(td)}
   t.append(tr)}
  return t}
-function profileBox(p){const d=profs[p.steam_id],box=el('div','pdet');
+function profileBox(p){const d=profs[pk(p)],box=el('div','pdet');
  if(!d){box.append(el('span','mut','Lade …'));return box}
  if(d.error){box.append(el('span','mut','Fehler: '+d.error));return box}
+ if(!p.steam_id){box.append(el('span','mut','Keine Steam-ID bekannt: der Spieler steht nur mit Namen in der Unranked-Rangliste. Team und Steam-Profil gibt es erst, wenn er wieder auf einem Server war.'));for(const league of ['unranked','ranked']){const st=d.stats[league];if(Object.keys(st.cells).length){box.append(el('h4',0,league=='ranked'?'Ranked':'Unranked'));const w=el('div','tablewrap');w.append(statsTable(st));box.append(w)}}return box}
  const top=el('div','crow');top.append(link(d.steam,'Steam-Profil'));if(d.discord)top.append(link(d.discord,'Discord-Profil'));else top.append(el('span','mut','Discord nicht verknüpft'));
  const sel=el('select');sel.append(new Option('Kein Team',''));for(const t of d.teams)sel.append(new Option('['+t.tag+'] '+t.name+' ('+t.members+')',t.tag));
  sel.value=picks[p.steam_id]!==undefined?picks[p.steam_id]:(d.team?d.team.tag:'');sel.onchange=()=>{picks[p.steam_id]=sel.value};
@@ -2117,16 +2127,16 @@ function draw(){const q=$('q').value.trim().toLowerCase(),real=document.querySel
   n.append(el('div',0,p.name),el('div','mut',p.steam_id));s.textContent=p.server+(p.slot||'')+' '+p.role;
   const base={server:p.server,slot:p.slot,player:p.name,steam_id:p.steam_id};
   const add=(l,f)=>{const b=el('button',0,l);b.onclick=()=>f(b);w.append(b)};
-  add(opened.has(p.steam_id)?'Details ▲':'Details',()=>toggleProfile(p));
+  add(opened.has(pk(p))?'Details ▲':'Details',()=>toggleProfile(p));
   add('Nachricht',()=>act({...base,action:'msg',text:$('mtext').value}));
   add('Kick',b=>act({...base,action:'kick'},b));
   add('Ban',b=>act({...base,action:'ban',text:$('mtext').value},b));
   if(tpOn)add('Teleport',()=>act({...base,action:'tp',target:$('mtext').value}));
-  a.append(w);tr.append(n,tm,s,a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
+  a.append(w);tr.append(n,tm,s,a);tb.append(tr);if(opened.has(pk(p)))tb.append(detail(p))}
  if(off.length){const tr=el('tr'),td=el('td','mut','Nicht online · '+offAll.length+' Spieler (zuletzt gesehen zuerst)');td.colSpan=4;tr.append(td);tb.append(tr)}
- for(const p of off){const tr=el('tr'),n=el('td'),a=el('td'),b=el('button',0,opened.has(p.steam_id)?'Details ▲':'Details');
+ for(const p of off){const tr=el('tr'),n=el('td'),a=el('td'),b=el('button',0,opened.has(pk(p))?'Details ▲':'Details');
   n.append(el('div',0,p.name),el('div','mut',p.steam_id));b.onclick=()=>toggleProfile(p);a.append(b);
-  tr.append(n,el('td','mut',p.team||''),el('td','mut',p.seen?'zuletzt '+new Date(p.seen*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}):'offline'),a);tb.append(tr);if(opened.has(p.steam_id))tb.append(detail(p))}
+  tr.append(n,el('td','mut',p.team||''),el('td','mut',p.seen?'zuletzt '+new Date(p.seen*1000).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'}):'offline'),a);tb.append(tr);if(opened.has(pk(p)))tb.append(detail(p))}
  if(offAll.length>off.length){const tr=el('tr'),td=el('td');td.colSpan=4;const b=el('button',0,'Mehr anzeigen ('+(offAll.length-off.length)+')');b.onclick=()=>{offShown+=200;draw()};td.append(b);tr.append(td);tb.append(tr)}
  put(real,[...tb.childNodes])}
 for(const th of document.querySelectorAll('#plist th[data-k]'))th.onclick=()=>{if(sortK==th.dataset.k)sortD=-sortD;else{sortK=th.dataset.k;sortD=1}draw()};
