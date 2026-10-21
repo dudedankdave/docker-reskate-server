@@ -622,12 +622,12 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="mut">Befehle wirken sofort auf den laufenden Server. Nach einem Neustart gelten wieder die Einstellungen des Servers (siehe "Neue Map hinzufügen" für dauerhafte Änderungen).</div>
 <pre id="cout">Antwort des Servers erscheint hier (letzte Log-Zeilen).</pre>
 <h2 style="margin-top:14px">Neue Map hinzufügen</h2>
-<div class="bar"><input id="pkg" maxlength="80" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="live" checked style="flex:none;min-width:0">sofort laden</label><button id="addmap">Hinzufügen</button></div>
+<div class="bar"><input id="pkg" maxlength="80" list="newpkgs" placeholder="Thunderstore-Paket, z. B. Owner-MapName"><datalist id="newpkgs"></datalist><input id="poolnames" maxlength="200" placeholder="Name(n) im Pool (optional, Komma getrennt)"><select id="pscope"></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="live" checked style="flex:none;min-width:0">sofort laden</label><button id="addmap">Hinzufügen</button></div>
 <div class="mut">Schreibt MODS/MAP_POOL in die Settings-Datei. "Sofort laden" schickt zusätzlich mods add und map-pool add an die laufenden Server (ohne Neustart, nur mit neuem Image). Die Settings-Datei sorgt dafür, dass es nach einem Neustart bleibt; der Rollover startet Server dafür nur, wenn sie leer sind.</div></section>
-<section data-v="suche"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
-<section data-v="suche"><h2>Maps auf Thunderstore</h2>
+<section data-v="befehle"><h2>Maps suchen (Thunderstore)</h2>
 <form class="bar" id="tsform"><input id="tsq" maxlength="60" placeholder="Suche, z. B. plaza, skatepark, Name"><select id="tsrv"></select><select id="tssort" title="Sortierung"><option value="created">Neueste Maps</option><option value="downloads">Meiste Downloads</option><option value="updated">Zuletzt aktualisiert</option><option value="rating">Beste Bewertung</option><option value="name">Name</option></select><select id="tsdir" title="Richtung"><option value="desc">absteigend</option><option value="asc">aufsteigend</option></select><label class="mut" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="tsall" style="flex:none;min-width:0">alle Pakete</label><button>Suchen</button></form>
 <div class="mut" id="tsinfo">Sucht in der Thunderstore-Community reskate. "Auf Server" lädt das Paket, "In den Pool" nimmt die Map zusätzlich in den Map-Pool auf (ohne Neustart, mit neuem Image).</div><div class="tslist" id="tsres"></div></section>
+<section data-v="befehle"><h2>Pool &amp; Maps pro Server</h2><div class="grid" id="poolbox"></div></section>
 <section data-v="logs"><h2>Live-Log <select id="sel"><option value="">alle Server</option></select> <select id="scope"><option>log</option><option>public</option><option>admin</option><option>chat</option><option>audit</option></select></h2><pre id="events"></pre></section>
 <section data-v="logs"><h2>Tool-Log <select id="tool"></select></h2><pre id="toollog">-</pre></section>
 </main>
@@ -743,12 +743,12 @@ function drawFlags(sv,fl){const box=$('cflags');box.replaceChildren();
  for(const [k,label,onc,offc] of FLAGS){const on=k=='rotation'?fl.rotation>0:fl[k],lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;
   cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd(cb.checked?(onc||'rotation '+$('crot').value):offc);await sleep(1200);delete mapsCache[sv];await cmdMaps(true)}finally{cb.disabled=false}};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&on?' ('+fl.rotation+' min)':'')));box.append(lb)}}
-function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.trim().toLowerCase(),on=new Set(pool.map(n=>n.toLowerCase()));
+function drawPool(sv,pool,av){const box=$('poollist'),f=$('poolfilter').value.trim().toLowerCase(),all=!pool.length,on=new Set(pool.map(n=>n.toLowerCase()));
  const names=[...av];for(const n of pool)if(!names.some(x=>x.toLowerCase()==n.toLowerCase()))names.push(n);
- $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps erlaubt. Sobald du eine Map einschaltest, gilt nur noch der Pool.';
+ $('poolhint').textContent=pool.length?pool.length+' von '+names.length+' Maps im Pool. Nur Maps im Pool kommen in die Rotation und in den Vote.':'Kein Pool gesetzt: alle Maps sind erlaubt (alle Schalter an). Schaltest du eine Map aus, gilt ab dann der Pool aus den übrigen Maps.';
  box.replaceChildren();
  for(const n of names){if(f&&!n.toLowerCase().includes(f))continue;
-  const lb=el('label','tgl'+(on.has(n.toLowerCase())?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on.has(n.toLowerCase());
+  const isOn=all||on.has(n.toLowerCase()),lb=el('label','tgl'+(isOn?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=isOn;
   cb.onchange=async()=>{cb.disabled=true;lb.classList.toggle('on',cb.checked);try{await sendCmd('map-pool '+(cb.checked?'add ':'remove ')+n);await sleep(1200);delete mapsCache[sv];await cmdMaps(true)}finally{cb.disabled=false}};
   lb.append(cb,el('span','sw'),el('span','tn',n));box.append(lb)}
  if(!box.children.length)box.append(el('div','mut','Keine Treffer.'))}
@@ -812,6 +812,7 @@ async function tsAdd(r,pool,note,btns){
 const tsRun=async()=>{const box=$('tsres'),info=$('tsinfo');box.replaceChildren();info.textContent='Suche …';
  let d;try{d=await api('/api/ts?q='+encodeURIComponent($('tsq').value)+'&sort='+$('tssort').value+'&dir='+$('tsdir').value+($('tsall').checked?'&all=1':''))}catch(x){info.textContent='Thunderstore nicht erreichbar: '+x.message;return}
  info.textContent=($('tsq').value.trim()?d.total+' Treffer':d.total+' Maps auf Thunderstore')+(d.total>d.results.length?' (die ersten '+d.results.length+' nach Sortierung)':'');
+ const dl=$('newpkgs');dl.replaceChildren(...d.results.map(r=>{const o=new Option(r.name+' · '+(r.created||r.updated),r.package);return o}));
  for(const r of d.results){const row=el('div','tsrow'),pic=el('div','tspic');pic.append(el('span',0,r.name.slice(0,2)));
   if(r.icon){const im=el('img','mapimg');im.alt='';im.loading='lazy';im.onerror=()=>im.remove();im.src='/api/tsimg?u='+encodeURIComponent(r.icon);pic.append(im)}
   const main=el('div','tsmain'),a=el('a',0,r.name);a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';
@@ -828,7 +829,7 @@ function chipRow(list,cur,mod){const box=el('div','chips');
   const ch=el('span','chip'+(mod?' mod':'')+(!mod&&cur&&n.toLowerCase()==cur.toLowerCase()?' on':''),t);if(tip)ch.title=tip;box.append(ch)}
  return box}
 let mapsAt=0;
-async function poolmaps(){if(view!='suche'||Date.now()-mapsAt<20000)return;mapsAt=Date.now();
+async function poolmaps(){if(view!='befehle'||Date.now()-mapsAt<20000)return;mapsAt=Date.now();
  const [d,m]=await Promise.all([api('/api/servers'),api('/api/maps')]),box=$('poolbox');box.replaceChildren();
  for(const sv of d.servers){const x=m[sv.server];if(!x)continue;const c=el('div','card'),h=el('div','head');
   h.append(el('span','num','#'+sv.server),el('h3',0,sv.role||('Server '+sv.server)));c.append(h);
@@ -872,11 +873,11 @@ async function events(){
 for(const id of['sel','scope'])$(id).onchange=()=>{last=0;lines.length=0;$('events').textContent=''};
 async function toollog(){const n=$('tool').value;if(n)$('toollog').textContent=(await api('/api/toollog?name='+n)).log}
 $('tool').onchange=toollog;
-const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['suche','Maps suchen'],['logs','Logs']];
+const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs']];
 let tsLoaded=false;
 let view='uebersicht';
 try{const h=location.hash.slice(1),v=localStorage.getItem('rv');if(VIEWS.some(x=>x[0]==h))view=h;else if(VIEWS.some(x=>x[0]==v))view=v}catch(e){}
-function show(v){view=v;mapsAt=0;if(v=='suche'&&!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}if(v=='befehle')setTimeout(()=>cmdMaps(),0);try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
+function show(v){view=v;mapsAt=0;if(v=='befehle'){if(!tsLoaded){tsLoaded=true;setTimeout(()=>tsRun(),0)}setTimeout(()=>cmdMaps(),0)}try{localStorage.setItem('rv',v)}catch(e){}try{history.replaceState(null,'','#'+v)}catch(e){}
  for(const s of document.querySelectorAll('section[data-v]'))s.classList.toggle('off',s.dataset.v!=v);
  $('diskwarn').classList.toggle('off',v!='uebersicht');
  for(const b of $('nav').children)b.classList.toggle('on',b.dataset.v==v)}
