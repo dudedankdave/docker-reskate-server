@@ -21,6 +21,26 @@ class BridgeEventTest(unittest.TestCase):
         self.assertIsNone(bridge.message("[20:01:02] Dave joined (7656, admin), 3/100 players, loaded in 12 s"))
         self.assertIsNone(bridge.message("[event] admin {broken"))
 
+    def test_everybody_who_joined_is_tracked_whatever_their_role(self):
+        for line in ("[20:00:00] Ann joined (76561198000000001, admin), 1/100 players, loaded in 5 s",
+                     "[20:00:01] Ben joined (76561198000000002, player), 2/100 players, loaded in 5 s",
+                     "[20:00:02] Cy joined (76561198000000003), 3/100 players, loaded in 5 s"):
+            bridge.track("7", "a", line)
+        self.assertEqual(sorted(bridge.online[("7", "a")].values()), ["Ann", "Ben", "Cy"])
+        bridge.track("7", "a", "[20:05:00] Ben left (Disconnected.) [closed by their game]")
+        self.assertEqual(sorted(bridge.online[("7", "a")].values()), ["Ann", "Cy"])
+        bridge.online.pop(("7", "a"))
+
+    def test_every_join_pattern_takes_the_role_after_the_steam_id(self):
+        import leaderboard
+        import rollover
+        import status
+        line = "Ben joined (76561198000000002, player), 2/100 players, loaded in 5 s"
+        for pattern in (leaderboard.JOINED, notifier.JOINED, rollover.JOINED, status.JOINED, bridge.JOINED, bridge.JOIN):
+            self.assertTrue(pattern.match(line), pattern.pattern)
+        self.assertEqual(leaderboard.JOINED.match(line).group(3), "player")
+        self.assertEqual(leaderboard.JOINED.match(line.replace(", player)", ", admin)")).group(3), "admin")
+
     def test_same_format_as_the_notifier_prints(self):
         import io
         from contextlib import redirect_stdout

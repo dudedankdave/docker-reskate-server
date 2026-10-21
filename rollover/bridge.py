@@ -85,10 +85,10 @@ cond = threading.Condition()
 board = None
 seen = {}                # container id -> last time stamp read
 
-JOINED = re.compile(r"^(.+) joined \((\d+)(?:, admin)?\), \d+/\d+ players")
+JOINED = re.compile(r"^(.+) joined \((\d+)(?:, [a-z]+)?\), \d+/\d+ players")
 CHAT = re.compile(r"^\[chat\] ")
 EVENT = re.compile(r"^\[event\] ([a-z-]+) (\{.*\})$")
-JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), \d+/\d+ players")
+JOIN = re.compile(r"^(.+) joined \(\d+(?:, [a-z]+)?\), \d+/\d+ players")
 LEAVE = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 THROW = re.compile(r"^\[throwdown\] .+ has finished: ")
 ADMIN = re.compile(r"^\[(?:kick|ban|anticheat|command|words|spam)\]|\b(?:kicked|banned|warning|error)\b", re.I)

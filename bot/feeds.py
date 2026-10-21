@@ -19,7 +19,7 @@ from status import UP, MAP
 
 LINE = rollover.LINE
 CHAT = re.compile(r"^\[chat\] (.*)$")
-JOIN = re.compile(r"^(.+) joined \(\d+(?:, admin)?\), (\d+/\d+) players")
+JOIN = re.compile(r"^(.+) joined \(\d+(?:, [a-z]+)?\), (\d+/\d+) players")
 LEAVE = re.compile(r"^(.+?) left \(.*\)(?: \[.*\])?$")
 THROW = re.compile(r"^\[throwdown\] .+ has finished: ")
 ADMIN = re.compile(r"^\[(?:kick|ban|anticheat|command|words|spam)\]|\b(?:kicked|banned|warning|error)\b", re.I)
