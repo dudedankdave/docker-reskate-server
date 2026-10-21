@@ -5,6 +5,7 @@ RESKATE_MODE or the first argument (the rest goes to the helper).
   rollover        new ReSkate releases, map updates, settings and image revisions, on empty servers
   bot             the Discord bot
   dashboard       the password-protected web page to watch servers, rollover, bridge and bots
+  dockerproxy     a filtering Docker socket for the dashboard (only the calls it makes, game servers only)
   leaderboard     the leaderboard of the servers that hand it over (/shared/modules.json)
   webhooks        their Discord webhooks
   settings        their settings changes, typed into the running servers; roles reload
@@ -17,7 +18,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODES = {
-    "bridge": "bridge.py", "rollover": "rollover.py", "bot": "bot.py", "dashboard": "dashboard.py",
+    "bridge": "bridge.py", "rollover": "rollover.py", "bot": "bot.py", "dashboard": "dashboard.py", "dockerproxy": "dockerproxy.py",
     "leaderboard": "mod_leaderboard.py",
     "webhooks": "mod_webhooks.py", "settings": "mod_settings.py", "announcer": "mod_announcer.py",
     "backup": "dbbackup.py", "split-settings": "split_settings.py", "status": "status.py",
