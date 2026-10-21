@@ -172,3 +172,11 @@ class DiskTest(unittest.TestCase):
         self.assertLessEqual(k["free"], k["total"])
         with mock.patch.object(d, "MODS_STORE", "/nonexistent-store"):
             self.assertIsNone(d.disk())
+
+
+class BrandingTest(unittest.TestCase):
+    def test_logo_and_favicon_are_valid_and_login_page_formats(self):
+        d = load()
+        self.assertTrue(d.LOGO_SVG.startswith("<svg"))
+        self.assertTrue(d.FAVICON_PNG.startswith(b"\x89PNG"))
+        self.assertIn("/logo.svg", d.LOGIN % "")
