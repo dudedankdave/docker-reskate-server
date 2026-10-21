@@ -531,6 +531,7 @@ class ServerOptionTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.d.PW_FILE = f"{self.tmp.name}/passwords.json"
+        self.d.SHARED = self.tmp.name
         self.sent = []
         self.config = {"server": {"password": ""}}
         self.rows = {"1": {"password": "", "containers": [{"name": "s1", "slot": "a", "id": "c1"}]}}
@@ -586,3 +587,35 @@ class ServerOptionTest(unittest.TestCase):
         self.rows["1"]["containers"].append({"name": "s1b", "slot": "b", "id": "c2"})
         with self.assertRaises(ValueError):
             self.d.server_option({"server": "1", "action": "unlock"})
+
+    def test_persist_writes_settings_files_that_the_server_reads_at_start(self):
+        self.d.server_option({"server": "1", "action": "score", "value": "kick", "persist": True})
+        self.d.server_option({"server": "1", "action": "tuning", "on": False, "persist": True})
+        self.d.server_option({"server": "1", "action": "score", "value": "warn", "persist": True})
+        text = pathlib.Path(self.tmp.name, "settings", "server-1.env").read_text(encoding="utf-8")
+        self.assertEqual(text.count("SCORE_CHECK="), 1)
+        self.assertIn("SCORE_CHECK=warn\n", text)
+        self.assertIn("ENFORCE_TUNING=false\n", text)
+        out = self.d.server_option({"server": "1", "action": "password", "value": 'a "b" # c', "persist": True})
+        self.assertEqual(out["saved"], ["SERVER_PASSWORD"])
+        secret = f"{self.tmp.name}/settings/secrets/server-1.env"
+        self.assertIn('SERVER_PASSWORD="a \\"b\\" # c"', pathlib.Path(secret).read_text(encoding="utf-8"))
+        self.assertEqual(oct(os.stat(secret).st_mode & 0o777), "0o600")
+        self.assertEqual(self.d.env_read("1"), {"SCORE_CHECK": "warn", "ENFORCE_TUNING": "false", "SERVER_PASSWORD": "set"})
+
+    def test_without_persist_nothing_is_written_and_forget_drops_it(self):
+        self.d.server_option({"server": "1", "action": "speed", "value": "kick"})
+        self.assertFalse(os.path.exists(f"{self.tmp.name}/settings"))
+        self.d.server_option({"server": "1", "action": "league", "value": "unranked", "persist": True})
+        self.assertEqual(self.d.env_read("1"), {"LEADERBOARD_LEAGUE": "unranked"})
+        self.d.server_option({"server": "1", "action": "forget"})
+        self.assertEqual(self.d.env_read("1"), {})
+        with self.assertRaises(ValueError):
+            self.d.server_option({"server": "1", "action": "league", "value": "ranked"})
+
+    def test_other_lines_in_the_file_stay(self):
+        os.makedirs(f"{self.tmp.name}/settings")
+        path = f"{self.tmp.name}/settings/server-1.env"
+        pathlib.Path(path).write_text("# mine\nMAX_PLAYERS=30\nSPEED_CHECK=off\n")
+        self.d.server_option({"server": "1", "action": "speed", "value": "kick", "persist": True})
+        self.assertEqual(pathlib.Path(path).read_text(), "# mine\nMAX_PLAYERS=30\nSPEED_CHECK=kick\n")

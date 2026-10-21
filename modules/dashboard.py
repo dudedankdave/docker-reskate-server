@@ -1115,12 +1115,82 @@ def pw_memory(number, word=None):
         return word
 
 
+MANAGED = {"SERVER_PASSWORD": True, "ENFORCE_TUNING": False, "SCORE_CHECK": False, "SPEED_CHECK": False, "BOARD_CHECK": False,
+           "LEADERBOARD_LEAGUE": False}      # the settings keys the dashboard writes (True = a secret)
+
+
+def env_path(number, secret):
+    return f"{SHARED}/settings/{'secrets/' if secret else ''}server-{number}.env"
+
+
+def env_quote(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def env_read(number):
+    """{KEY: value} of the dashboard's keys in the server's settings files (the password is left as 'set' / 'off')."""
+    out = {}
+    for secret in (False, True):
+        try:
+            with open(env_path(number, secret), encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            key, sep, value = raw.strip().partition("=")
+            if sep and key.strip() in MANAGED:
+                value = value.strip().strip('"\'')
+                out[key.strip()] = ("off" if value.lower() in ("off", "none", "") else "set") if key.strip() == "SERVER_PASSWORD" else value
+    return out
+
+
+def env_write(number, changes):
+    """Put {KEY: value, KEY: None (drop it)} into the server's settings files (the secrets one for the password); the
+    server applies them when it starts, before anything from its container."""
+    top = f"{SHARED}/settings"
+    st = os.stat(SHARED)
+    for secret in (False, True):
+        wanted = {k: v for k, v in changes.items() if MANAGED[k] == secret}
+        path = env_path(number, secret)
+        if not wanted or (not os.path.exists(path) and all(v is None for v in wanted.values())):
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            lines = []
+        left, done = [], set()
+        for raw in lines:
+            key = raw.strip().partition("=")[0].strip()
+            if key in wanted and not raw.strip().startswith("#"):
+                if key not in done and wanted[key] is not None:
+                    left.append(f"{key}={env_quote(wanted[key]) if secret else wanted[key]}")
+                done.add(key)
+            else:
+                left.append(raw)
+        fresh = [f"{k}={env_quote(v) if secret else v}" for k, v in wanted.items() if v is not None and k not in done]
+        if fresh:
+            left += ["# set by the dashboard"] + fresh
+        tmp = path + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if secret else 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("\n".join(left) + "\n")
+        for target in (top, os.path.dirname(path), tmp):
+            try:
+                os.chown(target, st.st_uid, st.st_gid)
+            except OSError:
+                pass
+        os.replace(tmp, path)
+
+
 def server_option(body):
-    """{server, slot?, action: password|lock|unlock|ranked, value}: the server options that change live through the console.
+    """{server, slot?, action, value?, on?, persist?}: the server options that change live through the console.
     password sets one (and remembers it), unlock clears it (remembering it), lock puts the remembered one back. ranked
     on/off sets the three checks a ranked server needs (physics forced, score and speed check on kick; off = warn);
-    tuning on/off, score|speed|board with value off|warn|kick set each of them alone.
-    None of it survives a restart: the container's own settings are applied again then."""
+    tuning on/off, score|speed|board with value off|warn|kick set each of them alone. With persist the same values go
+    into the server's settings files, so they come back after a restart; league (ranked|unranked, only with persist)
+    and forget (drops everything the dashboard saved) are only about those files and apply at the next start."""
     number, action, slot = str(body.get("server", "")), str(body.get("action", "")), str(body.get("slot") or "")
     DETAILS["at"] = 0
     known = server_details().get(number)
@@ -1131,35 +1201,53 @@ def server_option(body):
         raise ValueError("this server runs in several slots; say which one")
     cid, slot = mine[0]["id"], mine[0]["slot"]
     current = str((live_config(cid).get("server") or {}).get("password") or "")
+    persist = bool(body.get("persist"))
+    commands, saves = [], {}
     if action == "password":
         word = str(body.get("value", "")).strip()
         if not 1 <= len(word) <= 64 or any(ord(ch) < 32 for ch in word) or word.lower() in ("off", "none"):
             raise ValueError("a password is 1 to 64 characters (not 'off' or 'none', those clear it)")
-        commands = [f"password {pw_memory(number, word)}"]
+        commands, saves = [f"password {pw_memory(number, word)}"], {"SERVER_PASSWORD": word}
     elif action == "unlock":
         if current:
             pw_memory(number, current)
-        commands = ["password off"]
+        commands, saves = ["password off"], {"SERVER_PASSWORD": "off"}
     elif action == "lock":
         word = current or pw_memory(number) or known["password"]
         if not word:
             raise ValueError("no password is remembered for this server; set one first")
-        commands = [f"password {word}"]
+        commands, saves = [f"password {word}"], {"SERVER_PASSWORD": word}
     elif action == "ranked":
-        commands = list(RANKED_ON if body.get("on") else RANKED_OFF)
+        on = bool(body.get("on"))
+        commands = list(RANKED_ON if on else RANKED_OFF)
+        saves = {"SCORE_CHECK": "kick" if on else "warn", "SPEED_CHECK": "kick" if on else "warn"}
+        if on:
+            saves["ENFORCE_TUNING"] = "true"
     elif action == "tuning":
-        commands = ["tuning on" if body.get("on") else "tuning off"]
+        on = bool(body.get("on"))
+        commands, saves = ["tuning on" if on else "tuning off"], {"ENFORCE_TUNING": "true" if on else "false"}
     elif action in CHECKS:
         value = str(body.get("value", ""))
         if value not in ("off", "warn", "kick"):
             raise ValueError("a check is off, warn or kick")
-        commands = [f"{CHECKS[action]} {value}"]
+        commands, saves = [f"{CHECKS[action]} {value}"], {CHECKS[action].upper().replace("-", "_"): value}
+    elif action == "league":
+        value = str(body.get("value", ""))
+        if value not in ("ranked", "unranked"):
+            raise ValueError("the league is ranked or unranked")
+        if not persist:
+            raise ValueError("the league is read when the server starts; it can only be saved")
+        saves = {"LEADERBOARD_LEAGUE": value}
+    elif action == "forget":
+        persist, saves = True, {k: None for k in MANAGED}
     else:
         raise ValueError(f"unknown action {action!r}")
     for command in commands:
         moderate({"server": number, "slot": slot, "action": "console", "text": command})
+    if persist and saves:
+        env_write(number, saves)
     DETAILS["at"] = 0
-    return {"ok": True, "commands": len(commands)}
+    return {"ok": True, "commands": len(commands), "saved": sorted(k for k, v in saves.items() if persist and v is not None)}
 
 
 MAPS = {"at": 0, "rows": {}}
@@ -1274,6 +1362,8 @@ def server_maps(fresh=False, only=None):
             except (RuntimeError, OSError, ValueError, KeyError, tarfile.TarError):
                 continue
         item["available"] = package_maps(item["mods"], item["pool"])
+        item["saved"] = env_read(number)
+        item["league"] = (env.get("LEADERBOARD_LEAGUE") or "ranked").lower()
         out[number] = item
     MAPS.update(at=time.time() if not only else MAPS["at"], rows=out)
     return out
@@ -1380,6 +1470,8 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div id="copts" class="flags"></div>
 <div id="copts2"></div>
 <div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
+<div class="crow"><label class="chk"><input type="checkbox" id="persist"> Dauerhaft speichern (überlebt den Neustart des Servers)</label></div>
+<div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
 <div class="mut" id="opthint"></div>
 <div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
 <div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
@@ -1568,7 +1660,9 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
 put(real,[...box.childNodes]);drawOpts(sv,fl)}
-const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv},b));
+const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:$('persist').checked},b));
+let persistOn=true;try{persistOn=localStorage.getItem('persist')!='0'}catch(e){}
+$('persist').checked=persistOn;$('persist').onchange=()=>{try{localStorage.setItem('persist',$('persist').checked?'1':'0')}catch(e){}};
 function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div');
  for(const [k,label,tip,body] of [['locked','Gesperrt (Passwort aktiv)','Ein: das gemerkte Passwort wird wieder gesetzt. Aus: Passwort wird entfernt und gemerkt.',on=>({action:on?'lock':'unlock'})],
    ['ranked','Ranked-Modus','Ein: Physik erzwungen, Score-Check und Speed-Check auf kick. Aus: Score-Check und Speed-Check auf warn.',on=>({action:'ranked',on})]]){
@@ -1586,7 +1680,11 @@ function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div')
   sel.onchange=()=>toggle(sv,'opt:'+k,sel.value,()=>optBody(sv,{action:k,value:sel.value}),x=>(x.flags||{})[key]);
   row.append(el('span','mut',label),sel);rows.append(row)}
  put(cs,[...rows.childNodes]);
- $('opthint').textContent='Gilt bis zum nächsten Neustart des Servers, danach zählen wieder die Einstellungen des Containers. Ob Punkte in die Unranked- oder Ranked-Liste gehen, wird beim Start festgelegt.'}
+
+ const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga'},keys=Object.keys(sv_);
+ const lg=$('lgsel');if(document.activeElement!==lg)lg.value=sv_.LEADERBOARD_LEAGUE||mc.league||'ranked';lg.onchange=()=>optBody(sv,{action:'league',value:lg.value,persist:true}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message));
+ $('lgforget').disabled=!keys.length;$('lgforget').onclick=()=>armed($('lgforget'),()=>optBody(sv,{action:'forget'}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message)));
+ $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
 $('pwset').onclick=async()=>{const sv=$('csrv').value,w=$('pwnew').value.trim();if(!sv||!w)return;
  try{await optBody(sv,{action:'password',value:w});$('pwnew').value='';tprint('Passwort von Server '+sv+' gesetzt');await sleep(600);await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 let POOLS=null;
