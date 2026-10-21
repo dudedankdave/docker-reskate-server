@@ -597,6 +597,11 @@ function detail(s){const p=el('div','detail'),i=infoCache[s.server];
   row('Version'+lab,(c.version||'?')+(c.revision?' · '+c.revision:'')+' · Port '+(c.port||'?')+(c.health?' · '+c.health:''));
   row('Gestartet'+lab,c.started?new Date(c.started).toLocaleString():'?')}
  p.append(dl);
+ const mx=mapsCache[s.server];
+ if(mx){const cur=(s.map||mx.map||'').replace(/[.]$/,'');
+  p.append(el('div','mut','Map-Pool ('+(mx.pool.length||'alle')+')'),mx.pool.length?chipRow(mx.pool,cur,false):el('div','mut','Kein Pool gesetzt: alle Maps erlaubt'),
+   el('div','mut','Map-Pakete ('+mx.mods.length+')'),mx.mods.length?chipRow(mx.mods,'',true):el('div','mut','Keine Mods'));
+  if(!mx.live)p.append(el('div','mut','Stand vom Containerstart (Live-Daten nicht lesbar)'))}
  const st=el('div','mut','Einstellungen (Umgebung des Containers, ohne Tokens und Webhooks)'),box=el('dl','kv set');
  for(const [k,v] of Object.entries(i.env)){box.append(el('dt',0,k),el('dd',0,v||'(leer)'))}
  p.append(st,box);return p}
@@ -622,7 +627,7 @@ async function servers(){
   row('Karte',s.running?(mapName||'?'):'–');
   for(const [l,x] of Object.entries(s.slots||{}))row('Slot '+l,x.running?(x.version||'?')+' · '+(x.players==null?'?':x.players)+' Spieler':'aus');
   c.append(dl);
-  if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();api('/api/serverinfo?server='+s.server).then(i=>{infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
+  if(openCards.has(s.server)){c.append(detail(s));if(!(infoAt[s.server]>Date.now()-30000)){infoAt[s.server]=Date.now();Promise.all([api('/api/serverinfo?server='+s.server),api('/api/maps')]).then(([i,m])=>{Object.assign(mapsCache,m);infoCache[s.server]=i;infoAt[s.server]=Date.now();drawn()},x=>{infoCache[s.server]={error:x.message};drawn()})}}
   box.append(c)}
 }
 async function containers(){
@@ -720,6 +725,11 @@ $('tsform').onsubmit=async e=>{e.preventDefault();const box=$('tsres'),info=$('t
   const note=el('div','mut'),w=el('div','act'),b1=el('button',0,'Auf Server'),b2=el('button',0,'In den Pool');w.append(b1,b2);
   b1.onclick=()=>tsAdd(r,false,note,[b1,b2]);b2.onclick=()=>tsAdd(r,true,note,[b1,b2]);
   c.append(h,pic,el('div','mut',r.owner+' · v'+r.version+' · '+r.downloads+' Downloads · '+r.updated),el('div',0,r.description),a,w,note);box.append(c)}};
+const mapsCache={};
+function chipRow(list,cur,mod){const box=el('div','chips');
+ for(const n of list){let t=n,tip='';if(mod){const m=n.match(/^(.*)-(\\d+[.]\\d+[.]\\d+)$/);t=m?m[1]:n;tip=n}
+  const ch=el('span','chip'+(mod?' mod':'')+(!mod&&cur&&n.toLowerCase()==cur.toLowerCase()?' on':''),t);if(tip)ch.title=tip;box.append(ch)}
+ return box}
 let mapsAt=0;
 async function poolmaps(){if(view!='suche'||Date.now()-mapsAt<20000)return;mapsAt=Date.now();
  const [d,m]=await Promise.all([api('/api/servers'),api('/api/maps')]),box=$('poolbox');box.replaceChildren();
@@ -728,14 +738,13 @@ async function poolmaps(){if(view!='suche'||Date.now()-mapsAt<20000)return;mapsA
   const cur=(sv.map||x.map||'').replace(/[.]$/,'');
   c.append(el('div','mut','Aktuelle Karte: '+(cur||'?')));
   c.append(el('div','mut','Map-Pool ('+(x.pool.length||'alle')+')'));
-  const pool=el('div','chips');
-  if(x.pool.length)for(const n of x.pool){const ch=el('span','chip'+(n.toLowerCase()==cur.toLowerCase()?' on':''),n);pool.append(ch)}
-  else pool.append(el('span','mut','Kein Pool gesetzt: alle Maps erlaubt'));
+  const pool=x.pool.length?chipRow(x.pool,cur,false):el('div','chips');
+  if(!x.pool.length)pool.append(el('span','mut','Kein Pool gesetzt: alle Maps erlaubt'));
   c.append(pool);
   if(!x.live)c.append(el('div','mut','Stand vom Containerstart (Live-Daten nicht lesbar)'));
   c.append(el('div','mut','Map-Pakete ('+x.mods.length+')'));
-  const mods=el('div','chips');
-  if(x.mods.length)for(const n of x.mods){const m=n.match(/^(.*)-(\\d+[.]\\d+[.]\\d+)$/),ch=el('span','chip mod',m?m[1]:n);ch.title=n;mods.append(ch)}else mods.append(el('span','mut','Keine Mods'));
+  const mods=x.mods.length?chipRow(x.mods,'',true):el('div','chips');
+  if(!x.mods.length)mods.append(el('span','mut','Keine Mods'));
   c.append(mods);box.append(c)}
  if(!box.children.length)box.append(el('div','mut','Keine Server-Daten (Docker-Zugriff nötig).'))}
 let chatSrv='*',chatLast=0,chatLines=[],canSay=true;
