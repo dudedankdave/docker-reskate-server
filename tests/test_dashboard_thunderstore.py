@@ -242,6 +242,141 @@ class UploadLayersTest(unittest.TestCase):
                 d.upload_layers("9", "{}")
 
 
+class LayersLoadedTest(unittest.TestCase):
+    def _log(self, text):
+        def tar(cid, path):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as t:
+                info = tarfile.TarInfo("ReSkateServer.log")
+                info.size = len(text.encode())
+                t.addfile(info, io.BytesIO(text.encode()))
+            buf.seek(0)
+            return tarfile.open(fileobj=buf)
+        return tar
+
+    def test_a_fresh_start_is_not_remembered_as_failed(self):
+        import datetime
+        d = load()
+        d.LAYERS_SEEN.clear()
+        fmt = "%Y-%m-%dT%H:%M:%S.0Z"
+        now = datetime.datetime.now(datetime.timezone.utc)
+        fresh = now.strftime(fmt)
+        with mock.patch.object(d, "tar_of", self._log("[2000-01-01 00:00:00] booting\n")):
+            self.assertIsNone(d.layers_loaded("c", fresh))
+        loaded = "[%s] World layers: 261 from world-layers.json.\n" % now.strftime("%Y-%m-%d %H:%M:%S")
+        with mock.patch.object(d, "tar_of", self._log(loaded)):
+            self.assertTrue(d.layers_loaded("c", fresh))
+        old = (now - datetime.timedelta(hours=1)).strftime(fmt)
+        with mock.patch.object(d, "tar_of", self._log("[2000-01-01 00:00:00] booting\n")):
+            self.assertFalse(d.layers_loaded("c2", old))
+
+
+class PersistPoolTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+
+    def saved(self):
+        return self.d.env_read("1")
+
+    def test_pool_and_a_start_map_in_it_are_saved_for_the_next_start(self):
+        lib = ["A", "B", "C"]
+        rows = {"1": {"env": {"MAP": "C"}, "containers": []}}
+        live = {"1": {"live": True, "pool": ["A", "B", "C"]}}
+        with mock.patch.object(self.d, "server_details", return_value=rows), \
+                mock.patch.object(self.d, "server_maps", return_value=live):
+            self.d.persist_pool("1", ["A", "B"], lib)
+            self.assertEqual(self.saved(), {"MAP_POOL": "A,B", "MAP": "A"})
+            self.d.persist_pool("1", ["B", "C"], lib)          # the saved start map A is outside again
+            self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
+            self.d.persist_pool("1", ["B", "C"], lib)          # nothing to change when it is inside
+            self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
+            self.d.persist_pool("1", [], lib)                  # all maps: no start map needed
+            self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            live["1"]["pool"] = ["A", "B,x"]
+            self.d.persist_pool("1", ["A", "B,x"], lib)        # a comma cannot be carried in the list
+            self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            live["1"]["pool"] = ["A", "C"]                     # the server refused B: it is not saved
+            self.d.persist_pool("1", ["A", "B", "C"], lib + ["D"])
+            self.assertEqual(self.saved(), {"MAP_POOL": "A,C"})   # the container start map C is in it
+
+
+class TeamLogoTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        self.d.LOGO_CACHE.clear()
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, logo TEXT)")
+        con.executemany("INSERT INTO teams (logo) VALUES (?)",
+                        [("https://example.com/a.png",), ("http://example.com/b.png",), ("https://127.0.0.1/c.png",), ("https://example.com:8443/d.png",)])
+        con.commit()
+        con.close()
+
+    def test_only_saved_https_public_standard_port_links(self):
+        for url in ("https://example.com/other.png", "http://example.com/b.png", "https://127.0.0.1/c.png", "https://example.com:8443/d.png"):
+            with self.assertRaises(ValueError, msg=url):
+                self.d.team_logo(url)
+
+    def test_fetches_a_plain_picture_from_the_checked_address_and_caches_it(self):
+        calls = []
+
+        def fetch(host, address, path, limit):
+            calls.append((host, address, path))
+            return 200, "image/png; charset=binary", b"\x89PNG", ""
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", fetch):
+            self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"\x89PNG"))
+            self.d.team_logo("https://example.com/a.png")
+        self.assertEqual(calls, [("example.com", "93.184.216.34", "/a.png")])
+
+    def test_redirects_and_other_types_are_refused_and_the_cache_is_capped(self):
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]):
+            for answer in ((302, "text/html", b"", ""), (200, "image/svg+xml", b"<svg/>", "")):
+                with mock.patch.object(self.d, "_fetch_pinned", lambda *a, answer=answer: answer), self.assertRaises(ValueError):
+                    self.d.team_logo("https://example.com/a.png")
+        self.d.LOGO_CACHE.update({f"u{n}": (1e18, "image/png", b"") for n in range(self.d.LOGO_ENTRIES)})
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (200, "image/png", b"x", "")):
+            self.d.team_logo("https://example.com/a.png")
+        self.assertLessEqual(len(self.d.LOGO_CACHE), self.d.LOGO_ENTRIES)
+        self.assertIn("https://example.com/a.png", self.d.LOGO_CACHE)
+
+    def test_a_host_with_both_address_families_is_fine(self):
+        both = [(10, 1, 6, "", ("2606:50c0:8003::154", 443, 0, 0)), (2, 1, 6, "", ("185.199.110.133", 443))]
+        seen = []
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=both), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda host, address, *a: seen.append(address) or (200, "image/png", b"x", "")):
+            self.d.team_logo("https://example.com/a.png")
+        self.assertEqual(seen, ["185.199.110.133"])
+
+    def test_follows_a_few_redirects_and_checks_each_step(self):
+        steps = iter([(302, "", b"", "https://raw.example.org/x.png"), (200, "image/png", b"ok", "")])
+        seen = []
+
+        def fetch(host, address, path, limit):
+            seen.append((host, path))
+            return next(steps)
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", fetch):
+            self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"ok"))
+        self.assertEqual(seen, [("example.com", "/a.png"), ("raw.example.org", "/x.png")])
+        self.d.LOGO_CACHE.clear()
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (302, "", b"", "http://example.com/plain.png")), \
+                self.assertRaises(ValueError):
+            self.d.team_logo("https://example.com/a.png")        # a redirect to http is refused
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (302, "", b"", "https://example.com/loop.png")), \
+                self.assertRaises(ValueError):
+            self.d.team_logo("https://example.com/a.png")        # an endless chain stops
+
+
 class LayersFitTest(unittest.TestCase):
     def test_fit_compares_the_recorded_version(self):
         d = load()

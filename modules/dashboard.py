@@ -37,11 +37,12 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import base64
+import datetime
 from functools import reduce
 from math import gcd
 import glob
-import gzip
 import hashlib
+import ipaddress
 import re
 import shutil
 import stat
@@ -52,6 +53,7 @@ import json
 import os
 import secrets
 import socket
+import ssl
 import sqlite3
 import sys
 import tarfile
@@ -60,9 +62,10 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8780").rstrip("/")
@@ -214,7 +217,7 @@ def ts_fetch(url, limit):
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read(limit + 1)
         if r.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
+            data = zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(data, limit + 1)   # a bomb stops at the limit
         return data, r.headers.get("Content-Type", "")
 
 
@@ -601,10 +604,19 @@ def upload_layers(server, text):
     targets = [n for n in rows if server == "*" or n == server]
     if not targets:
         raise ValueError("no running container for that server")
+    version = ""
     for number in targets:
         for c in rows[number]["containers"]:
             docker_put_file(c["id"], "/data", "world-layers.json", text.encode())
             docker_put_file(c["id"], "/data", LAYERS_BUILD, (c.get("version") or "").encode())
+            version = version or c.get("version") or ""
+    try:   # the copy a server without the file (new volume) puts back at its start
+        for name, body in (("world-layers.json", text.encode()), (LAYERS_BUILD, version.encode())):
+            with open(f"{SHARED}/{name}.tmp", "wb") as f:
+                f.write(body)
+            os.replace(f"{SHARED}/{name}.tmp", f"{SHARED}/{name}")
+    except OSError as e:
+        say(f"dashboard: shared copy of world-layers.json not written: {e}")
     MAPS["at"] = 0
     return f"world-layers.json written for server {', '.join(sorted(targets))} ({len(text) // 1024} KB)"
 
@@ -784,6 +796,27 @@ def apply_pool(number, target, lib):
     return len(commands)
 
 
+def persist_pool(number, target, lib):
+    """Save the pool for the server's next start (MAP_POOL), and a start map (MAP) that is in it: the environment of the
+    container would otherwise bring the old pool and start map back at every restart. An empty pool = every map."""
+    live = (server_maps(True, number).get(number) or {})
+    if live.get("live"):                                  # only what the server really took: a name it refused
+        have = {x.lower() for x in live["pool"]}          # (two packages with it) must not stop it from starting
+        target = [n for n in target if not have or n.lower() in have]
+    if any("," in n for n in target):
+        return                                           # a comma list cannot carry that name
+    every = not target or {x.lower() for x in lib} <= {x.lower() for x in target}
+    changes = {"MAP_POOL": "off" if every else ",".join(target)}
+    if every:
+        changes["MAP"] = None
+    else:
+        row = server_details().get(number) or {}
+        start = env_read(number).get("MAP") or (row.get("env") or {}).get("MAP") or ""
+        if start.lower() not in {x.lower() for x in target}:
+            changes["MAP"] = target[0]
+    env_write(number, changes)
+
+
 def pools_action(body):
     """{action: create|assign|set|delete|reapply|sync, server, name, map, on}; saves first, links any map package the servers
     concerned are missing, then applies to them. sync links every map package of the store on every server."""
@@ -840,7 +873,12 @@ def pools_action(body):
             sync_links(set(targets))          # a pool can name maps the server has not linked yet
         for number in targets:
             if number in server_maps():
-                apply_pool(number, pools.get(assign.get(number, ALL_MAPS), []), lib)
+                wanted = pools.get(assign.get(number, ALL_MAPS), [])
+                apply_pool(number, wanted, lib)
+                try:
+                    persist_pool(number, wanted, lib)
+                except OSError as e:
+                    say(f"dashboard: pool of server {number} not saved for the next start: {e}")
         MAPS["at"] = 0
         return pools_snapshot(pools, assign)
 
@@ -1100,6 +1138,71 @@ def lb_snapshot(league, board="general", limit=100):
     return {"league": league, "board": board, "boards": boards, "total": len(rows), "rows": rows[:limit],
             "teams": sorted(standing.values(), key=lambda t: -t["points"]), "recent": recent, "stats": stats,
             "exists": os.path.exists(path)}
+
+
+LOGO_CACHE = {}
+LOGO_MAX = 1_500_000
+LOGO_ENTRIES = 200
+
+
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """https to an address checked beforehand, with the certificate checked against the host name (no second DNS lookup)."""
+
+    def __init__(self, hostname, address, **kwargs):
+        super().__init__(hostname, 443, **kwargs)
+        self.address = address
+
+    def connect(self):
+        self.sock = self._context.wrap_socket(socket.create_connection((self.address, 443), self.timeout), server_hostname=self.host)
+
+
+def _fetch_pinned(hostname, address, path, limit):
+    """(status, content type, body up to limit + 1 bytes, Location) of GET https://hostname/path, asked at `address`."""
+    conn = _PinnedHTTPS(hostname, address, timeout=10, context=ssl.create_default_context())
+    try:
+        conn.request("GET", path, headers={"User-Agent": "reskate-dashboard", "Accept": "image/*"})
+        r = conn.getresponse()
+        return r.status, r.getheader("Content-Type", ""), r.read(limit + 1), r.getheader("Location", "")
+    finally:
+        conn.close()
+
+
+def team_logo(url):
+    """(content type, bytes) of a team's logo link, fetched here because the page may not load other hosts. Only a link that
+    is saved on a team; every step (the link and up to 3 redirects) is https on the standard port at a public address (the
+    checked one is the one connected to); a plain picture up to 1.5 MB."""
+    if url in LOGO_CACHE and time.time() - LOGO_CACHE[url][0] < 3600:
+        return LOGO_CACHE[url][1], LOGO_CACHE[url][2]
+    if not any(r["logo"] == url for r in db_rows(f"{SHARED}/teams.db", "SELECT logo FROM teams")):
+        raise ValueError("not a team logo")
+    at = url
+    for _ in range(4):
+        u = urlparse(at)
+        if u.scheme != "https" or not u.hostname or u.port:
+            raise ValueError("a logo link has to be https")
+        try:
+            found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)}, key=lambda ip: (ip.version, int(ip)))
+        except (OSError, ValueError):
+            raise ValueError("the logo host does not resolve") from None
+        if not found or any(not ip.is_global for ip in found):
+            raise ValueError("the logo host is not a public address")
+        try:
+            status, kind, data, where = _fetch_pinned(u.hostname, str(found[0]), (u.path or "/") + (f"?{u.query}" if u.query else ""), LOGO_MAX)
+        except (OSError, http.client.HTTPException, ssl.SSLError) as e:
+            raise ValueError(f"the logo could not be fetched: {e}") from None
+        if status in (301, 302, 303, 307, 308) and where:
+            at = urljoin(at, where)
+            continue
+        break
+    else:
+        raise ValueError("too many redirects")
+    kind = kind.split(";")[0].strip().lower()
+    if status != 200 or len(data) > LOGO_MAX or kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+        raise ValueError("not a plain picture")
+    while len(LOGO_CACHE) >= LOGO_ENTRIES:
+        LOGO_CACHE.pop(next(iter(LOGO_CACHE)))
+    LOGO_CACHE[url] = (time.time(), kind, data)
+    return kind, data
 
 
 def teams_snapshot():
@@ -1470,7 +1573,7 @@ def pw_memory(number, word=None):
 
 MARK = "# set by the dashboard"
 MANAGED = {"SERVER_PASSWORD": True, "ENFORCE_TUNING": False, "SCORE_CHECK": False, "SPEED_CHECK": False, "BOARD_CHECK": False,
-           "LEADERBOARD_LEAGUE": False}      # the settings keys the dashboard writes (True = a secret)
+           "LEADERBOARD_LEAGUE": False, "MAP_POOL": False, "MAP": False}      # the settings keys the dashboard writes (True = a secret)
 
 
 def env_path(number, secret):
@@ -1638,6 +1741,15 @@ def package_maps(mods, pool=()):
 
 
 LAYERS_SEEN = {}
+LAYERS_GRACE = 300         # seconds a fresh container may take before "no layers line in the log" counts as a failure
+
+
+def _age(started):
+    """Seconds since a Docker timestamp (2026-10-21T22:31:50.57Z)."""
+    try:
+        return time.time() - datetime.datetime.strptime(started[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def layers_loaded(cid, started):
@@ -1652,7 +1764,10 @@ def layers_loaded(cid, started):
         except (RuntimeError, OSError, KeyError, tarfile.TarError):
             return None
         stamps = [x[1:20] for x in text.splitlines() if "from world-layers.json" in x and x.startswith("[")]
-        LAYERS_SEEN[key] = bool(stamps) and stamps[-1] >= begin
+        seen = bool(stamps) and stamps[-1] >= begin
+        if not seen and LAYERS_GRACE > _age(started):
+            return None                    # the server has not got to that log line yet; do not remember "not loaded"
+        LAYERS_SEEN[key] = seen
     return LAYERS_SEEN[key]
 
 
@@ -1772,7 +1887,7 @@ PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name=
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}.annrow>input:not(.annnum){flex:1 1 220px}.annnum{width:64px;flex:none}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.card h4.sub{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.card h3+h4.sub{margin-top:4px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}.annrow>input:not(.annnum){flex:1 1 220px}.annnum{width:64px;flex:none}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px)) clamp(32px,5vw,64px) max(var(--gut),env(safe-area-inset-left,0px));width:100%;margin:0;display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(40px,5.5vw,72px)}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 clamp(12px,1.4vw,18px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:clamp(10px,1.2vw,16px)}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cmdstack{display:grid;gap:clamp(12px,1.6vw,24px);margin-top:clamp(10px,1.4vw,18px)}.toprow{display:grid;grid-template-columns:clamp(240px,24vw,340px) minmax(0,1fr);gap:clamp(10px,1.2vw,16px);align-items:stretch}.toprow .pic{aspect-ratio:16/10}.twocol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(10px,1.2vw,16px);align-items:start}.col{display:grid;gap:clamp(10px,1.2vw,16px);align-content:start;min-width:0}@media(max-width:900px){.toprow,.twocol{grid-template-columns:minmax(0,1fr)}}.term{background:var(--bg);border:1px solid var(--line);border-radius:6px;margin:8px 0;font:12px/1.45 ui-monospace,monospace}.term pre{background:transparent;border:0;height:220px;max-height:none;margin:0;border-radius:6px 6px 0 0}.prompt{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line)}.prompt span{color:var(--ok);font-weight:700}.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:inherit;font:inherit;padding:0}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
@@ -1793,7 +1908,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
 .sv{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.sv.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.svleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.svpic{border-radius:0;margin:0;padding:0}.svtop{position:absolute;left:0;right:0;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:8px 10px 16px;background:linear-gradient(rgba(0,0,0,.78),transparent);color:#fff;text-align:left}.svtop h3{flex:1;color:#fff}.svmapname{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:18px 10px 8px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:#fff;font-size:13px;font-weight:600;text-align:left}.sv.offline .svpic{filter:grayscale(1);opacity:.6}.svbody{padding:0 12px;display:grid;gap:10px}.svstat{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}.svstat .pill{margin:0 0 0 auto}.svcount{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.svpills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.svpills .pill{margin:0}.pill.acc{color:var(--acc)}.svact{display:flex;gap:8px;flex-wrap:wrap}.svact button{flex:1 1 auto;margin:0}.svright{padding:12px 14px 14px 2px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-content:start}.svsec{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}.svsec h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.svsec .kv{margin:0}.svright .wide{grid-column:1/-1}.svcode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.svcode code,.svsec code{font:12px ui-monospace,monospace;word-break:break-all}.svrun{margin-bottom:8px}.svrun b{font-size:15px}.svraw summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:8px}@media(max-width:700px){.sv.open{display:flex}.svright{padding:0 12px 12px}}
-.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:10px;align-content:start}.tm.open{grid-column:1/-1}.tmhead{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.tmhead h3{flex:1;font-size:16px}.tmtag{color:var(--acc);font-weight:700}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts b{font-size:22px;font-variant-numeric:tabular-nums}.tmedit{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}.tmedit .crow{margin:0}.tmedit input,.tmedit select{flex:1;min-width:0;font:inherit;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
+.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.tm.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.tmleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.tmband{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 12px;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 52% 34%),hsl(var(--h) 58% 20%))}.tmlogo{width:40px;height:40px;border-radius:8px;object-fit:cover;background:rgba(0,0,0,.3);flex:none}.tmlogo.big{width:72px;height:72px}.tmprev{display:flex;align-items:center;min-height:20px;font-size:12px}.tmband h3{flex:1 1 120px;min-width:0;font-size:16px;color:#fff}.tmpills{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}.tmtag{color:var(--acc);font-weight:700}.tmband .tmtag{background:rgba(0,0,0,.35);color:#fff;border-radius:4px;padding:2px 8px}.tmband .pill{margin:0}.tmbody{padding:0 12px;display:grid;gap:10px}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts{gap:20px}.tmpts b{font-size:26px;line-height:1;font-variant-numeric:tabular-nums}.tmchips{display:flex;flex-wrap:wrap;gap:6px}.tmchip{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:2px 9px;font-size:12px}.tmright{padding:12px 12px 12px 2px;min-width:0}@media(max-width:700px){.tm.open{display:flex}.tmright{padding:12px}}.tmform{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px 14px}.tmfld{display:grid;gap:3px;min-width:0;font-size:12px}.tmfld.wide{grid-column:1/-1}.tmfld input,.tmfld select{font:inherit;font-size:14px;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-width:0;width:100%;box-sizing:border-box}button.primary{justify-self:start}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -1815,30 +1930,33 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="bar"><select id="csrv"></select></div>
 <div class="cmdstack">
 <div class="toprow">
-<div class="card" id="mapcard"><h3>Läuft gerade</h3><div class="pic" id="mappic"></div><div class="mut" id="mapinfo"></div></div>
-<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div><div class="mut">Das Terminal zeigt das laufende Log des gewählten Servers. Befehle wirken sofort; nach einem Neustart gelten wieder die Einstellungen des Servers.</div></div>
+<div class="sv" id="mapcard"></div>
+<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div></div>
 </div>
 <div class="twocol">
 <div class="col">
+<div class="card"><h3>Server</h3><h4 class="sub">Features</h4><div id="cflags" class="flags"></div>
+<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
+<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
+<h4 class="sub">Regeln</h4>
+<div id="copts" class="flags"></div>
+<div id="copts2"></div>
+<h4 class="sub">Sicherheit</h4><div id="csec" class="flags"></div>
+<div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
+</div>
+</div>
+<div class="col">
+<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
+<div class="card"><h3>Liga</h3>
+<div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
+<div class="mut" id="opthint"></div>
+</div>
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><label id="laydrop" class="drop"><span id="laydroptxt">world-layers.json hierher ziehen oder klicken</span><input type="file" id="layfile" accept=".json,application/json" hidden></label><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
 </div>
-<div class="col">
-<div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
-<div id="copts" class="flags"></div>
-<div id="copts2"></div>
-<div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
-<div class="crow"><label class="chk"><input type="checkbox" id="persist"> Dauerhaft speichern (überlebt den Neustart des Servers)</label></div>
-<div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
-<div class="mut" id="opthint"></div>
-<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
-<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
 </div>
-<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
-</div>
-</div>
-<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><button id="poolsync" title="Verlinkt jede Map aus dem gemeinsamen Speicher auf jedem Server, damit sie dort wählbar ist (jeder Server behält seinen eigenen Pool)">Maps abgleichen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
+<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><button id="poolsync" title="Verlinkt jede Map aus dem gemeinsamen Speicher auf jedem Server, damit sie dort wählbar ist (jeder Server behält seinen eigenen Pool)">Maps neu laden</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
 <div class="crow" id="poolnewrow" hidden><input id="poolname" maxlength="40" placeholder="Name des neuen Pools (Kopie des gewählten)" style="flex:1;min-width:160px"><button id="poolmk">Anlegen</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
 </div>
@@ -1955,10 +2073,11 @@ function restartDialog(s0){
  no.onclick=close;ov.onclick=e=>{if(e.target==ov)close()};
  row.append(pick,no,go);box.append(head,count,info,warn,chk,out,row);ov.append(box);document.body.append(ov);
  draw();refresh();timer=setInterval(refresh,3000)}
+let lastServers=[];
 async function servers(){
  const d=await api('/api/servers'),real=$('servers'),box=document.createElement('div');
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
- tabs(d);mod(d);
+ tabs(d);mod(d);lastServers=d.servers;
  if(Date.now()-cardMapsAt>25000){cardMapsAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'))}catch(e){}}
  for(const s of d.servers)box.append(svCard(s,d))
  put(real,[...box.childNodes])
@@ -2011,12 +2130,24 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const sig=JSON.stringify(groups);if(sel.dataset.sig===sig&&sel.options.length)return;sel.dataset.sig=sig;const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
- fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv);drawFlags(sv,x.flags);
+ fillSel($('cmap'),[['Im Pool',pool],['Installiert, nicht im Pool',rest]]);drawPool(sv);drawFlags(sv,x.flags);
  drawMapCard((x.map||'').replace(/[.]$/,''),pool.length,av.length)}
-function drawMapCard(name,np,na){const pic=$('mappic'),sig=name;
- if(pic.dataset.name!=sig){pic.dataset.name=sig;pic.replaceChildren(el('span',0,name||'?'));
-  if(name&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}}
- $('mapinfo').textContent=(name||'Karte unbekannt')+' · Pool: '+(np||'alle')+' · installiert: '+na}
+function drawMapCard(name,np,na){const sv=$('csrv').value,card=$('mapcard'),s=(lastServers.find(x=>x.server==sv))||{server:sv,running:true},mx=mapsCache[sv]||{},fl=mx.flags||{};
+ const sig=sv+'|'+name+'|'+(s.role||'')+'|'+(s.running?1:0)+'|'+(s.locked?1:0);
+ if(card.dataset.sig!=sig){card.dataset.sig=sig;card.classList.toggle('offline',s.running===false);
+  const pic=el('div','pic svpic');pic.append(el('span',0,name||'Kein Bild'));
+  if(name&&s.running!==false&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}
+  const top=el('div','svtop');top.append(el('span','num','#'+sv),el('h3',0,s.role||('Server '+sv)));
+  pic.append(top,Object.assign(el('div','svmapname'),{textContent:s.running===false?'offline':(name||'?')}));
+  const body=el('div','svbody');body.id='mapbody';card.replaceChildren(el('div','svleft'));card.firstChild.append(pic,body)}
+ const body=$('mapbody'),cnt=s.running===false?null:(s.online!=null?s.online:s.players),stat=el('div','svstat');
+ stat.append(el('span','svcount',s.running===false?'–':(cnt==null?'?':cnt)),el('span','mut','/ '+(s.running===false?'?':(s.max||'?'))+' Spieler'),pill('Läuft gerade','ok'));
+ const kids=[stat];
+ if(s.running!==false&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,cnt?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';kids.push(bar)}
+ const badges=el('div','svpills');badges.append(pill('Pool: '+(np||'alle'),'acc'),pill('installiert: '+na,'mut'));
+ if(mx.league)badges.append(pill(mx.league=='ranked'?'Ranked-Liga':'Unranked-Liga','acc'));
+ if(fl.ranked)badges.append(pill('Ranked-Modus','ok'));
+ kids.push(badges);put(body,kids)}
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
@@ -2040,19 +2171,17 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
 put(real,[...box.childNodes]);drawOpts(sv,fl)}
-const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:$('persist').checked},b));
-let persistOn=true;try{persistOn=localStorage.getItem('persist')!='0'}catch(e){}
-$('persist').checked=persistOn;$('persist').onchange=()=>{try{localStorage.setItem('persist',$('persist').checked?'1':'0')}catch(e){}};
-function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div');
+const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:true},b));
+function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div'),sbox=document.createElement('div');
  for(const [k,label,tip,body] of [['locked','Gesperrt (Passwort aktiv)','Ein: das gemerkte Passwort wird wieder gesetzt. Aus: Passwort wird entfernt und gemerkt.',on=>({action:on?'lock':'unlock'})],
    ['ranked','Ranked-Modus','Ein: Physik erzwungen, Score-Check und Speed-Check auf kick. Aus: Score-Check und Speed-Check auf warn.',on=>({action:'ranked',on})]]){
   const cur=!!fl[k],on=wanted(sv,'opt:'+k,cur),lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;lb.title=tip;
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'opt:'+k,cb.checked,()=>optBody(sv,body(cb.checked)),x=>!!(x.flags||{})[k])};
-  lb.append(cb,el('span','sw'),el('span','tn',label));box.append(lb)}
+  lb.append(cb,el('span','sw'),el('span','tn',label));(k=='locked'?sbox:box).append(lb)}
  const tl=wanted(sv,'opt:tuning',fl.enforce_tuning),tb=el('label','tgl'+(tl?' on':'')),tc=document.createElement('input');tc.type='checkbox';tc.checked=tl;tb.title='Ein: alle spielen mit der Standard-Physik des Spiels. Aus: Spieler dürfen ihre eigene Physik-Einstellung nutzen (dann zählt niemand als Ranked).';
  tc.onchange=()=>{tb.classList.toggle('on',tc.checked);toggle(sv,'opt:tuning',tc.checked,()=>optBody(sv,{action:'tuning',on:tc.checked}),x=>!!(x.flags||{}).enforce_tuning)};
  tb.append(tc,el('span','sw'),el('span','tn','Physik erzwungen'));box.append(tb);
- put(real,[...box.childNodes]);
+ put(real,[...box.childNodes]);put($('csec'),[...sbox.childNodes]);
  const cs=$('copts2'),rows=document.createElement('div');
  for(const [k,label,key,tip] of [['score','Score-Check','score_check','Spieler mit Mods, die die Punkte verändern'],['speed','Speed-Check','speed_check','Spieler mit beschleunigtem Spiel'],['board','Board-Check','board_check','Spieler mit angepinntem Board']]){
   const cur=fl[key]||'',val=wanted(sv,'opt:'+k,cur),row=el('div','crow'),sel=document.createElement('select');row.dataset.v=val;
@@ -2061,10 +2190,10 @@ function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div')
   row.append(el('span','mut',label),sel);rows.append(row)}
  put(cs,[...rows.childNodes]);
 
- const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga'},keys=Object.keys(sv_);
+ const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga',MAP_POOL:'Map-Pool',MAP:'Startmap'},keys=Object.keys(sv_);
  const lg=$('lgsel');if(document.activeElement!==lg)lg.value=sv_.LEADERBOARD_LEAGUE||mc.league||'ranked';lg.onchange=()=>optBody(sv,{action:'league',value:lg.value,persist:true}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message));
  $('lgforget').disabled=!keys.length;$('lgforget').onclick=()=>armed($('lgforget'),()=>optBody(sv,{action:'forget'}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message)));
- $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
+ $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus',MAP_POOL:v=>v=='off'?'alle Maps':v.split(',').length+' Maps'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
 $('pwset').onclick=async()=>{const sv=$('csrv').value,w=$('pwnew').value.trim();if(!sv||!w)return;
  try{await optBody(sv,{action:'password',value:w});$('pwnew').value='';tprint('Passwort von Server '+sv+' gesetzt');await sleep(600);await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 let POOLS=null;
@@ -2361,22 +2490,33 @@ function tmDraw(){const d=TM;if(!d)return;
  if(d.exists&&!d.pending.length)apps.append(el('div','mut','Keine offenen Bewerbungen.'));
  if(d.recent.length){const m=el('div','mut','Zuletzt entschieden: '),st={accepted:'angenommen',denied:'abgelehnt',cancelled:'zurückgezogen'};m.append(d.recent.map(a=>'['+a.tag+'] '+a.name+' ('+(st[a.status]||a.status)+')').join(' · '));apps.append(m)}
  const box=document.createElement('div');
- for(const t of d.teams){const open=openTeams.has(t.tag),c=el('div','tm'+(open?' open':'')),h=el('div','tmhead');
-  h.append(el('span','tmtag','['+t.tag+']'),el('h3',0,t.name),pill(t.open?'offen':'nur Einladung',t.open?'ok':'warn'));
-  if(t.league)h.append(pill(t.league=='both'?'beide Ligen':t.league=='ranked'?'Ranked':'Unranked','acc'));if(t.category)h.append(pill(t.category,'mut'));
-  const pts=el('div','tmpts');for(const [l,n] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b',0,t.points[l]),el('div','mut',n+' · Gesamt'));pts.append(x)}
-  const mm=el('div');mm.append(el('b',0,t.members.length),el('div','mut','Mitglieder'+(t.invites?' · '+t.invites+' eingeladen':'')));pts.append(mm);
-  c.append(h);if(t.motto)c.append(el('div','mut','„'+t.motto+'“'));c.append(pts);
-  const more=el('button',0,open?'Schließen ▴':'Verwalten ▾');more.onclick=()=>{if(openTeams.has(t.tag))openTeams.delete(t.tag);else openTeams.add(t.tag);tmDraw()};c.append(more);
-  if(open)c.append(tmManage(t));box.append(c)}
+ for(const t of d.teams){const open=openTeams.has(t.tag),c=el('div','tm'+(open?' open':'')),left=el('div','tmleft'),band=el('div','tmband');
+  let hue=0;for(const ch of t.tag)hue=(hue*31+ch.charCodeAt(0))%360;c.style.setProperty('--h',hue);
+  const pl=el('div','tmpills');pl.append(pill(t.open?'offen':'nur Einladung',t.open?'ok':'warn'));
+  if(t.league)pl.append(pill(t.league=='both'?'beide Ligen':t.league=='ranked'?'Ranked':'Unranked','acc'));if(t.category)pl.append(pill(t.category,'mut'));
+  if(t.logo){const lg=el('img','tmlogo');lg.alt='';lg.onerror=()=>lg.remove();lg.src='/api/teamlogo?u='+encodeURIComponent(t.logo);band.append(lg)}
+  band.append(el('span','tmtag','['+t.tag+']'),el('h3',0,t.name),pl);
+  const body=el('div','tmbody'),pts=el('div','tmpts');for(const [l,n] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b',0,t.points[l]),el('div','mut',n));x.title=n+', Gesamtpunkte';pts.append(x)}
+  const mm=el('div');mm.append(el('b',0,t.members.length),el('div','mut','Mitglieder'+(t.invites?' (+'+t.invites+')':'')));if(t.invites)mm.title=t.invites+' eingeladen';pts.append(mm);body.append(pts);
+  if(t.motto)body.append(el('div','mut','„'+t.motto+'“'));
+  const chips=el('div','tmchips'),MI={owner:'👑 ',leader:'★ '};for(const m of t.members.slice(0,8))chips.append(el('span','tmchip',(MI[m.role]||'')+m.name));if(t.members.length>8)chips.append(el('span','tmchip mut','+'+(t.members.length-8)));
+  if(t.members.length)body.append(chips);
+  const more=el('button',0,open?'Schließen ▴':'Verwalten ▾');more.onclick=()=>{if(openTeams.has(t.tag))openTeams.delete(t.tag);else openTeams.add(t.tag);tmDraw()};body.append(more);
+  left.append(band,body);c.append(left);
+  if(open){const r=el('div','tmright');r.append(tmManage(t));c.append(r)}box.append(c)}
  if(d.exists&&!d.teams.length)box.append(el('div','mut','Noch keine Teams. Bewerbungen kommen aus dem Spiel mit /team apply.'));
  $('tmlist').replaceChildren(...box.childNodes)}
-function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='12px';
- const ed=el('div','tmedit'),field=(label,key,val,ph)=>{const r=el('div','crow'),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'?300:60;const b=el('button',0,'Speichern');b.onclick=()=>tmPost({action:'set',team:t.tag,key,value:i.value});r.append(el('span','mut',label),i,b);return r};
- ed.append(field('Motto','motto',t.motto),field('Beschreibung','description',t.description),field('Kategorie','category',t.category,'z. B. Casual'),field('Tag','tag',t.tag),field('Logo-Link','logo',t.logo,'https://…'));
- const lr=el('div','crow'),ls=document.createElement('select');for(const [v,l] of [['','keine Angabe'],['ranked','Ranked'],['unranked','Unranked'],['both','beide']])ls.add(new Option(l,v));ls.value=t.league||'';ls.onchange=()=>tmPost({action:'set',team:t.tag,key:'league',value:ls.value});lr.append(el('span','mut','Liga'),ls);
- const or=el('div','crow'),ob=el('button',0,t.open?'Auf „nur Einladung“ stellen':'Für alle öffnen');ob.onclick=()=>tmPost({action:'set',team:t.tag,key:'open',value:t.open?'no':'yes'});or.append(el('span','mut','Beitritt'),ob);
- ed.append(lr,or);w.append(ed);
+function logoPreview(url){const b=el('div','tmprev');if(!url){b.append(el('span','mut','Kein Logo gesetzt'));return b}
+ const im=el('img','tmlogo big');im.alt='Logo';im.onload=()=>{b.dataset.ok='1'};im.onerror=()=>{im.remove();b.append(el('span','mut','Das Logo lässt sich nicht laden (https, öffentlich erreichbar, PNG/JPG/WebP/GIF bis 1,5 MB).'))};im.src='/api/teamlogo?u='+encodeURIComponent(url);b.append(im);return b}
+function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='14px';
+ const form=el('div','tmform'),vals={},fld=(label,key,val,ph,wide,extra)=>{const l=el('label','tmfld'+(wide?' wide':'')),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'||key=='logo'?300:60;vals[key]=[i,val||''];l.append(el('span','mut',label),i);if(extra)l.append(extra);return l};
+ const sel=(label,key,opts,val)=>{const l=el('label','tmfld'),x=document.createElement('select');for(const [v,n] of opts)x.add(new Option(n,v));x.value=val;vals[key]=[x,val];l.append(el('span','mut',label),x);return l};
+ form.append(fld('Motto','motto',t.motto),fld('Kategorie','category',t.category,'z. B. Casual'),fld('Beschreibung','description',t.description,'',true),fld('Tag','tag',t.tag),fld('Logo-Link','logo',t.logo,'https://…',false,logoPreview(t.logo)),
+  sel('Liga','league',[['','keine Angabe'],['ranked','Ranked'],['unranked','Unranked'],['both','beide']],t.league||''),sel('Beitritt','open',[['yes','offen'],['no','nur Einladung']],t.open?'yes':'no'));
+ const save=el('button','primary','Änderungen speichern');save.disabled=true;
+ const dirty=()=>Object.values(vals).some(([x,o])=>x.value!==o);form.addEventListener('input',()=>{save.disabled=!dirty()});form.addEventListener('change',()=>{save.disabled=!dirty()});
+ save.onclick=async()=>{const todo=Object.entries(vals).filter(([k,[x,o]])=>x.value!==o).map(([k,[x]])=>[k,x.value]);save.disabled=true;for(const [key,value] of todo)await tmPost({action:'set',team:t.tag,key,value})};
+ w.append(form,save);
  const tw=el('div','tablewrap'),tb=el('table'),hr=el('tr');for(const [l,n] of [['Mitglied',0],['Rolle',0],['Unranked',1],['Ranked',1],['',0]])hr.append(el('th',n?'lbn':'',l));tb.append(hr);
  const RN={owner:'Besitzer',leader:'Leader',member:'Mitglied'};
  for(const m of t.members){const tr=el('tr'),nm=el('td',0,m.name);nm.title=m.steam_id;const act=el('td'),box=el('div','act');
@@ -2384,7 +2524,7 @@ function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='12px'
    ld.onclick=()=>tmPost({action:'leader',team:t.tag,player:m.steam_id});ow.onclick=()=>armed(ow,()=>tmPost({action:'owner',team:t.tag,player:m.steam_id}));kk.onclick=()=>armed(kk,()=>tmPost({action:'kick',team:t.tag,player:m.steam_id}));box.append(ld,ow,kk)}
   act.append(box);tr.append(nm,el('td',0,RN[m.role]||m.role),el('td','lbn',m.points.unranked),el('td','lbn',m.points.ranked),act);tb.append(tr)}
  tw.append(tb);w.append(tw);
- const dr=el('div','crow'),db=el('button','danger','Team auflösen');db.onclick=()=>armed(db,()=>tmPost({action:'disband',team:t.tag}).then(()=>openTeams.delete(t.tag)));dr.append(db,el('span','mut','Entfernt das Team für alle Mitglieder. Änderungen laufen wie vom Besitzer ausgeführt, die Spieler bekommen die Meldung im Spiel.'));w.append(dr);return w}
+ const dr=el('div','crow'),db=el('button','danger','Team auflösen …');db.title='Entfernt das Team für alle Mitglieder; die Spieler bekommen die Meldung im Spiel.';db.onclick=()=>armed(db,()=>tmPost({action:'disband',team:t.tag}).then(()=>openTeams.delete(t.tag)));dr.append(db);w.append(dr);return w}
 const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen'],['rangliste','Rangliste'],['teams','Teams']];
 let tsLoaded=false;
 let view='uebersicht';
@@ -2486,6 +2626,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/tsimg":
                 kind, data = ts_image(q.get("u", ""))
                 return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=86400")])
+            if url.path == "/api/teamlogo":
+                kind, data = team_logo(q.get("u", ""))
+                return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=3600")])
             if url.path == "/api/mapname":
                 return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/maps":
