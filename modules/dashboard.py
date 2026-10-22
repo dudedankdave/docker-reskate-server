@@ -1897,6 +1897,7 @@ PUBLIC_LOCK = threading.Lock()
 PUBLIC_BAD_LOGOS = {}     # logo link -> time of the failed fetch (not tried again for five minutes)
 
 
+GRIP_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#0f0f10"/><filter id="a" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="2" seed="7" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .68  0 0 0 0 .68  0 0 0 0 .66  7 0 0 0 -3.85"/></filter><filter id="b" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.36" numOctaves="2" seed="21" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .42  0 0 0 0 .43  6 0 0 0 -3.1"/></filter><filter id="c" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 .95"/></filter><rect width="100%" height="100%" filter="url(#b)"/><rect width="100%" height="100%" filter="url(#a)" opacity=".72"/><rect width="100%" height="100%" filter="url(#c)" opacity=".5"/></svg>')
 PAPER_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" '
              'numOctaves="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .36 0 0 0 0 .28 0 0 0 0 .16 0 0 0 .7 -.18"/></filter>'
              '<rect width="100%" height="100%" filter="url(#n)"/></svg>')
@@ -2752,7 +2753,7 @@ PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8
 *{box-sizing:border-box}html{scroll-behavior:smooth;overflow-x:clip}
 body{margin:0;overflow-x:clip;color:var(--ink);font:16px/1.5 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(1200px 600px at 50% -10%,rgba(255,255,255,.55),transparent 70%),radial-gradient(900px 700px at 110% 110%,rgba(120,80,30,.16),transparent 70%),url(/status/paper.svg),var(--paper)}
 .wrap{width:100%;margin:0;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
-.hero{position:relative;overflow:hidden;border-bottom:4px solid var(--ink);background:repeating-linear-gradient(-45deg,transparent 0 14px,rgba(29,26,22,.045) 14px 15px)}
+.hero{position:relative;overflow:hidden;border-bottom:4px solid var(--ink);background:url(/status/grip.svg),#0f0f10;color:var(--paper)}
 .hero::after{content:"";position:absolute;inset:auto 0 0 0;height:10px;background:radial-gradient(circle at 7px 0,var(--paper) 6px,transparent 6.5px) 0 0/14px 10px repeat-x;opacity:0}
 .top{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;padding-top:18px;padding-bottom:6px}
 .logo{display:inline-block;background:var(--ink);padding:8px 14px;border-radius:6px;transform:rotate(-1.6deg);box-shadow:3px 3px 0 var(--red)}.logo img{display:block;max-width:100%;height:auto}
@@ -2760,11 +2761,11 @@ body{margin:0;overflow-x:clip;color:var(--ink);font:16px/1.5 Georgia,"Iowan Old 
 a.nb{font:700 13px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--ink);text-decoration:none;border:2px solid var(--ink);background:var(--card);border-radius:4px;padding:8px 12px;box-shadow:2px 2px 0 var(--ink);transition:transform .1s,box-shadow .1s}
 a.nb:hover{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);background:var(--yel)}a.nb.on{background:var(--ink);color:var(--yel)}
 .intro{position:relative;padding-top:clamp(26px,4vw,56px);padding-bottom:clamp(34px,5vw,64px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,clamp(340px,36vw,620px));gap:26px clamp(24px,4vw,64px);align-items:center}@media(max-width:820px){.intro{grid-template-columns:minmax(0,1fr)}}.intro .l{display:grid;gap:18px;position:relative}
-h1{margin:0;font:900 clamp(40px,8vw,92px)/.95 var(--head);text-transform:uppercase;letter-spacing:.01em;text-wrap:balance;color:var(--ink);text-shadow:3px 3px 0 var(--yel),6px 6px 0 var(--red);transform:rotate(-1deg)}
+h1{margin:0;font:900 clamp(40px,8vw,92px)/.95 var(--head);text-transform:uppercase;letter-spacing:.01em;text-wrap:balance;color:var(--paper);text-shadow:3px 3px 0 var(--red),6px 6px 0 #000;transform:rotate(-1deg)}
 .burst{position:absolute;right:clamp(0px,2vw,24px);top:-22px;width:108px;height:108px;display:grid;place-items:center;transform:rotate(10deg);z-index:2;filter:drop-shadow(3px 3px 0 var(--ink))}
 .burst::before{content:"";position:absolute;inset:0;background:#f59a1b;clip-path:polygon(50.0% 0.0%,56.9% 6.5%,65.5% 2.4%,70.0% 10.8%,79.4% 9.5%,81.1% 18.9%,90.5% 20.6%,89.2% 30.0%,97.6% 34.5%,93.5% 43.1%,100.0% 50.0%,93.5% 56.9%,97.6% 65.5%,89.2% 70.0%,90.5% 79.4%,81.1% 81.1%,79.4% 90.5%,70.0% 89.2%,65.5% 97.6%,56.9% 93.5%,50.0% 100.0%,43.1% 93.5%,34.5% 97.6%,30.0% 89.2%,20.6% 90.5%,18.9% 81.1%,9.5% 79.4%,10.8% 70.0%,2.4% 65.5%,6.5% 56.9%,0.0% 50.0%,6.5% 43.1%,2.4% 34.5%,10.8% 30.0%,9.5% 20.6%,18.9% 18.9%,20.6% 9.5%,30.0% 10.8%,34.5% 2.4%,43.1% 6.5%)}.burst::after{content:"";position:absolute;inset:7px;border:2px dashed rgba(29,26,22,.55);border-radius:50%}.burst span{position:relative;transform:rotate(-24deg);font:900 22px/1 var(--head);text-transform:uppercase;color:var(--ink);letter-spacing:.02em}
 @media(max-width:820px){.burst{top:112px;right:8px;width:76px;height:76px}.burst span{font-size:16px}}
-.spk{position:absolute;width:26px;height:26px;fill:var(--ink);opacity:.85;pointer-events:none}.spk.a{left:46%;top:14%;width:22px;height:22px;fill:var(--red)}.spk.b{right:30%;top:10%;width:30px;height:30px;fill:var(--blue)}.spk.c{left:3%;bottom:10%;width:16px;height:16px}.spk.d{right:3%;top:42%;width:18px;height:18px;fill:var(--red)}
+.spk{position:absolute;width:26px;height:26px;fill:var(--paper);opacity:.85;pointer-events:none}.spk.a{left:46%;top:14%;width:22px;height:22px;fill:var(--red)}.spk.b{right:30%;top:10%;width:30px;height:30px;fill:var(--yel)}.spk.c{left:3%;bottom:10%;width:16px;height:16px}.spk.d{right:3%;top:42%;width:18px;height:18px;fill:var(--red)}
 @media(max-width:820px){.spk.a,.spk.b{display:none}}
 .sum{display:flex;gap:10px;flex-wrap:wrap}.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:2px solid var(--ink);background:var(--card);font:600 14px/1.2 var(--mono);box-shadow:3px 3px 0 var(--ink);transform:rotate(.6deg)}.chip:nth-child(2){transform:rotate(-.8deg)}.chip b{font-weight:800}
 .join{position:relative;display:flex;gap:16px;align-items:center;padding:20px 22px;border:3px solid var(--ink);border-radius:10px;text-decoration:none;color:var(--ink);transform:rotate(1.4deg);box-shadow:7px 7px 0 var(--ink);transition:transform .15s,box-shadow .15s;overflow:hidden;
@@ -2833,7 +2834,7 @@ footer span{display:inline-block;max-width:560px;border:2px solid var(--ink);bor
 
 .mast{background:var(--ink);color:var(--paper);font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em}.mast .wrap{display:flex;justify-content:space-between;gap:12px;padding-top:8px;padding-bottom:8px;flex-wrap:wrap}.mast span:nth-child(2){color:var(--yel)}
 @media(max-width:620px){.mast span:nth-child(3){display:none}}
-h1{font-size:clamp(46px,9vw,104px);line-height:.88;letter-spacing:-.02em}.yard{display:inline-block;background:var(--ink);color:var(--yel);padding:0 .1em .02em;text-shadow:none;transform:rotate(-2.5deg);box-shadow:6px 6px 0 var(--red);margin-top:.08em}
+h1{font-size:clamp(46px,9vw,104px);line-height:.88;letter-spacing:-.02em}.sum .chip{color:var(--ink)}.hero a.nb.on{background:var(--yel);color:var(--ink)}.yard{display:inline-block;background:var(--yel);color:var(--ink);padding:0 .1em .02em;text-shadow:none;transform:rotate(-2.5deg);box-shadow:6px 6px 0 var(--red);margin-top:.08em}
 .tick{background:var(--yel);border-top:4px solid var(--ink);border-bottom:4px solid var(--ink);overflow:hidden;white-space:nowrap;transform:rotate(-1deg) scale(1.02);margin:-2px 0 0;position:relative;z-index:3;box-shadow:0 6px 0 var(--red)}
 .tk{display:inline-flex;animation:tick 40s linear infinite;will-change:transform}.tkc{display:inline-block;padding:9px 0;font:900 18px/1 var(--head);text-transform:uppercase;letter-spacing:.06em;color:var(--ink)}
 @keyframes tick{to{transform:translateX(-50%)}}@media(prefers-reduced-motion:reduce){.tk{animation:none}}
@@ -2997,6 +2998,8 @@ class Handler(BaseHTTPRequestHandler):
         """The page and data anyone may read: no login, rate limited per address, whitelisted fields only."""
         if url.path in ("/status", "/status/de", "/public"):
             return self.send(200, public_page("de" if url.path == "/status/de" else "en"), headers=[("Cache-Control", "public, max-age=60")])
+        if url.path == "/status/grip.svg":
+            return self.send(200, GRIP_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if url.path == "/status/paper.svg":
             return self.send(200, PAPER_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if not public_allowed(self.address()):
