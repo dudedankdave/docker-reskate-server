@@ -1921,7 +1921,6 @@ PUBLIC_TEXT = {
         "loc": "en-US", "title": "COCOJAMBO'S YARD – ReSkate status", "nav_servers": "Servers", "nav_board": "Leaderboard", "nav_teams": "Teams",
         "join_title": "Join our Discord", "join_text": "Find players, start a team, get updates and leaderboard news", 
         "live": "live", "period": "Period", "mode": "Mode", "allModes": "All modes",
-        "footer": "Updates itself automatically. Only player names, points and teams are shown, nothing private.",
         "tooMany": "Too many requests, try again in a moment.", "unreachable": "Not reachable",
         "online": "Online", "offline": "Offline", "map": "Map", "players": "players", "down": "Not reachable right now",
         "srvOnline": "servers online", "playerNow": "player in game right now", "playersNow": "players in game right now", "noServers": "No servers found.",
@@ -1950,7 +1949,6 @@ PUBLIC_TEXT = {
         "loc": "de-DE", "title": "COCOJAMBO'S YARD – ReSkate Status", "nav_servers": "Server", "nav_board": "Rangliste", "nav_teams": "Teams",
         "join_title": "Komm auf unseren Discord", "join_text": "Mitspieler finden, Teams gründen, Updates und Ranglisten-News", 
         "live": "live", "period": "Zeitraum", "mode": "Modus", "allModes": "Alle Modi",
-        "footer": "Aktualisiert sich automatisch. Nur Spielernamen, Punkte und Teams, keine privaten Daten.",
         "tooMany": "Zu viele Anfragen, gleich noch einmal versuchen.", "unreachable": "Nicht erreichbar",
         "online": "Online", "offline": "Offline", "map": "Map", "players": "Spieler", "down": "Gerade nicht erreichbar",
         "srvOnline": "Server online", "playerNow": "Spieler gerade im Spiel", "playersNow": "Spieler gerade im Spiel", "noServers": "Keine Server gefunden.",
@@ -2894,9 +2892,9 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 .lb .tag{background:var(--fg);color:#0b0b0b;border:0;padding:0 5px;margin-right:8px;vertical-align:2px}
 /* footer */
 .fgrid{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:clamp(24px,5vw,72px);border-top:1px solid var(--edge);padding-top:34px;margin-bottom:38px}
-.dw{display:block;width:350px;max-width:100%;height:500px;border:1px solid var(--edge);background:var(--panel)}
+.dw{display:block;width:640px;max-width:100%;height:300px;border:1px solid var(--edge);background:var(--panel)}
 .fr{display:grid;place-items:center;min-width:0}.fr img{width:min(100%,170px);height:auto;transform:rotate(-7deg);filter:drop-shadow(0 14px 20px rgba(0,0,0,.7))}
-.cp{display:block;margin-top:10px;color:var(--fg);letter-spacing:.2em}
+.cp{display:block;color:var(--fg);letter-spacing:.2em}
 
 /* masthead */
 @font-face{font-family:"Gothic";src:url(/status/font.woff2) format("woff2");font-weight:700;font-display:swap}
@@ -2939,7 +2937,7 @@ h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;borde
 <section id="teams"><h2><i class="no">03</i><span>{{nav_teams}}</span></h2><div class="kick">{{k_teams}}</div><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
 <section id="soon"><h2><i class="no">04</i><span>{{soon_title}}</span> <small class="soonchip">{{soon_chip}}</small></h2><div class="kick">{{k_soon}}</div><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
 </main>
-<footer class="wrap"><div class="fgrid"><div class="fl"><iframe class="dw" src="https://discord.com/widget?id=1558637403869155488&amp;theme=dark" width="350" height="500" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts" title="Discord" loading="lazy"></iframe></div><div class="fr"><img src="/status/s/alien.webp" alt="" width="380" height="560" aria-hidden="true" loading="lazy"></div></div><span>{{footer}}<b class="cp">© COCOJAMBO CREW 2026</b></span><div class="bc" aria-hidden="true"></div></footer>
+<footer class="wrap"><div class="fgrid"><div class="fl"><iframe class="dw" src="https://discord.com/widget?id=1558637403869155488&amp;theme=dark" width="640" height="300" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts" title="Discord" loading="lazy"></iframe></div><div class="fr"><img src="/status/s/alien.webp" alt="" width="380" height="560" aria-hidden="true" loading="lazy"></div></div><span><b class="cp">© COCOJAMBO CREW 2026</b></span><div class="bc" aria-hidden="true"></div></footer>
 <script>
 const T=__T__;
 const $=id=>document.getElementById(id);
