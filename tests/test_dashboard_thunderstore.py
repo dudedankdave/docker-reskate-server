@@ -1178,6 +1178,26 @@ class PublicPageTest(unittest.TestCase):
             self.assertNotIn("discord.gg", page)
             self.assertNotIn('class="join"', page)
 
+    def test_english_is_the_default_and_german_has_its_own_route(self):
+        en, de = self.get("/status")[1], self.get("/status/de")[1]
+        self.assertIn('<html lang="en">', en)
+        self.assertIn('<html lang="de">', de)
+        self.assertIn("Join our Discord", en)
+        self.assertIn("Komm auf unseren Discord", de)
+        self.assertEqual(self.get("/public")[1], en)
+        for page in (en, de):
+            self.assertNotIn("{{", page)
+            self.assertNotIn("__T__", page)
+        self.assertEqual(self.get("/status/fr")[0], 404)
+
+    def test_every_text_exists_in_both_languages_and_in_the_page(self):
+        en, de = self.d.PUBLIC_TEXT["en"], self.d.PUBLIC_TEXT["de"]
+        self.assertEqual(set(en), set(de))
+        self.assertEqual(set(en["kinds"]), set(de["kinds"]))
+        import re
+        used = set(re.findall(r"\bT\.(\w+)", self.d.PUBLIC_PAGE)) | set(re.findall(r"\{\{(\w+)\}\}", self.d.PUBLIC_PAGE))
+        self.assertLessEqual(used - {"lang", "on_en", "on_de"}, set(en))
+
     def test_page_renders_text_only(self):
         page = self.d.PUBLIC_PAGE
         self.assertNotIn("innerHTML", page)

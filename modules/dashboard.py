@@ -42,6 +42,7 @@ from functools import reduce
 from math import gcd
 import glob
 import hashlib
+import html
 import ipaddress
 import re
 import shutil
@@ -1895,14 +1896,51 @@ PUBLIC_LOCK = threading.Lock()
 PUBLIC_BAD_LOGOS = {}     # logo link -> time of the failed fetch (not tried again for five minutes)
 
 
-def public_page():
-    """The status page with the Discord invite filled in (only a https://discord.gg/ or discord.com/invite/ link; otherwise the links are left out)."""
+PUBLIC_TEXT = {
+    "en": {
+        "loc": "en-US", "title": "COCOJAMBO'S YARD – ReSkate status", "nav_servers": "Servers", "nav_board": "Leaderboard", "nav_teams": "Teams",
+        "join_title": "Join our Discord", "join_text": "Find players, start a team, get updates and leaderboard news", "join_button": "Join",
+        "live": "live", "period": "Period", "mode": "Mode", "allModes": "All modes",
+        "footer": "Updates itself automatically. Only player names, points and teams are shown, nothing private.",
+        "tooMany": "Too many requests, try again in a moment.", "unreachable": "Not reachable",
+        "online": "Online", "offline": "Offline", "map": "Map", "players": "players", "down": "Not reachable right now",
+        "srvOnline": "servers online", "playerNow": "player in game right now", "playersNow": "players in game right now", "noServers": "No servers found.",
+        "unranked": "Unranked", "ranked": "Ranked", "both": "Both leagues", "servers15": "Servers 1–5", "server6": "Server 6",
+        "kinds": {"general": "All time", "year": "Year", "month": "Month", "week": "Week", "event": "Event"}, "ended": "ended",
+        "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
+        "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
+        "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
+    },
+    "de": {
+        "loc": "de-DE", "title": "COCOJAMBO'S YARD – ReSkate Status", "nav_servers": "Server", "nav_board": "Rangliste", "nav_teams": "Teams",
+        "join_title": "Komm auf unseren Discord", "join_text": "Mitspieler finden, Teams gründen, Updates und Ranglisten-News", "join_button": "Beitreten",
+        "live": "live", "period": "Zeitraum", "mode": "Modus", "allModes": "Alle Modi",
+        "footer": "Aktualisiert sich automatisch. Nur Spielernamen, Punkte und Teams, keine privaten Daten.",
+        "tooMany": "Zu viele Anfragen, gleich noch einmal versuchen.", "unreachable": "Nicht erreichbar",
+        "online": "Online", "offline": "Offline", "map": "Map", "players": "Spieler", "down": "Gerade nicht erreichbar",
+        "srvOnline": "Server online", "playerNow": "Spieler gerade im Spiel", "playersNow": "Spieler gerade im Spiel", "noServers": "Keine Server gefunden.",
+        "unranked": "Unranked", "ranked": "Ranked", "both": "Beide Ligen", "servers15": "Server 1–5", "server6": "Server 6",
+        "kinds": {"general": "Gesamt", "year": "Jahr", "month": "Monat", "week": "Woche", "event": "Event"}, "ended": "beendet",
+        "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
+        "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
+        "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
+    },
+}
+
+
+def public_page(lang="en"):
+    """The status page in `lang` (en or de) with the Discord invite filled in (only a https://discord.gg/ or discord.com/invite/ link; otherwise the links are left out)."""
+    text = PUBLIC_TEXT.get(lang, PUBLIC_TEXT["en"])
+    lang = lang if lang in PUBLIC_TEXT else "en"
     link = DISCORD if re.fullmatch(r"https://(?:discord\.gg|discord\.com/invite)/[A-Za-z0-9-]{2,40}", DISCORD) else ""
     page = PUBLIC_PAGE
     if not link:
         page = re.sub(r'<a class="join".*?</a>', "", page, flags=re.S)
         page = re.sub(r'<a class="nb" href="__DISCORD__".*?</a>', "", page, flags=re.S)
-    return page.replace("__DISCORD__", link)
+    values = dict(text, lang=lang, on_en=" on" if lang == "en" else "", on_de=" on" if lang == "de" else "")
+    page = re.sub(r"\{\{(\w+)\}\}", lambda m: html.escape(values[m.group(1)]), page)
+    data = json.dumps(text, ensure_ascii=False).replace("</", "<\\/")
+    return page.replace("__T__", data).replace("__DISCORD__", link)
 
 
 def public_allowed(address):
@@ -2672,13 +2710,13 @@ LOGO_SVG = '<svg id="Ebene_2" data-name="Ebene 2" xmlns="http://www.w3.org/2000/
 FAVICON_PNG = base64.b64decode(
     "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")
 
-PUBLIC_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
-<title>COCOJAMBO'S YARD – ReSkate Status</title><link rel="icon" type="image/png" href="/favicon.png"><style>
+PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
+<title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#14151a;--fg:#eceef3;--card:#1e2028;--card2:#252833;--line:#2f3340;--mut:#9aa0b0;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff;--acc2:#c48bff}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
 .hero{background:radial-gradient(900px 300px at 15% -10%,rgba(142,162,255,.22),transparent 70%),radial-gradient(700px 260px at 90% 0,rgba(196,139,255,.16),transparent 70%),var(--bg);border-bottom:1px solid var(--line)}
 .wrap{max-width:1360px;margin:0 auto;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
-.top{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;padding-top:16px;padding-bottom:6px}.top img{max-width:100%;height:auto}.top nav{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.top{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;padding-top:16px;padding-bottom:6px}.top img{max-width:100%;height:auto}.top nav{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.lang{display:inline-flex;gap:4px}a.nb.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 a.nb{color:var(--fg);text-decoration:none;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:99px;padding:5px 14px;font-size:14px}a.nb:hover{border-color:var(--acc);color:var(--acc)}
 .intro{padding-top:clamp(22px,4vw,48px);padding-bottom:clamp(26px,4vw,52px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:20px 32px;align-items:center}@media(max-width:820px){.intro{grid-template-columns:minmax(0,1fr)}}.intro .l{display:grid;gap:14px}
 .join{display:flex;gap:16px;align-items:center;padding:16px 18px;border-radius:16px;border:1px solid rgba(114,137,218,.45);background:linear-gradient(135deg,rgba(88,101,242,.30),rgba(88,101,242,.10));text-decoration:none;color:var(--fg);transition:transform .15s,border-color .15s}.join:hover{transform:translateY(-2px);border-color:#7d8bff}.join svg{flex:none;width:44px;height:44px;color:#aab4ff}.join b{display:block;font-size:16px}.join span{display:block;color:var(--mut);font-size:13px;margin-top:2px}.join i{margin-left:auto;font-style:normal;flex:none;padding:7px 16px;border-radius:99px;background:#5865f2;color:#fff;font-weight:650;font-size:14px;white-space:nowrap}.join:hover i{background:#6b77ff}@media(max-width:480px){.join{flex-wrap:wrap}.join i{margin-left:60px}}
@@ -2717,28 +2755,30 @@ table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px 12px
 .tmbody{padding:14px;display:grid;gap:10px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chips .chip{font-size:12px;padding:1px 10px;color:var(--mut)}
 .score{display:flex;gap:16px;flex-wrap:wrap}.score div{display:grid}.score b{font-size:20px;font-variant-numeric:tabular-nums;line-height:1.2}.score span{font-size:12px;color:var(--mut)}
 details summary{cursor:pointer;color:var(--acc);font-size:14px}details ul{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:4px}details li{display:flex;gap:8px;justify-content:space-between;font-size:14px}
+th::first-letter,summary::first-letter{text-transform:uppercase}
 footer{padding-top:0;padding-bottom:32px;color:var(--mut);font-size:13px;text-align:center}
 </style></head><body>
 <div class="hero"><div class="wrap">
-<div class="top"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"><nav><a class="nb" href="#server">Server</a><a class="nb" href="#rangliste">Rangliste</a><a class="nb" href="#teams">Teams</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a></nav></div>
+<div class="top"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
 <div class="intro"><div class="l"><h1>COCOJAMBO'S YARD</h1><div class="sum" id="sum"></div></div>
-<a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>Komm auf unseren Discord</b><span>Mitspieler finden, Teams gründen, Updates und Ranglisten-News</span></div><i>Beitreten</i></a></div>
+<a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div>
 </div></div>
 <main class="wrap">
-<section id="server"><h2>Server <small>live</small></h2><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
-<section id="rangliste"><h2>Rangliste</h2>
+<section id="server"><h2>{{nav_servers}} <small>{{live}}</small></h2><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
+<section id="leaderboard"><h2>{{nav_board}}</h2>
 <div class="ctl" id="lbleague"></div>
-<div class="ctl"><select id="lbboard" aria-label="Zeitraum"></select><select id="lbmode" aria-label="Modus"></select><span class="mut" id="lbinfo"></span></div>
+<div class="ctl"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select><span class="mut" id="lbinfo"></span></div>
 <div class="pod" id="pod"></div>
 <div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></section>
-<section id="teams"><h2>Teams</h2><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
+<section id="teams"><h2>{{nav_teams}}</h2><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
 </main>
-<footer class="wrap">Aktualisiert sich automatisch. Nur Spielernamen, Punkte und Teams – keine privaten Daten.</footer>
+<footer class="wrap">{{footer}}</footer>
 <script>
+const T=__T__;
 const $=id=>document.getElementById(id);
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined&&text!==null)e.textContent=text;return e}
-async function get(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(r.status==429?'Zu viele Anfragen – gleich noch einmal.':'Nicht erreichbar ('+r.status+')');return r.json()}
-const fmt=n=>(n||0).toLocaleString('de-DE');
+async function get(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(r.status==429?T.tooMany:T.unreachable+' ('+r.status+')');return r.json()}
+const fmt=n=>(n||0).toLocaleString(T.loc);const tr_=(s,o)=>s.replace(/[{]([a-z]+)[}]/g,(_,k)=>o[k]);
 const hue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h};
 const imgState={};
 async function loadStatus(){
@@ -2748,16 +2788,16 @@ async function loadStatus(){
    const c=el('div','sv'+(s.online?'':' off')),pic=el('div','pic');pic.style.setProperty('--h',hue(s.map||s.role||'x'));
    pic.append(el('div','ph',s.online&&s.map?s.map:s.role||'Server '+s.server));
    if(s.online&&s.map&&imgState[s.map]!='none'){const im=new Image();im.alt='';im.onload=()=>{imgState[s.map]='ok';pic.append(im)};im.onerror=()=>{imgState[s.map]='none'};im.src='/status/api/mapimg?name='+encodeURIComponent(s.map)}
-   const st=el('div','st');st.append(el('span',s.online?'dot up':'dot'),s.online?'Online':'Offline');pic.append(st,el('div','num','#'+s.server));
+   const st=el('div','st');st.append(el('span',s.online?'dot up':'dot'),s.online?T.online:T.offline);pic.append(st,el('div','num','#'+s.server));
    const b=el('div','svb');b.append(el('div','nm',s.role||'Server '+s.server));
-   if(s.online){b.append(el('div','mp',s.map?'Map: '+s.map:'Map: –'));
-    const p=el('div','pl');p.append(el('b','',s.players===null?'?':s.players),el('span','',s.max?'/ '+s.max+' Spieler':'Spieler'));b.append(p);
+   if(s.online){b.append(el('div','mp',s.map?T.map+': '+s.map:T.map+': –'));
+    const p=el('div','pl');p.append(el('b','',s.players===null?'?':s.players),el('span','',s.max?'/ '+s.max+' '+T.players:T.players));b.append(p);
     if(s.max&&s.players!==null){const bar=el('div','bar'),f=el('span',s.players/s.max>.9?'f':s.players/s.max>.7?'w':'');f.style.width=Math.min(100,Math.round(100*s.players/s.max))+'%';bar.append(f);b.append(bar)}}
-   else b.append(el('div','mp bad','Gerade nicht erreichbar'));
+   else b.append(el('div','mp bad',T.down));
    c.append(pic,b);g.append(c)}
   const sm=$('sum');sm.textContent='';
-  if(d.servers.length){const a=el('span','chip'),x=el('span','dot'+(up?' up':''));a.append(x,el('b','',up+' / '+d.servers.length),' Server online');const p=el('span','chip');p.append(el('b','',pl),pl==1?' Spieler gerade im Spiel':' Spieler gerade im Spiel');sm.append(a,p)}
-  $('stat').textContent=d.servers.length?'':'Keine Server gefunden.'}
+  if(d.servers.length){const a=el('span','chip'),x=el('span','dot'+(up?' up':''));a.append(x,el('b','',up+' / '+d.servers.length),' '+T.srvOnline);const p=el('span','chip');p.append(el('b','',pl),' '+(pl==1?T.playerNow:T.playersNow));sm.append(a,p)}
+  $('stat').textContent=d.servers.length?'':T.noServers}
  catch(e){$('stat').textContent=e.message}}
 const LB={league:'unranked',board:'general',data:null};
 async function loadBoard(){
@@ -2765,30 +2805,30 @@ async function loadBoard(){
  catch(e){$('lbinfo').textContent=e.message}}
 function drawBoard(){const d=LB.data;if(!d)return;
  const lg=$('lbleague');lg.textContent='';
- for(const [k,l] of [['unranked','Unranked · Server 1–5'],['ranked','Ranked · Server 6']]){const b=el('button',k==LB.league?'on':'',l);b.onclick=()=>{LB.league=k;LB.board='general';loadBoard()};lg.append(b)}
+ for(const [k,l] of [['unranked',T.unranked+' · '+T.servers15],['ranked',T.ranked+' · '+T.server6]]){const b=el('button',k==LB.league?'on':'',l);b.onclick=()=>{LB.league=k;LB.board='general';loadBoard()};lg.append(b)}
  const base=LB.board.split(':')[0],mode=LB.board.split(':')[1]||'';
  const periods=d.boards.filter(b=>!b.mode),sel=$('lbboard');sel.textContent='';
- const KN={general:'Gesamt',year:'Jahr',month:'Monat',week:'Woche',event:'Event'};let grp=null,gk='';
+ const KN=T.kinds;let grp=null,gk='';
  for(const b of periods){if(b.kind!=gk){gk=b.kind;grp=document.createElement('optgroup');grp.label=KN[gk]||gk;sel.append(grp)}
-  const o=el('option',0,b.name+(b.open?'':' (beendet)'));o.value=b.id;if(b.id==base)o.selected=true;grp.append(o)}
- const ms=$('lbmode');ms.textContent='';const all=el('option',0,'Alle Modi');all.value='';ms.append(all);
+  const o=el('option',0,b.name+(b.open?'':' ('+T.ended+')'));o.value=b.id;if(b.id==base)o.selected=true;grp.append(o)}
+ const ms=$('lbmode');ms.textContent='';const all=el('option',0,T.allModes);all.value='';ms.append(all);
  const bn=(periods.find(b=>b.id==base)||{name:''}).name;
  for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ',''));o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
- $('lbinfo').textContent=d.total+' Spieler mit Punkten';
+ $('lbinfo').textContent=tr_(T.withPoints,{n:d.total});
  const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows;
- if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd p'+r.rank);c.append(el('div','r','#'+r.rank));const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w,el('div','pts',fmt(r.points)),el('div','mut',fmt(r.wins)+' Siege · '+fmt(r.played)+' Spiele'));pod.append(c)}
+ if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd p'+r.rank);c.append(el('div','r','#'+r.rank));const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w,el('div','pts',fmt(r.points)),el('div','mut',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
  const t=$('lbtable');t.textContent='';const hr=el('tr');
- for(const [l,n] of [['#',0],['Spieler',0],['Punkte',1],['Siege',1],['Spiele',1]])hr.append(el('th',n?'n':'',l));t.append(hr);
+ for(const [l,n] of [['#',0],[T.player,0],[T.points,1],[T.wins,1],[T.games,1]])hr.append(el('th',n?'n':'',l));t.append(hr);
  for(const r of rest){const tr=el('tr'),nm=el('td');if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
   tr.append(el('td','rk',r.rank),nm,el('td','n',fmt(r.points)),el('td','n',fmt(r.wins)),el('td','n',fmt(r.played)));t.append(tr)}
- if(!d.rows.length){const tr=el('tr'),td=el('td','mut','Noch keine Einträge.');td.colSpan=5;tr.append(td);t.append(tr)}
- else if(d.total>d.rows.length){const tr=el('tr'),td=el('td','mut','Top '+d.rows.length+' von '+d.total);td.colSpan=5;tr.append(td);t.append(tr)}
- const tt=$('lbteams');tt.textContent='';const th=el('tr');for(const [l,n] of [['Team',0],['Mitglieder',1],['Punkte',1]])th.append(el('th',n?'n':'',l));tt.append(th);
+ if(!d.rows.length){const tr=el('tr'),td=el('td','mut',T.noEntries);td.colSpan=5;tr.append(td);t.append(tr)}
+ else if(d.total>d.rows.length){const tr=el('tr'),td=el('td','mut',tr_(T.topOf,{a:d.rows.length,b:d.total}));td.colSpan=5;tr.append(td);t.append(tr)}
+ const tt=$('lbteams');tt.textContent='';const th=el('tr');for(const [l,n] of [[T.team,0],[T.members,1],[T.points,1]])th.append(el('th',n?'n':'',l));tt.append(th);
  for(const x of d.teams){const tr=el('tr'),c=el('td');c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','n',x.members),el('td','n',fmt(x.points)));tt.append(tr)}
- if(!d.teams.length){const tr=el('tr'),td=el('td','mut','Noch keine Team-Punkte auf diesem Board.');td.colSpan=3;tr.append(td);tt.append(tr)}}
+ if(!d.teams.length){const tr=el('tr'),td=el('td','mut',T.noTeamPoints);td.colSpan=3;tr.append(td);tt.append(tr)}}
 $('lbboard').onchange=()=>{LB.board=$('lbboard').value;loadBoard()};
 $('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;loadBoard()};
-const LEAGUE={unranked:'Unranked',ranked:'Ranked',both:'Beide Ligen'};
+const LEAGUE={unranked:T.unranked,ranked:T.ranked,both:T.both};
 async function loadTeams(){
  try{const d=await get('/status/api/teams'),g=$('teamlist');g.textContent='';
   for(const t of d.teams){const c=el('div','tm'),band=el('div','tmband');band.style.setProperty('--h',hue(t.tag));
@@ -2796,14 +2836,14 @@ async function loadTeams(){
    if(t.logo){const img=new Image();img.alt='';img.className='tmlogo';img.src='/status/api/logo?tag='+encodeURIComponent(t.tag);img.onload=()=>logo.replaceWith(img)}
    const head=el('div');head.append(el('h3','',t.name),el('div','mut','['+t.tag+']'+(t.motto?' · '+t.motto:'')));band.append(logo,head);
    const body=el('div','tmbody'),chips=el('div','chips');
-   chips.append(el('span','chip',t.members.length+(t.members.length==1?' Mitglied':' Mitglieder')),el('span','chip',t.open?'offen':'auf Anfrage'));
+   chips.append(el('span','chip',t.members.length+' '+(t.members.length==1?T.member:T.members)),el('span','chip',t.open?T.open:T.byRequest));
    if(t.league)chips.append(el('span','chip',LEAGUE[t.league]||t.league));if(t.category)chips.append(el('span','chip',t.category));
    body.append(chips);if(t.description)body.append(el('div','mut',t.description));
-   const sc=el('div','score');for(const [k,l] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b','',fmt(t.points[k])),el('span','',l+' Punkte'));sc.append(x)}body.append(sc);
-   const dt=el('details'),ul=el('ul');dt.append(el('summary','','Mitglieder'),ul);
-   for(const m of t.members){const li=el('li');li.append(el('span','',m.name+(m.role=='owner'?' (Gründer)':m.role=='leader'?' (Leader)':'')),el('span','mut',fmt((m.points.unranked||0)+(m.points.ranked||0))));ul.append(li)}
+   const sc=el('div','score');for(const [k,l] of [['unranked',T.unranked],['ranked',T.ranked]]){const x=el('div');x.append(el('b','',fmt(t.points[k])),el('span','',l+' '+T.pointsLc));sc.append(x)}body.append(sc);
+   const dt=el('details'),ul=el('ul');dt.append(el('summary','',T.members),ul);
+   for(const m of t.members){const li=el('li');li.append(el('span','',m.name+(m.role=='owner'?' ('+T.founder+')':m.role=='leader'?' ('+T.leader+')':'')),el('span','mut',fmt((m.points.unranked||0)+(m.points.ranked||0))));ul.append(li)}
    body.append(dt);c.append(band,body);g.append(c)}
-  $('tmstat').textContent=d.teams.length?'':'Noch keine Teams.'}
+  $('tmstat').textContent=d.teams.length?'':T.noTeams}
  catch(e){$('tmstat').textContent=e.message}}
 loadStatus();loadBoard();loadTeams();
 setInterval(()=>{if(!document.hidden)loadStatus()},30000);
@@ -2855,8 +2895,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def public(self, url):
         """The page and data anyone may read: no login, rate limited per address, whitelisted fields only."""
-        if url.path in ("/status", "/public"):
-            return self.send(200, public_page(), headers=[("Cache-Control", "public, max-age=60")])
+        if url.path in ("/status", "/status/de", "/public"):
+            return self.send(200, public_page("de" if url.path == "/status/de" else "en"), headers=[("Cache-Control", "public, max-age=60")])
         if not public_allowed(self.address()):
             return self.json(429, {"error": "too many requests"})
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
@@ -2886,7 +2926,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/health":
             return self.json(200, {"ok": True})
-        if url.path in ("/status", "/public") or url.path.startswith("/status/"):
+        if url.path in ("/status", "/status/de", "/public") or url.path.startswith("/status/"):
             return self.public(url)
         if url.path == "/logo.svg":
             return self.send(200, LOGO_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
