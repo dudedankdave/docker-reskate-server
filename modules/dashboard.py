@@ -2890,13 +2890,13 @@ footer{background:linear-gradient(rgba(0,0,0,.8),rgba(0,0,0,.8)),url(/status/gri
 .sels{display:flex;gap:10px;flex-wrap:wrap;padding-bottom:10px}
 .lb select{background:var(--bg);color:var(--dim);border:1px solid var(--edge);padding:6px 8px;font:11px/1.2 var(--mono);letter-spacing:.08em;max-width:100%}
 .lbhead{display:grid;gap:10px}
-.lbhead h3{margin:0;max-width:22ch;font:italic 700 clamp(30px,4.6vw,60px)/1.02 var(--head);text-wrap:balance}
+.lbhead h3{margin:0;max-width:22ch;font:700 clamp(34px,5vw,68px)/1 "Gothic","UnifrakturCook","Old English Text MT",Georgia,serif;text-wrap:balance}
 .lbhead p{margin:0;font:12px/1.5 var(--mono);color:var(--dim);letter-spacing:.06em}
 .pod{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--edge);border-left:1px solid var(--edge)}.pod:empty{display:none}
 .lp{position:relative;min-width:0;min-height:260px;padding:18px 20px 20px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;background:var(--panel);border-right:1px solid var(--edge);border-bottom:1px solid var(--edge);overflow:hidden}
 .lp.p1{background:radial-gradient(ellipse at 15% 0,rgba(216,57,29,.22),transparent 65%),var(--panel)}
 .lpn{position:absolute;left:14px;top:-8px;font:700 clamp(120px,15vw,200px)/1 var(--head);color:transparent;-webkit-text-stroke:1px rgba(232,227,214,.26);pointer-events:none}.lp.p1 .lpn{-webkit-text-stroke-color:var(--red)}
-.lpw{position:relative;font:700 clamp(22px,2.4vw,32px)/1.1 var(--head);overflow-wrap:anywhere}
+.lpw{position:relative;font:700 clamp(30px,3.2vw,44px)/1 "Gothic","UnifrakturCook","Old English Text MT",Georgia,serif;overflow-wrap:anywhere}
 .lpp{position:relative;display:flex;align-items:baseline;gap:10px}.lpp b{font:700 clamp(46px,5.2vw,68px)/.9 var(--head)}.lpp small{font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim)}
 .lpr{position:relative;font:11px/1.4 var(--mono);letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
 @media(max-width:700px){.pod{grid-template-columns:minmax(0,1fr)}.lp{min-height:170px}}
