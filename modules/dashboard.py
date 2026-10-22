@@ -2920,7 +2920,7 @@ h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;borde
 </defs></svg>
 <div class="mast"><div class="wrap"><span>{{mast_a}}</span><span id="issue"></span><span>{{mast_b}}</span></div></div>
 <div class="hero"><div class="wrap">
-<div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
+<div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/de" hreflang="de" lang="de">DE</a></span></nav></div>
 <div class="intro"><div class="l"><h1>Cocojambo's Yard</h1><div class="sum" id="sum"></div><p class="scat">{{scat1}} <span class="par">({{par_live}})</span></p></div>
 <div class="jw"><a class="promo" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><b>{{promo_a}}</b><i>{{promo_b}}</i></a><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div></a></div></div>
 </div></div>
@@ -3031,6 +3031,14 @@ input,button{font:inherit;padding:9px;border-radius:8px;border:1px solid var(--l
 </style></head><body><form method="post" action="/login"><img src="/logo.svg" alt="Cocojambo" style="width:100%%;height:auto;margin-bottom:6px"><h2>ReSkate Dashboard</h2>%s
 <input type="password" name="password" placeholder="Passwort" autofocus required><button>Anmelden</button></form></body></html>"""
 
+def admin_page(page):
+    """The dashboard page or login form for the /admin mount: its API, login and logout paths move under /admin."""
+    return page.replace("'/api/", "'/admin/api/").replace("'/logout'", "'/admin/logout'").replace('action="/login"', 'action="/admin/login"')
+
+
+ADMIN_PAGE = admin_page(PAGE)
+ADMIN_LOGIN = admin_page(LOGIN)
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
@@ -3062,14 +3070,14 @@ class Handler(BaseHTTPRequestHandler):
         jar = SimpleCookie(self.headers.get("Cookie", ""))
         return COOKIE in jar and valid(jar[COOKIE].value)
 
-    def cookie(self, value, age):
+    def cookie(self, value, age, path="/admin"):
         secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
-        return ("Set-Cookie", f"{COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}{secure}")
+        return ("Set-Cookie", f"{COOKIE}={value}; Path={path}; HttpOnly; SameSite=Strict; Max-Age={age}{secure}")
 
     def public(self, url):
         """The page and data anyone may read: no login, rate limited per address, whitelisted fields only."""
-        if url.path in ("/status", "/status/de", "/public"):
-            return self.send(200, public_page("de" if url.path == "/status/de" else "en"), headers=[("Cache-Control", "public, max-age=60"), ("Content-Security-Policy", PUBLIC_CSP)])
+        if url.path in ("/", "/de"):
+            return self.send(200, public_page("de" if url.path == "/de" else "en"), headers=[("Cache-Control", "public, max-age=60"), ("Content-Security-Policy", PUBLIC_CSP)])
         if url.path == "/status/font.woff2":
             return self.send(200, GOTHIC_FONT, "font/woff2", headers=[("Cache-Control", "public, max-age=604800")])
         if url.path == "/status/grip.svg":
@@ -3111,20 +3119,27 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/health":
             return self.json(200, {"ok": True})
-        if url.path in ("/status", "/status/de", "/public") or url.path.startswith("/status/"):
+        if url.path in ("/status", "/public"):
+            return self.send(301, "", headers=[("Location", "/")])
+        if url.path == "/status/de":
+            return self.send(301, "", headers=[("Location", "/de")])
+        if url.path in ("/", "/de") or url.path.startswith("/status/"):
             return self.public(url)
         if url.path == "/logo.svg":
             return self.send(200, LOGO_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if url.path in ("/favicon.png", "/favicon.ico"):
             return self.send(200, FAVICON_PNG, "image/png", headers=[("Cache-Control", "public, max-age=86400")])
+        if url.path != "/admin" and not url.path.startswith("/admin/"):
+            return self.json(404, {"error": "not found"})
+        url = url._replace(path=url.path[len("/admin"):] or "/")
         if not self.logged_in():
             if url.path.startswith("/api/"):
                 return self.json(401, {"error": "login"})
-            return self.send(200, LOGIN % "")
+            return self.send(200, ADMIN_LOGIN % "")
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path == "/":
-                return self.send(200, PAGE)
+                return self.send(200, ADMIN_PAGE)
             if url.path == "/api/servers":
                 return self.json(200, servers())
             if url.path == "/api/mapimg":
@@ -3372,8 +3387,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path != "/admin" and not path.startswith("/admin/"):
+            return self.json(404, {"error": "not found"})
+        path = path[len("/admin"):] or "/"
         if path == "/logout":
-            return self.send(200, "ok", headers=[self.cookie("", 0)])
+            return self.send(200, "ok", headers=[self.cookie("", 0), self.cookie("", 0, "/")])
         if path == "/api/say":
             return self.say()
         if path == "/api/mod":
@@ -3401,17 +3419,17 @@ class Handler(BaseHTTPRequestHandler):
         who = self.address()
         count, until = fails.get(who, [0, 0])
         if until > time.time():
-            return self.send(429, LOGIN % "<p>Zu viele Versuche, bitte später erneut.</p>")
+            return self.send(429, ADMIN_LOGIN % "<p>Zu viele Versuche, bitte später erneut.</p>")
         form = parse_qs(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)).decode(errors="replace"))
         given = form.get("password", [""])[0]
         if hmac.compare_digest(hashlib.sha256(given.encode()).digest(), hashlib.sha256(PASSWORD.encode()).digest()):
             fails.pop(who, None)
-            return self.send(303, "", headers=[("Location", "/"), self.cookie(sign(int(time.time()) + SESSION), SESSION)])
+            return self.send(303, "", headers=[("Location", "/admin/"), self.cookie(sign(int(time.time()) + SESSION), SESSION)])
         count += 1
         fails[who] = [count, time.time() + 300 if count >= 5 else 0]
         time.sleep(1)
         say(f"dashboard: wrong password from {who}")
-        self.send(401, LOGIN % "<p>Falsches Passwort.</p>")
+        self.send(401, ADMIN_LOGIN % "<p>Falsches Passwort.</p>")
 
 
 def main():

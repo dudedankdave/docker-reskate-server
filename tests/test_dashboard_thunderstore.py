@@ -1095,8 +1095,38 @@ class PublicPageTest(unittest.TestCase):
         self.assertEqual(self.get("/status")[0], 200)
         for path in ("/status/api/servers", "/status/api/board?league=unranked&board=general", "/status/api/teams"):
             self.assertEqual(self.get(path)[0], 200, path)
-        for path in ("/api/leaderboard", "/api/teams", "/api/servers"):
+        for path in ("/admin/api/leaderboard", "/admin/api/teams", "/admin/api/servers"):
             self.assertEqual(self.get(path)[0], 401, path)
+        for path in ("/api/leaderboard", "/api/servers", "/login"):
+            self.assertEqual(self.get(path)[0], 404, path)
+
+    def test_status_page_is_the_root_and_the_dashboard_lives_under_admin(self):
+        import http.client
+        host, port = "127.0.0.1", self.web.server_address[1]
+        def raw(path):
+            c = http.client.HTTPConnection(host, port, timeout=5)
+            c.request("GET", path)
+            r = c.getresponse()
+            return r.status, r.getheader("Location"), r.read().decode()
+        code, _, root = raw("/")
+        self.assertEqual(code, 200)
+        self.assertIn("Cocojambo", root)
+        self.assertNotIn('type="password"', root)
+        self.assertIn('lang="de"', raw("/de")[2])
+        for old, new in (("/status", "/"), ("/public", "/"), ("/status/de", "/de")):
+            self.assertEqual(raw(old)[:2], (301, new), old)
+        code, _, login = raw("/admin")
+        self.assertEqual(code, 200)
+        self.assertIn('type="password"', login)
+        self.assertIn('action="/admin/login"', login)
+        self.assertEqual(raw("/admin/")[2], login)
+
+    def test_dashboard_page_calls_only_its_own_prefix(self):
+        page = self.d.ADMIN_PAGE
+        self.assertIn("'/admin/api/servers", page)
+        self.assertIn("'/admin/logout'", page)
+        self.assertNotIn("'/api/", page)
+        self.assertNotIn("'/logout'", page)
 
     def test_sticker_pack_is_served_by_plain_name_only(self):
         with open(f"{self.tmp.name}/ok.webp", "wb") as f:
