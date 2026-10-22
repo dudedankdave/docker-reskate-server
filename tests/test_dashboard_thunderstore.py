@@ -1205,6 +1205,10 @@ class PublicPageTest(unittest.TestCase):
         used = set(re.findall(r"\bT\.(\w+)", self.d.PUBLIC_PAGE)) | set(re.findall(r"\{\{(\w+)\}\}", self.d.PUBLIC_PAGE))
         self.assertLessEqual(used - {"lang", "on_en", "on_de"}, set(en))
 
+    def test_the_admin_page_is_not_touched_by_the_status_page_scripts(self):
+        for word in ("podium", "gzh", "tr_(", "T.gz", "T.loc"):
+            self.assertNotIn(word, self.d.PAGE, word)
+
     def test_page_renders_text_only(self):
         page = self.d.PUBLIC_PAGE
         self.assertNotIn("innerHTML", page)

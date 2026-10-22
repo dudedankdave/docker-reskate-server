@@ -1913,7 +1913,7 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
-        "playerOne": "player", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  ★  ", "tickIdle": "Skate · Compete · Repeat",
+        "playerOne": "player", "gz_vol": "Vol. 1 · Free", "gz_name": "The Yard Gazette", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "gzA1": "{n} skaters are on the board. {first} leads with {p1} points.", "gzA2": " {second} follows with {p2}.", "gzA3": " {third} completes the podium with {p3}.", "gzA4": " In the crew standings, [{tag}] {tname} are ahead with {tp} points.", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  ★  ", "tickIdle": "Skate · Compete · Repeat",
         "k_servers": "Live status", "k_board": "Most wanted", "k_teams": "The crews", "k_soon": "Next issue",
         "soon_title": "Coming soon",
         "soon_chip": "in the works",
@@ -1942,7 +1942,7 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
-        "playerOne": "Spieler", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  ★  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "playerOne": "Spieler", "gz_vol": "Jg. 1 · Gratis", "gz_name": "The Yard Gazette", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "gzA1": "{n} Skater stehen auf dem Board. {first} führt mit {p1} Punkten.", "gzA2": " {second} folgt mit {p2}.", "gzA3": " {third} komplettiert das Podium mit {p3}.", "gzA4": " In der Team-Wertung liegt [{tag}] {tname} mit {tp} Punkten vorn.", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  ★  ", "tickIdle": "Skaten · Messen · Wiederholen",
         "k_servers": "Live-Status", "k_board": "Meistgesucht", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
         "soon_title": "Demnächst",
         "soon_chip": "in Arbeit",
@@ -2651,7 +2651,7 @@ function lbDraw(){const d=LB.data;if(!d)return;
  for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ','')+' · '+b.players);o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
  const q=$('lbfind').value.trim().toLowerCase();
  $('lbstats').textContent=d.exists?d.total+' Spieler mit Punkten auf diesem Board · '+(d.stats.players||0)+' Spieler insgesamt · '+(d.stats.awards||0)+' Vergaben · letzte Vergabe '+lbFmt(d.stats.last):'Für diese Liga gibt es noch keine Datenbank.';
- const t=$('lbtable');t.textContent='';t.parentNode.hidden=podium&&!rest.length&&d.total<=d.rows.length;const hr=el('tr');
+ const t=$('lbtable');t.textContent='';const hr=el('tr');
  for(const [l,n] of [['#',0],['Spieler',0],['Punkte',1],['Siege',1],['Spiele',1]]){const h=el('th',n?'lbn':'',l);hr.append(h)}t.append(hr);
  const top=d.rows.length?d.rows[0].points:1;let shown=0;
  for(const r of d.rows){if(q&&!(r.name+' '+r.tag).toLowerCase().includes(q))continue;shown++;
@@ -2903,6 +2903,33 @@ footer{color:var(--dim)}footer span{background:var(--panel);color:var(--fg);bord
 .pd.wp .stamp{position:absolute;right:10px;top:34px;transform:rotate(14deg);border:3px solid #b22a12;color:#b22a12!important;font:900 14px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;opacity:.88;mix-blend-mode:multiply}
 .pd.wp .stamp{color:#b22a12}
 @media(max-width:700px){.pod{grid-template-columns:minmax(0,1fr)}.pd.p1{order:-1}}
+
+/* newspaper section */
+.gz{--np:#d9d3c1;--nk:#14130f;position:relative;color:var(--nk);background:linear-gradient(rgba(217,211,193,.78),rgba(217,211,193,.78)),url(/status/grime.svg),#cfc8b4;padding:clamp(16px,2.6vw,40px);border:1px solid #000;box-shadow:9px 9px 0 #000;font:15px/1.5 Georgia,"Times New Roman",serif;transform:rotate(-.25deg)}
+.gz::before{content:"";position:absolute;inset:0;background:radial-gradient(circle,rgba(20,19,15,.16) .8px,transparent 1.1px) 0 0/4px 4px;mix-blend-mode:multiply;opacity:.35;pointer-events:none}
+.gz>*{position:relative}
+.gzhead{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:12px;border-bottom:5px double var(--nk);padding-bottom:10px;margin-bottom:10px}
+.gzhead b{font:700 clamp(34px,6.4vw,84px)/.95 "Old English Text MT","UnifrakturCook","Goudy Text MT","Luminari",Georgia,serif;text-align:center;letter-spacing:-.01em;font-style:italic}
+.gzhead span{font:700 11px/1.3 Georgia,serif;text-transform:uppercase;letter-spacing:.14em}.gzhead span:last-child{text-align:right}
+@media(max-width:700px){.gzhead{grid-template-columns:1fr}.gzhead b{order:-1}.gzhead span:last-child{text-align:left}}
+.gz .ctl{margin:0 0 8px;gap:8px}
+.gz #lbleague{border-top:1px solid var(--nk);padding-top:8px}
+.gz button,.gz select{background:#e7e1cf;color:var(--nk);border:1px solid var(--nk);border-radius:0;box-shadow:none;font:700 12px/1.2 Georgia,serif;text-transform:uppercase;letter-spacing:.08em;padding:6px 12px}
+.gz button:hover{background:#bdb6a2}.gz button.on{background:var(--nk);color:#e7e1cf}
+.gz .mut{color:#5a5548;font:italic 13px/1.3 Georgia,serif}
+.gzban{border-top:4px solid var(--nk);border-bottom:1px solid var(--nk);padding:12px 0 10px;margin:8px 0 18px;text-align:center}
+.gzban h3{font:900 clamp(30px,5.2vw,68px)/1 "Playfair Display",Georgia,"Times New Roman",serif;text-transform:uppercase;letter-spacing:-.015em;color:var(--nk);text-wrap:balance}
+.gzban p{margin:8px 0 0;font:italic 17px/1.35 Georgia,serif;color:#3b372d}
+.gz #pod{margin-bottom:18px}
+.gzart{column-count:2;column-gap:32px;column-rule:1px solid var(--nk);text-align:justify;hyphens:auto;font:16px/1.55 Georgia,serif;margin:0 0 20px;padding-bottom:16px;border-bottom:1px solid var(--nk)}.gzart:empty{display:none}
+.gzart::first-letter{float:left;font:900 3.6em/.8 Georgia,serif;padding:6px 8px 0 0}
+@media(max-width:700px){.gzart{column-count:1}}
+.gz .lbcols>div:first-child{padding-right:clamp(12px,2vw,28px);border-right:1px solid var(--nk)}@media(max-width:900px){.gz .lbcols>div:first-child{border-right:0;padding-right:0}}
+.gz .tablewrap{background:transparent;color:var(--nk);border:0;border-top:3px double var(--nk);border-bottom:3px double var(--nk);box-shadow:none;background-image:none}
+.gz table{font-family:Georgia,"Times New Roman",serif}.gz th{background:transparent;color:var(--nk);font:700 11px/1.3 Georgia,serif;letter-spacing:.14em;border-bottom:1px solid var(--nk)}
+.gz td{border-bottom:1px solid rgba(20,19,15,.28);font-size:15px;color:var(--nk)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(20,19,15,.07)}.gz .rk{color:#5a5548;font-weight:700}
+.gz .tag{background:var(--nk);color:#d9d3c1;border-color:var(--nk)}
+.gz .lbcols .tablewrap:last-child{border-top-width:3px}
 </style></head><body>
 <div class="mast"><div class="wrap"><span>{{mast_a}}</span><span id="issue"></span><span>{{mast_b}}</span></div></div>
 <div class="hero"><div class="wrap">
@@ -2914,10 +2941,14 @@ footer{color:var(--dim)}footer span{background:var(--panel);color:var(--fg);bord
 <main class="wrap">
 <section id="server"><h2><i class="no">01</i><span>{{nav_servers}}</span> <small>{{live}}</small></h2><div class="kick">{{k_servers}}</div><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
 <section id="leaderboard"><h2><i class="no">02</i><span>{{nav_board}}</span></h2><div class="kick">{{k_board}}</div>
+<div class="gz"><div class="gzhead"><span>{{gz_vol}}</span><b>{{gz_name}}</b><span id="gzdate"></span></div>
 <div class="ctl" id="lbleague"></div>
 <div class="ctl"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select><span class="mut" id="lbinfo"></span></div>
+<div class="gzban" id="gzban"><h3 id="gzh"></h3><p id="gzd"></p></div>
 <div class="pod" id="pod"></div>
-<div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></section>
+<div class="gzart" id="gzart"></div>
+<div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></div>
+</section>
 <div class="quote" aria-hidden="true"><div class="qt"><span>{{quote}}</span><span>{{quote}}</span><span>{{quote}}</span></div></div>
 <section id="teams"><h2><i class="no">03</i><span>{{nav_teams}}</span></h2><div class="kick">{{k_teams}}</div><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
 <section id="soon"><h2><i class="no">04</i><span>{{soon_title}}</span> <small class="soonchip">{{soon_chip}}</small></h2><div class="kick">{{k_soon}}</div><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
@@ -2928,7 +2959,7 @@ const T=__T__;
 const $=id=>document.getElementById(id);
 function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined&&text!==null)e.textContent=text;return e}
 async function get(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(r.status==429?T.tooMany:T.unreachable+' ('+r.status+')');return r.json()}
-const fmt=n=>(n||0).toLocaleString(T.loc);const tr_=(s,o)=>s.replace(/[{]([a-z]+)[}]/g,(_,k)=>o[k]);
+const fmt=n=>(n||0).toLocaleString(T.loc);const tr_=(s,o)=>s.replace(/[{]([a-z0-9]+)[}]/g,(_,k)=>o[k]);
 const hue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h};
 const imgState={};
 async function loadStatus(){
@@ -2968,7 +2999,12 @@ function drawBoard(){const d=LB.data;if(!d)return;
  $('lbinfo').textContent=tr_(T.withPoints,{n:d.total});
  const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows;
  if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd wp p'+r.rank);c.dataset.r=r.rank;c.append(el('i','nail'),el('div','stamp',T.no+' '+r.rank),el('div','wt',T.wanted),el('div','wsub',T.wsub));const mug=el('div','mug');mug.append(el('span','mh','')),c.append(mug);const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w);const rw=el('div','rw');rw.append(el('small','',T.reward),el('b','',fmt(r.points)),el('small','',T.pointsLc));c.append(rw,el('div','rec',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
- const t=$('lbtable');t.textContent='';const hr=el('tr');
+ const gh=$('gzh'),gd=$('gzd'),ga=$('gzart');gh.textContent='';gd.textContent='';ga.textContent='';
+ if(d.rows.length){const a=d.rows[0],b2=d.rows[1],c3=d.rows[2];gh.textContent=tr_(T.gzH,{name:a.name});gd.textContent=tr_(T.gzD,{pts:fmt(a.points),games:fmt(a.played),wins:fmt(a.wins)});
+  let art=tr_(T.gzA1,{n:d.total,first:a.name,p1:fmt(a.points)});if(b2)art+=tr_(T.gzA2,{second:b2.name,p2:fmt(b2.points)});if(c3)art+=tr_(T.gzA3,{third:c3.name,p3:fmt(c3.points)});
+  const tt0=d.teams[0];if(tt0)art+=tr_(T.gzA4,{tag:tt0.tag,tname:tt0.name,tp:fmt(tt0.points)});ga.textContent=art}
+ else gh.textContent=T.gzNone;
+ const t=$('lbtable');t.textContent='';t.parentNode.hidden=podium&&!rest.length&&d.total<=d.rows.length;const hr=el('tr');
  for(const [l,n] of [['#',0],[T.player,0],[T.points,1],[T.wins,1],[T.games,1]])hr.append(el('th',n?'n':'',l));t.append(hr);
  for(const r of rest){const tr=el('tr'),nm=el('td');if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
   tr.append(el('td','rk',r.rank),nm,el('td','n',fmt(r.points)),el('td','n',fmt(r.wins)),el('td','n',fmt(r.played)));t.append(tr)}
@@ -2996,6 +3032,7 @@ async function loadTeams(){
    body.append(dt);c.append(band,body);g.append(c)}
   $('tmstat').textContent=d.teams.length?'':T.noTeams}
  catch(e){$('tmstat').textContent=e.message}}
+try{$('gzdate').textContent=new Date().toLocaleDateString(T.loc,{weekday:'long',day:'numeric',month:'long',year:'numeric'})}catch(e){}
 try{$('issue').textContent=T.issue+' '+new Date().toLocaleDateString(T.loc,{month:'long',year:'numeric'})}catch(e){}
 loadStatus();loadBoard();loadTeams();
 setInterval(()=>{if(!document.hidden)loadStatus()},30000);
