@@ -1930,8 +1930,8 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
-        "playerOne": "player", "promo_a": "Join", "promo_b": "Live now!", "adv_a": "Skater", "adv_b": "Advisory", "adv_c": "Explicit grinding", "scat1": "A live record of every server, score and crew in the yard. Cut from scan lines, soft ink and bad habits. Reprinted every thirty seconds.", "par_live": "live", "scat2": "Online or offline, who is playing and on which map. Leaderboards for both leagues, every crew on file. No login, nothing private, nothing for sale.", "nowPlaying": "now playing", "slotsOrig": "slots", "gz_vol": "Vol. 1 · Free", "gz_name": "The Yard Gazette", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "gzA1": "{n} skaters are on the board. {first} leads with {p1} points.", "gzA2": " {second} follows with {p2}.", "gzA3": " {third} completes the podium with {p3}.", "gzA4": " In the crew standings, [{tag}] {tname} are ahead with {tp} points.", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
-        "k_servers": "Live status", "k_board": "Most wanted", "k_teams": "The crews", "k_soon": "Next issue",
+        "playerOne": "player", "slotIdle": "idle", "slotLbl": "Slot", "promo_a": "Join", "promo_b": "Live now!", "adv_a": "Skater", "adv_b": "Advisory", "adv_c": "Explicit grinding", "scat1": "A live record of every server, score and crew in the yard. Cut from scan lines, soft ink and bad habits. Reprinted every thirty seconds.", "par_live": "live", "scat2": "Online or offline, who is playing and on which map. Leaderboards for both leagues, every crew on file. No login, nothing private, nothing for sale.", "nowPlaying": "now playing", "slotsOrig": "slots", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
+        "k_servers": "Live status", "k_board": "Top skaters", "k_teams": "The crews", "k_soon": "Next issue",
         "soon_title": "Coming soon",
         "soon_chip": "in the works",
         "soon_lead": "We are building more for the community. Here is what is next:",
@@ -1959,8 +1959,8 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
-        "playerOne": "Spieler", "promo_a": "Beitreten", "promo_b": "Jetzt live!", "adv_a": "Skater", "adv_b": "Hinweis", "adv_c": "Explizites Grinden", "scat1": "Ein Live-Protokoll jedes Servers, jedes Scores und jeder Crew im Yard. Gebaut aus Scanlinien, weicher Tinte und schlechten Angewohnheiten. Alle dreißig Sekunden neu gedruckt.", "par_live": "live", "scat2": "Online oder offline, wer spielt und auf welcher Map. Ranglisten beider Ligen, jede Crew in der Kartei. Kein Login, nichts Privates, nichts zu verkaufen.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gz_vol": "Jg. 1 · Gratis", "gz_name": "The Yard Gazette", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "gzA1": "{n} Skater stehen auf dem Board. {first} führt mit {p1} Punkten.", "gzA2": " {second} folgt mit {p2}.", "gzA3": " {third} komplettiert das Podium mit {p3}.", "gzA4": " In der Team-Wertung liegt [{tag}] {tname} mit {tp} Punkten vorn.", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
-        "k_servers": "Live-Status", "k_board": "Meistgesucht", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
+        "playerOne": "Spieler", "slotIdle": "ruht", "slotLbl": "Slot", "promo_a": "Beitreten", "promo_b": "Jetzt live!", "adv_a": "Skater", "adv_b": "Hinweis", "adv_c": "Explizites Grinden", "scat1": "Ein Live-Protokoll jedes Servers, jedes Scores und jeder Crew im Yard. Gebaut aus Scanlinien, weicher Tinte und schlechten Angewohnheiten. Alle dreißig Sekunden neu gedruckt.", "par_live": "live", "scat2": "Online oder offline, wer spielt und auf welcher Map. Ranglisten beider Ligen, jede Crew in der Kartei. Kein Login, nichts Privates, nichts zu verkaufen.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "k_servers": "Live-Status", "k_board": "Die Besten", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
         "soon_title": "Demnächst",
         "soon_chip": "in Arbeit",
         "soon_lead": "Wir bauen weiter für die Community. Das kommt als Nächstes:",
@@ -2034,10 +2034,22 @@ def public_status():
         for r in servers()["servers"]:
             if str(r.get("server")) not in PUBLIC_SERVERS:
                 continue
+            raw = r.get("slots") or {}
+            slots = []
+            for letter in sorted(raw):
+                sl = raw[letter] or {}
+                run = bool(sl.get("running"))
+                n = sl.get("online")
+                slots.append({"slot": str(letter).upper()[:2], "online": run, "players": n if run and isinstance(n, int) else None,
+                              "version": str(sl.get("version") or "")[:24] if run else "", "map": str(sl.get("map") or "") if run else ""})
+            running = any(x["online"] for x in slots) or bool(r.get("running"))
             players = r.get("online") if r.get("online") is not None else r.get("players")
-            out.append({"server": r.get("server"), "role": str(r.get("role") or ""), "online": bool(r.get("running")),
-                        "players": players if isinstance(players, int) and r.get("running") else None,
-                        "max": r.get("max") if isinstance(r.get("max"), int) else None, "map": str(r.get("map") or "") if r.get("running") else ""})
+            lead = max((x for x in slots if x["online"]), key=lambda x: x["players"] or 0, default=None)
+            out.append({"server": r.get("server"), "role": str(r.get("role") or ""), "online": running,
+                        "players": players if isinstance(players, int) and running else None,
+                        "max": r.get("max") if isinstance(r.get("max"), int) else None,
+                        "map": ((lead or {}).get("map") or str(r.get("map") or "")) if running else "",
+                        "slots": [{k: v for k, v in x.items() if k != "map"} for x in slots]})
         return {"servers": out}
     return public_cached("status", make)
 
@@ -2762,6 +2774,7 @@ LOGO_SVG = '<svg id="Ebene_2" data-name="Ebene 2" xmlns="http://www.w3.org/2000/
 FAVICON_PNG = base64.b64decode(
     "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")
 
+PUBLIC_CSP = "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src https://discord.com"
 PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#0a0a0a;--panel:#0e0e0e;--fg:#e8e3d6;--dim:#a29d8e;--edge:#34332f;--acid:#e6eefa;--red:#d8391d;--bad:#d4553a;--head:Georgia,"Iowan Old Style","Times New Roman",serif;--mono:ui-monospace,"SF Mono","Courier New",monospace}
@@ -2802,7 +2815,7 @@ a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg)
 @keyframes neonbar{0%,28%,33%,36%,64%,69%,100%{border-color:var(--acid);box-shadow:0 0 10px rgba(222,236,255,.8),0 0 44px 4px rgba(222,236,255,.4),0 0 120px 20px rgba(222,236,255,.2),inset 0 0 26px rgba(222,236,255,.28)}29%,34%,65%,67%{border-color:rgba(222,236,255,.3);box-shadow:none}}
 @keyframes neontxt{0%,6%,9%,40%,43%,45%,76%,100%{opacity:1}7%,41%,44%,77%{opacity:.35}8%{opacity:.8}78%{opacity:.15}79%{opacity:.9}}
 @media(prefers-reduced-motion:reduce){.tk,.qt,.tick,.tkc,.tick::before,.tick::after{animation:none}html{scroll-behavior:auto}}
-main{padding-top:clamp(44px,6vw,80px);padding-bottom:clamp(40px,6vw,80px);display:grid;gap:clamp(64px,9vw,120px)}
+main{padding-top:clamp(96px,12vw,170px);padding-bottom:clamp(40px,6vw,80px);display:grid;gap:clamp(64px,9vw,120px)}
 h2{margin:0 0 10px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--fg);padding-bottom:14px;font:700 clamp(34px,5vw,64px)/1 var(--head);letter-spacing:-.02em;text-transform:uppercase;color:var(--fg)}
 h2 .no{font:normal 12px/1 var(--mono);letter-spacing:.2em;color:var(--red)}
 h2 small{font:11px/1 var(--mono);letter-spacing:.2em;color:var(--dim);border:1px solid var(--edge);padding:5px 8px;text-transform:uppercase}
@@ -2814,7 +2827,7 @@ h3{margin:0;font:700 20px/1.1 var(--head);color:var(--fg)}
 .sv,.tm,.sc{background:var(--panel);min-width:0;border-right:1px solid var(--edge);border-bottom:1px solid var(--edge)}
 .sv{position:relative;display:flex;flex-direction:column}
 .pic{position:relative;aspect-ratio:16/9;display:grid;place-items:center;overflow:hidden;background:#151515;border-bottom:1px solid var(--edge)}
-.pic.ok .ph{display:none}
+.pic.ok .ph{position:absolute;z-index:2;left:0;right:0;bottom:0;display:block;padding:26px 12px 8px;text-align:left;font:700 11px/1.2 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--fg);background:linear-gradient(transparent,rgba(0,0,0,.88));text-shadow:0 1px 2px #000}
 .pic .ph{position:relative;z-index:0;padding:10px;text-align:center;font:italic 700 22px/1.1 var(--head);color:var(--dim)}
 .pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:url(#crt) grayscale(.55) sepia(.25) contrast(1.35) brightness(.82) saturate(1.3);animation:crtflick 5s step-end infinite}
 .pic::before,.pic::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1}
@@ -2825,18 +2838,17 @@ h3{margin:0;font:700 20px/1.1 var(--head);color:var(--fg)}
 @media(prefers-reduced-motion:reduce){.pic img,.pic::before,.dot.up{animation:none}}
 .st,.num{position:absolute;top:12px;z-index:2;display:inline-flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(0,0,0,.72);font:10px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em}
 .st{left:12px}
-.num{right:12px;top:8px;height:54px;aspect-ratio:1.37;box-sizing:border-box;justify-content:center;padding:0 0 2px;color:#17130c;font:700 13px/1 "Courier New",var(--mono);letter-spacing:.08em;background:url(/status/s/yellow-oval.webp) center/100% 100% no-repeat;filter:drop-shadow(0 3px 5px rgba(0,0,0,.6));transform:rotate(3deg)}
+.num{right:12px;top:8px;height:38px;aspect-ratio:1.37;box-sizing:border-box;justify-content:center;padding:0 0 2px;color:#17130c;font:700 13px/1 "Courier New",var(--mono);letter-spacing:.08em;background:url(/status/s/yellow-oval.webp) center/100% 100% no-repeat;filter:drop-shadow(0 3px 5px rgba(0,0,0,.6));transform:rotate(3deg)}
 .sv:nth-child(2) .num{aspect-ratio:.91;background-image:url(/status/s/orange-octagon.webp);transform:rotate(-3deg)}.sv:nth-child(3) .num{aspect-ratio:1.22;background-image:url(/status/s/yellow-octagon.webp);transform:rotate(2deg)}.sv:nth-child(4) .num{aspect-ratio:1.5;background-image:url(/status/s/green-floral.webp);transform:rotate(-2deg)}.sv:nth-child(5) .num{aspect-ratio:1;background-image:url(/status/s/sunset-round.webp);transform:rotate(4deg)}.sv:nth-child(6) .num{aspect-ratio:1.01;background-image:url(/status/s/yellow-round.webp);transform:rotate(-4deg)}.sv:nth-child(n+7) .num{height:auto;aspect-ratio:auto;padding:6px 8px;background:rgba(0,0,0,.72);color:var(--fg);transform:none;filter:none}
 .sv.off .pic>img,.sv.off .pic .ph{filter:grayscale(1) brightness(.6)}.sv.off .num{filter:grayscale(1) drop-shadow(0 3px 5px rgba(0,0,0,.6))}.sv.off .st{color:var(--bad)}
 .svb{padding:16px 18px 20px;display:grid;gap:12px}.svb .nm{font:700 26px/1 var(--head);text-transform:uppercase;letter-spacing:-.01em}.svb .mp{font:11px/1.5 var(--mono);color:var(--dim);letter-spacing:.06em;overflow-wrap:anywhere}
+.ab{display:flex;gap:8px;flex-wrap:wrap}.abi{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--edge);padding:6px 9px;font:10px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--dim)}.abi b{color:var(--fg)}.abi em{font-style:normal}.abi.on em{color:var(--fg)}
 .disc{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:end;gap:0 10px;border-top:1px solid var(--edge);padding-top:12px}
 .disc small{font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim)}.disc .o{grid-column:1/-1;margin-bottom:6px}.disc .o s{text-decoration:none;color:var(--fg)}
 .disc b{grid-row:2;grid-column:2;font:700 48px/.9 var(--head);color:var(--fg)}.disc .d{align-self:end}
 .bar{height:2px;background:var(--edge)}.bar span{display:block;height:100%;background:var(--fg);transition:width .4s}.bar .f{background:var(--bad)}
 .ctl{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px;align-items:center}
 button,select{font:700 12px/1.2 var(--mono);color:var(--fg);background:var(--panel);border:1px solid var(--edge);border-radius:0;padding:8px 12px}button{cursor:pointer;text-transform:uppercase;letter-spacing:.1em}
-.pod{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(10px,1.6vw,22px);margin-bottom:clamp(16px,2vw,26px);align-items:end}
-.pd{position:relative;min-width:0;overflow-wrap:anywhere;text-align:center}
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(16px,2vw,28px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}
 .tablewrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-family:var(--mono)}th,td{text-align:left;padding:9px 12px;border-bottom:1px solid rgba(232,227,214,.14);font-size:14px}tr:last-child td{border-bottom:0}
@@ -2857,56 +2869,35 @@ details summary{cursor:pointer;font:11px/1.3 var(--mono);text-transform:uppercas
 .qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:italic 700 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:1px var(--fg);letter-spacing:.02em}.qt span::after{content:"/";margin-left:34px;color:var(--red);-webkit-text-stroke:0}
 footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-transform:uppercase;letter-spacing:.14em;text-align:center}footer span{display:block;border-top:1px solid var(--edge);padding-top:20px}
 
-/* most wanted */
-#pod{filter:drop-shadow(6px 6px 0 #000)}
-.pd.wp{--pc:#1a140c;position:relative;overflow:visible;display:grid;gap:8px;justify-items:center;text-align:center;padding:26px 18px 20px;color:var(--pc);background:radial-gradient(ellipse at 20% 15%,rgba(120,80,30,.28),transparent 55%),radial-gradient(ellipse at 85% 90%,rgba(90,55,20,.35),transparent 55%),linear-gradient(rgba(212,193,150,.6),rgba(212,193,150,.6)),url(/status/grime.svg),#d4c196;border:0;box-shadow:none;clip-path:polygon(0.0% 0.4%,7.1% 0.2%,14.3% 0.6%,21.4% 0.2%,28.6% 0.1%,35.7% 0.6%,42.9% 1.5%,50.0% 1.3%,57.1% 1.2%,64.3% 0.4%,71.4% 0.9%,78.6% 0.4%,85.7% 0.3%,92.9% 0.2%,100.0% 0.3%,98.7% 10.8%,98.8% 21.6%,98.9% 32.3%,98.9% 43.1%,99.7% 53.9%,99.6% 64.7%,99.1% 75.4%,99.0% 86.2%,100.0% 98.3%,92.9% 98.2%,85.7% 99.8%,78.6% 98.8%,71.4% 98.7%,64.3% 99.0%,57.1% 99.6%,50.0% 99.1%,42.9% 99.8%,35.7% 98.1%,28.6% 98.3%,21.4% 98.9%,14.3% 99.4%,7.1% 98.2%,0.0% 98.9%,1.2% 86.2%,1.2% 75.4%,0.7% 64.7%,0.6% 53.9%,0.8% 43.1%,0.6% 32.3%,0.2% 21.6%,0.4% 10.8%);transform:rotate(-1.2deg);min-width:0}
-.pd.wp.p2{transform:rotate(1.4deg)}.pd.wp.p3{transform:rotate(-.5deg)}.pd.wp.p1{transform:rotate(.4deg);padding-top:34px;padding-bottom:28px}
-.pd.wp *{color:var(--pc)}.pd.wp::after{display:none}.pd.wp::before{display:none}
-.pd.wp .nail{position:absolute;left:50%;top:9px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#bbb,#444 70%);box-shadow:1px 2px 2px rgba(0,0,0,.6)}
-.pd.wp .wt{font:900 clamp(28px,3.6vw,52px)/1 Rockwell,"Rockwell Extra Bold","Courier New",Georgia,serif;letter-spacing:.12em;text-transform:uppercase;border-top:3px solid var(--pc);border-bottom:3px solid var(--pc);padding:4px 10px 2px;width:100%}
-.pd.p1.wp .wt{font-size:clamp(34px,4.6vw,66px)}
-.pd.wp .wsub{font:800 10px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.16em;margin-top:-2px}
-.pd.wp .mug{position:relative;width:min(100%,200px);aspect-ratio:1/1;border:3px solid var(--pc);background:radial-gradient(ellipse 19% 19% at 50% 40%,var(--pc) 0 97%,transparent 100%),radial-gradient(ellipse 38% 31% at 50% 100%,var(--pc) 0 97%,transparent 100%),repeating-linear-gradient(0deg,rgba(26,20,12,.4) 0 1px,transparent 1px 12.5%),rgba(26,20,12,.12);overflow:hidden}
-.pd.p1.wp .mug{width:min(100%,240px)}
-.pd.wp .mug::before{content:"";position:absolute;left:0;top:0;bottom:0;width:10px;background:repeating-linear-gradient(0deg,var(--pc) 0 2px,transparent 2px 12.5%)}
-.pd.wp .who{font:900 clamp(18px,1.8vw,24px)/1.15 var(--mono);text-transform:uppercase;overflow-wrap:anywhere}.pd.wp .tag{background:var(--pc);color:#d4c196!important;border-color:var(--pc)}
-.pd.wp .rw{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;justify-content:center;border-top:3px solid var(--pc);border-bottom:3px solid var(--pc);padding:4px 10px;width:100%}.pd.wp .rw small{font:800 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}.pd.wp .rw b{font:900 clamp(34px,4vw,56px)/1 Rockwell,"Courier New",Georgia,serif;letter-spacing:.02em}
-.pd.wp .rec{font:700 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;opacity:.8}
-.pd.wp .stamp{position:absolute;right:10px;top:34px;transform:rotate(14deg);border:3px solid #b22a12;color:#b22a12!important;font:900 14px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;opacity:.88;mix-blend-mode:multiply}
-.pd.wp .stamp{color:#b22a12}
-@media(max-width:700px){.pod{grid-template-columns:minmax(0,1fr)}.pd.p1{order:-1}}
-
-/* newspaper section */
-.gz{--np:#d9d3c1;--nk:#14130f;position:relative;color:var(--nk);background:linear-gradient(rgba(217,211,193,.78),rgba(217,211,193,.78)),url(/status/grime.svg),#cfc8b4;padding:clamp(16px,2.6vw,40px);border:1px solid #000;box-shadow:9px 9px 0 #000;font:15px/1.5 Georgia,"Times New Roman",serif;transform:rotate(-.25deg)}
-.gz::before{content:"";position:absolute;inset:0;background:radial-gradient(circle,rgba(20,19,15,.16) .8px,transparent 1.1px) 0 0/4px 4px;mix-blend-mode:multiply;opacity:.35;pointer-events:none}
-.gz>*{position:relative}
-.gzhead{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:12px;border-bottom:5px double var(--nk);padding-bottom:10px;margin-bottom:10px}
-.gzhead b{font:700 clamp(34px,6.4vw,84px)/.95 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;text-align:center;letter-spacing:0}
-.gzhead span{font:700 11px/1.3 Georgia,serif;text-transform:uppercase;letter-spacing:.14em}.gzhead span:last-child{text-align:right}
-@media(max-width:700px){.gzhead{grid-template-columns:1fr}.gzhead b{order:-1}.gzhead span:last-child{text-align:left}}
-.gz .ctl{margin:0 0 8px;gap:8px}
-.gz #lbleague{border-top:1px solid var(--nk);padding-top:8px}
-.gz button,.gz select{background:#e7e1cf;color:var(--nk);border:1px solid var(--nk);border-radius:0;box-shadow:none;font:700 12px/1.2 Georgia,serif;text-transform:uppercase;letter-spacing:.08em;padding:6px 12px}
-.gz button:hover{background:#bdb6a2}.gz button.on{background:var(--nk);color:#e7e1cf}
-.gz .mut{color:#5a5548;font:italic 13px/1.3 Georgia,serif}
-.gzban{border-top:4px solid var(--nk);border-bottom:1px solid var(--nk);padding:12px 0 10px;margin:8px 0 18px;text-align:center}
-.gzban h3{font:900 clamp(30px,5.2vw,68px)/1 "Playfair Display",Georgia,"Times New Roman",serif;text-transform:uppercase;letter-spacing:-.015em;color:var(--nk);text-wrap:balance}
-.gzban p{margin:8px 0 0;font:italic 17px/1.35 Georgia,serif;color:#3b372d}
-.gz #pod{margin-bottom:18px}
-.gzart{column-count:2;column-gap:32px;column-rule:1px solid var(--nk);text-align:justify;hyphens:auto;font:16px/1.55 Georgia,serif;margin:0 0 20px;padding-bottom:16px;border-bottom:1px solid var(--nk)}.gzart:empty{display:none}
-.gzart::first-letter{float:left;font:900 3.6em/.8 Georgia,serif;padding:6px 8px 0 0}
-@media(max-width:700px){.gzart{column-count:1}}
-.gz .lbcols>div:first-child{padding-right:clamp(12px,2vw,28px);border-right:1px solid var(--nk)}@media(max-width:900px){.gz .lbcols>div:first-child{border-right:0;padding-right:0}}
-.gz .tablewrap{background:transparent;color:var(--nk);border:0;border-top:3px double var(--nk);border-bottom:3px double var(--nk);box-shadow:none;background-image:none}
-.gz table{font-family:Georgia,"Times New Roman",serif}.gz th{background:transparent;color:var(--nk);font:700 11px/1.3 Georgia,serif;letter-spacing:.14em;border-bottom:1px solid var(--nk)}
-.gz td{border-bottom:1px solid rgba(20,19,15,.28);font-size:15px;color:var(--nk)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(20,19,15,.07)}.gz .rk{color:#5a5548;font-weight:700}
-.gz .tag{background:var(--nk);color:#d9d3c1;border-color:var(--nk)}
-.gz .lbcols .tablewrap:last-child{border-top-width:3px}
-
-/* adjustments to the newspaper block */
-
-.gz{transform:none;box-shadow:none;border:0}
-.pd.wp.p2{transform:rotate(.8deg)}.pd.wp.p3{transform:rotate(-.4deg)}.pd.wp.p1{transform:none}
+/* leaderboard */
+.lb{display:grid;gap:clamp(22px,3vw,40px)}
+.lbbar{display:flex;gap:12px 28px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--edge)}
+#lbleague{display:flex;gap:clamp(16px,2.6vw,36px);flex-wrap:wrap}
+#lbleague button{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:0 0 12px;color:var(--dim);font:700 12px/1.2 var(--mono);letter-spacing:.16em;text-transform:uppercase}
+#lbleague button:hover{color:var(--fg)}#lbleague button.on{color:var(--fg);border-bottom-color:var(--red)}
+.sels{display:flex;gap:10px;flex-wrap:wrap;padding-bottom:10px}
+.lb select{background:var(--bg);color:var(--dim);border:1px solid var(--edge);padding:6px 8px;font:11px/1.2 var(--mono);letter-spacing:.08em;max-width:100%}
+.lbhead{display:grid;gap:10px}
+.lbhead h3{margin:0;max-width:22ch;font:italic 700 clamp(30px,4.6vw,60px)/1.02 var(--head);text-wrap:balance}
+.lbhead p{margin:0;font:12px/1.5 var(--mono);color:var(--dim);letter-spacing:.06em}
+.pod{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--edge);border-left:1px solid var(--edge)}.pod:empty{display:none}
+.lp{position:relative;min-width:0;min-height:260px;padding:18px 20px 20px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;background:var(--panel);border-right:1px solid var(--edge);border-bottom:1px solid var(--edge);overflow:hidden}
+.lp.p1{background:radial-gradient(ellipse at 15% 0,rgba(216,57,29,.22),transparent 65%),var(--panel)}
+.lpn{position:absolute;left:14px;top:-8px;font:700 clamp(120px,15vw,200px)/1 var(--head);color:transparent;-webkit-text-stroke:1px rgba(232,227,214,.26);pointer-events:none}.lp.p1 .lpn{-webkit-text-stroke-color:var(--red)}
+.lp.p1::after{content:"";position:absolute;right:12px;top:12px;width:104px;height:76px;background:url(/status/s/pct99.webp) center/contain no-repeat;transform:rotate(8deg);filter:drop-shadow(0 5px 8px rgba(0,0,0,.65))}
+.lpw{position:relative;font:700 clamp(22px,2.4vw,32px)/1.1 var(--head);overflow-wrap:anywhere}
+.lpp{position:relative;display:flex;align-items:baseline;gap:10px}.lpp b{font:700 clamp(46px,5.2vw,68px)/.9 var(--head)}.lpp small{font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim)}
+.lpr{position:relative;font:11px/1.4 var(--mono);letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
+@media(max-width:700px){.pod{grid-template-columns:minmax(0,1fr)}.lp{min-height:170px}}
+.lbcols{gap:clamp(24px,3vw,44px)}.lbcols .tablewrap{border-top:1px solid var(--fg)}
+.lb tr.rb{background:linear-gradient(90deg,rgba(232,227,214,.1) calc(var(--p)*1%),transparent 0)}
+.lb td:not(.n):not(.rk):not(.mut){font:600 18px/1.2 var(--head)}.lb .rk{font:12px/1 var(--mono)}
+.lb .tag{background:var(--fg);color:#0b0b0b;border:0;padding:0 5px;margin-right:8px;vertical-align:2px}
+/* footer */
+.fgrid{display:grid;grid-template-columns:minmax(0,350px) minmax(0,1fr);gap:clamp(24px,6vw,96px);align-items:center;border-top:1px solid var(--edge);padding-top:34px;margin-bottom:38px;text-align:left}
+.dw{display:block;width:100%;max-width:350px;height:500px;border:1px solid var(--edge);background:var(--panel)}
+.fr{display:grid;place-items:center;min-width:0}.fr img{width:min(100%,270px);height:auto;transform:rotate(-7deg);filter:drop-shadow(0 14px 20px rgba(0,0,0,.7))}
+@media(max-width:700px){.fgrid{grid-template-columns:minmax(0,1fr)}.fr img{width:min(60%,220px)}}
 
 /* masthead */
 @font-face{font-family:"Gothic";src:url(/status/font.woff2) format("woff2");font-weight:700;font-display:swap}
@@ -2914,7 +2905,6 @@ h1{display:inline-block;margin:0 0 .12em;white-space:nowrap;font:700 100px/.9 "G
 @media(max-width:820px){h1{font-size:calc((100vw - 2*var(--gut))/6.9)}}
 /* printed labels: bone paper, red rules, slight tilt */
 .jw{position:relative;min-width:0}
-.gzstk{filter:drop-shadow(0 8px 12px rgba(0,0,0,.65));pointer-events:none;user-select:none}
 .promo{position:absolute;right:-8px;top:-84px;width:112px;height:112px;transform:rotate(-8deg);display:grid;align-content:center;justify-items:center;text-align:center;z-index:2;background:url(/status/s/red-ring.webp) center/100% 100% no-repeat;filter:drop-shadow(0 6px 10px rgba(0,0,0,.65));color:#17130c;padding:0 18px}
 .promo{text-decoration:none;transition:transform .15s}.promo:hover{transform:rotate(-3deg) scale(1.06)}
 .promo b{font:900 15px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase}
@@ -2923,24 +2913,9 @@ h1{display:inline-block;margin:0 0 .12em;white-space:nowrap;font:700 100px/.9 "G
 .sum .chip{padding:11px 26px;font:700 13px/1.2 "Courier New",var(--mono);letter-spacing:.04em;text-transform:none;transform:rotate(-.8deg)}.sum .chip+.chip{background-image:url(/status/s/cream.webp);transform:rotate(.7deg)}
 .sum .chip b{color:#17130c}.sum .dot{box-shadow:0 0 3px currentColor}.sum .dot.up{background:#12b83a;box-shadow:0 0 4px #12b83a,0 0 10px rgba(18,184,58,.7)}
 h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;border:0;padding:9px 20px;font:700 12px/1 "Courier New",var(--mono);transform:rotate(-3deg)}
-.gz>.gzstk{position:absolute;right:clamp(8px,2vw,28px);top:-34px;width:clamp(96px,11vw,150px);height:auto;transform:rotate(7deg);z-index:2}
 .adv{width:min(240px,70%);margin:0 auto 22px;background:var(--fg);color:#0b0b0b;border:3px solid #0b0b0b;outline:1px solid var(--fg);text-align:center;transform:rotate(-1deg);text-transform:none;letter-spacing:0}
 .adv small{display:block;font:700 12px/1 Arial,sans-serif;letter-spacing:.5em;text-transform:uppercase;padding:6px 0 0}.adv b{display:block;font:900 32px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase;padding:2px 0 4px;border-bottom:2px solid #0b0b0b}.adv i{display:block;font:700 12px/1 Arial,sans-serif;font-style:normal;letter-spacing:.2em;text-transform:uppercase;background:#0b0b0b;color:var(--fg);padding:5px 0}
 .bc{margin:22px auto 0;width:180px;height:40px;background:repeating-linear-gradient(90deg,var(--fg) 0 2px,transparent 2px 4px,var(--fg) 4px 5px,transparent 5px 9px,var(--fg) 9px 12px,transparent 12px 14px,var(--fg) 14px 15px,transparent 15px 19px)}
-/* newspaper on dark newsprint */
-.gz{--nk:var(--fg);background:linear-gradient(rgba(14,14,14,.84),rgba(14,14,14,.84)),url(/status/grime.svg),#0e0e0e;color:var(--fg);border:1px solid var(--fg)}
-.gz::before{background:radial-gradient(circle,rgba(232,227,214,.5) .8px,transparent 1.1px) 0 0/4px 4px;mix-blend-mode:screen;opacity:.12}
-.gz button,.gz select{background:transparent;color:var(--fg);border-color:var(--fg)}.gz button:hover{background:rgba(232,227,214,.14)}.gz button.on{background:var(--fg);color:#0e0e0e}.gz select option{background:#0e0e0e;color:var(--fg)}
-.gz .mut,.gzban p,.gz .rk{color:var(--dim)}
-.gz td{border-bottom-color:rgba(232,227,214,.18)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(232,227,214,.07)}
-.gz .tag{background:var(--fg);color:#0e0e0e;border-color:var(--fg)}
-.pd.wp,.pd.wp.p1,.pd.wp.p2,.pd.wp.p3{--pc:var(--fg);background:none;clip-path:none;transform:none;border:1px solid var(--edge)}.pd.wp.p1{border-color:var(--fg)}
-.pd.wp .mug{background-color:transparent}
-.gz #pod{filter:none}
-.pd.wp .stamp{filter:none;mix-blend-mode:normal;opacity:1;border-color:var(--red);color:var(--red)!important}
-.pd.wp .tag{color:#0e0e0e!important}
-.gzart::first-letter{float:none;font:inherit;padding:0}
-.gzart{column-count:1;max-width:78ch;margin-left:auto;margin-right:auto;text-align:center}
 @media(max-width:820px){.scat:not(.wide){max-width:calc(100% - 100px)}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -2958,19 +2933,16 @@ h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;borde
 <main class="wrap">
 <section id="server"><h2><i class="no">01</i><span>{{nav_servers}}</span> <small>{{live}}</small></h2><div class="kick">{{k_servers}}</div><p class="scat wide">{{scat2}}</p><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
 <section id="leaderboard"><h2><i class="no">02</i><span>{{nav_board}}</span></h2><div class="kick">{{k_board}}</div>
-<div class="gz"><img class="gzstk" src="/status/s/pct99.webp" alt="" width="150" height="110" aria-hidden="true"><div class="gzhead"><span>{{gz_vol}}</span><b>{{gz_name}}</b><span id="gzdate"></span></div>
-<div class="ctl" id="lbleague"></div>
-<div class="ctl"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select><span class="mut" id="lbinfo"></span></div>
-<div class="gzban" id="gzban"><h3 id="gzh"></h3><p id="gzd"></p></div>
+<div class="lb"><div class="lbbar"><div id="lbleague"></div><div class="sels"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select></div></div>
+<div class="lbhead"><h3 id="gzh"></h3><p id="gzd"></p><span class="mut" id="lbinfo"></span></div>
 <div class="pod" id="pod"></div>
-<div class="gzart" id="gzart"></div>
 <div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></div>
 </section>
 <div class="quote" aria-hidden="true"><div class="qt"><span>{{quote}}</span><span>{{quote}}</span><span>{{quote}}</span></div></div>
 <section id="teams"><h2><i class="no">03</i><span>{{nav_teams}}</span></h2><div class="kick">{{k_teams}}</div><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
 <section id="soon"><h2><i class="no">04</i><span>{{soon_title}}</span> <small class="soonchip">{{soon_chip}}</small></h2><div class="kick">{{k_soon}}</div><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
 </main>
-<footer class="wrap"><div class="adv" aria-hidden="true"><small>{{adv_a}}</small><b>{{adv_b}}</b><i>{{adv_c}}</i></div><span>{{footer}}</span><div class="bc" aria-hidden="true"></div></footer>
+<footer class="wrap"><div class="fgrid"><div class="fl"><iframe class="dw" src="https://discord.com/widget?id=1558637403869155488&amp;theme=dark" width="350" height="500" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts" title="Discord" loading="lazy"></iframe></div><div class="fr"><img src="/status/s/alien.webp" alt="" width="380" height="560" aria-hidden="true" loading="lazy"></div></div><div class="adv" aria-hidden="true"><small>{{adv_a}}</small><b>{{adv_b}}</b><i>{{adv_c}}</i></div><span>{{footer}}</span><div class="bc" aria-hidden="true"></div></footer>
 <script>
 const T=__T__;
 const $=id=>document.getElementById(id);
@@ -2988,7 +2960,8 @@ async function loadStatus(){
    if(s.online&&s.map&&imgState[s.map]!='none'){const im=new Image();im.alt='';im.onload=()=>{imgState[s.map]='ok';pic.append(im);pic.classList.add('ok')};im.onerror=()=>{imgState[s.map]='none'};im.src='/status/api/mapimg?name='+encodeURIComponent(s.map)}
    const st=el('div','st');st.append(el('span',s.online?'dot up':'dot'),s.online?T.online:T.offline);pic.append(st,el('div','num','#'+s.server));
    const b=el('div','svb');b.append(el('div','nm',s.role||'Server '+s.server));
-   if(s.online){b.append(el('div','mp',s.map?T.map+': '+s.map:T.map+': –'));
+   if(s.online){if(!s.map)b.append(el('div','mp',T.map+': –'));
+    if(s.slots&&s.slots.length>1){const ab=el('div','ab');for(const x of s.slots){const i=el('span','abi'+(x.online?' on':''));i.append(el('span','dot'+(x.online?' up':'')),el('b','',T.slotLbl+' '+x.slot),el('em','',x.online?(x.players===null?'?':x.players)+' '+(x.players==1?T.playerOne:T.players):T.slotIdle));ab.append(i)}b.append(ab)}
     const p=el('div','disc');if(s.max){const o=el('small','o',T.slotsOrig+' ');o.append(el('s','',s.max));p.append(o)}p.append(el('small','d',T.nowPlaying),el('b','',s.players===null?'?':s.players));b.append(p);
     if(s.max&&s.players!==null){const bar=el('div','bar'),f=el('span',s.players/s.max>.9?'f':s.players/s.max>.7?'w':'');f.style.width=Math.min(100,Math.round(100*s.players/s.max))+'%';bar.append(f);b.append(bar)}}
    else b.append(el('div','mp bad',T.down));
@@ -3014,21 +2987,20 @@ function drawBoard(){const d=LB.data;if(!d)return;
  const bn=(periods.find(b=>b.id==base)||{name:''}).name;
  for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ',''));o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
  $('lbinfo').textContent=tr_(T.withPoints,{n:d.total});
- const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows;
- if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd wp p'+r.rank);c.dataset.r=r.rank;c.append(el('i','nail'),el('div','stamp',T.no+' '+r.rank),el('div','wt',T.wanted),el('div','wsub',T.wsub));const mug=el('div','mug');mug.append(el('span','mh','')),c.append(mug);const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w);const rw=el('div','rw');rw.append(el('small','',T.reward),el('b','',fmt(r.points)),el('small','',T.pointsLc));c.append(rw,el('div','rec',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
- const gh=$('gzh'),gd=$('gzd'),ga=$('gzart');gh.textContent='';gd.textContent='';ga.textContent='';
- if(d.rows.length){const a=d.rows[0],b2=d.rows[1],c3=d.rows[2];gh.textContent=tr_(T.gzH,{name:a.name});gd.textContent=tr_(T.gzD,{pts:fmt(a.points),games:fmt(a.played),wins:fmt(a.wins)});
-  let art=tr_(T.gzA1,{n:d.total,first:a.name,p1:fmt(a.points)});if(b2)art+=tr_(T.gzA2,{second:b2.name,p2:fmt(b2.points)});if(c3)art+=tr_(T.gzA3,{third:c3.name,p3:fmt(c3.points)});
-  const tt0=d.teams[0];if(tt0)art+=tr_(T.gzA4,{tag:tt0.tag,tname:tt0.name,tp:fmt(tt0.points)});ga.textContent=art}
+ const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows,top=d.rows.length?d.rows[0].points||1:1;
+ if(podium)for(const r of d.rows.slice(0,3)){const c=el('div','lp p'+r.rank);c.append(el('div','lpn',r.rank));const w=el('div','lpw');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);const pp=el('div','lpp');pp.append(el('b','',fmt(r.points)),el('small','',T.pointsLc));c.append(w,pp,el('div','lpr',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
+ const gh=$('gzh'),gd=$('gzd');gh.textContent='';gd.textContent='';
+ if(d.rows.length){const a=d.rows[0];gh.textContent=tr_(T.gzH,{name:a.name});gd.textContent=tr_(T.gzD,{pts:fmt(a.points),games:fmt(a.played),wins:fmt(a.wins)})}
  else gh.textContent=T.gzNone;
  const t=$('lbtable');t.textContent='';t.parentNode.hidden=podium&&!rest.length&&d.total<=d.rows.length;const hr=el('tr');
  for(const [l,n] of [['#',0],[T.player,0],[T.points,1],[T.wins,1],[T.games,1]])hr.append(el('th',n?'n':'',l));t.append(hr);
- for(const r of rest){const tr=el('tr'),nm=el('td');if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
+ for(const r of rest){const tr=el('tr','rb'),nm=el('td');tr.style.setProperty('--p',Math.max(2,Math.round(100*(r.points||0)/top)));if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
   tr.append(el('td','rk',r.rank),nm,el('td','n',fmt(r.points)),el('td','n',fmt(r.wins)),el('td','n',fmt(r.played)));t.append(tr)}
  if(!d.rows.length){const tr=el('tr'),td=el('td','mut',T.noEntries);td.colSpan=5;tr.append(td);t.append(tr)}
  else if(d.total>d.rows.length){const tr=el('tr'),td=el('td','mut',tr_(T.topOf,{a:d.rows.length,b:d.total}));td.colSpan=5;tr.append(td);t.append(tr)}
  const tt=$('lbteams');tt.textContent='';const th=el('tr');for(const [l,n] of [[T.team,0],[T.members,1],[T.points,1]])th.append(el('th',n?'n':'',l));tt.append(th);
- for(const x of d.teams){const tr=el('tr'),c=el('td');c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','n',x.members),el('td','n',fmt(x.points)));tt.append(tr)}
+ const tmax=d.teams.length?d.teams[0].points||1:1;
+ for(const x of d.teams){const tr=el('tr','rb'),c=el('td');tr.style.setProperty('--p',Math.max(2,Math.round(100*(x.points||0)/tmax)));c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','n',x.members),el('td','n',fmt(x.points)));tt.append(tr)}
  if(!d.teams.length){const tr=el('tr'),td=el('td','mut',T.noTeamPoints);td.colSpan=3;tr.append(td);tt.append(tr)}}
 $('lbboard').onchange=()=>{LB.board=$('lbboard').value;loadBoard()};
 $('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;loadBoard()};
@@ -3049,7 +3021,6 @@ async function loadTeams(){
    body.append(dt);c.append(band,body);g.append(c)}
   $('tmstat').textContent=d.teams.length?'':T.noTeams}
  catch(e){$('tmstat').textContent=e.message}}
-try{$('gzdate').textContent=new Date().toLocaleDateString(T.loc,{weekday:'long',day:'numeric',month:'long',year:'numeric'})}catch(e){}
 try{$('issue').textContent=T.issue+' '+new Date().toLocaleDateString(T.loc,{month:'long',year:'numeric'})}catch(e){}
 loadStatus();loadBoard();loadTeams();
 setInterval(()=>{if(!document.hidden)loadStatus()},30000);
@@ -3082,7 +3053,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+        if not any(k == "Content-Security-Policy" for k, _ in headers):
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
         for k, v in headers:
             self.send_header(k, v)
         self.end_headers()
@@ -3102,7 +3074,7 @@ class Handler(BaseHTTPRequestHandler):
     def public(self, url):
         """The page and data anyone may read: no login, rate limited per address, whitelisted fields only."""
         if url.path in ("/status", "/status/de", "/public"):
-            return self.send(200, public_page("de" if url.path == "/status/de" else "en"), headers=[("Cache-Control", "public, max-age=60")])
+            return self.send(200, public_page("de" if url.path == "/status/de" else "en"), headers=[("Cache-Control", "public, max-age=60"), ("Content-Security-Policy", PUBLIC_CSP)])
         if url.path == "/status/font.woff2":
             return self.send(200, GOTHIC_FONT, "font/woff2", headers=[("Cache-Control", "public, max-age=604800")])
         if url.path == "/status/grip.svg":

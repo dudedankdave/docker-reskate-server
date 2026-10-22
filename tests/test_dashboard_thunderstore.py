@@ -1072,7 +1072,7 @@ class PublicPageTest(unittest.TestCase):
         con.commit()
         con.close()
         self.d.bridge = lambda path, body=None: [
-            {"server": 1, "role": "Main", "running": True, "players": 3, "online": 2, "max": 20, "map": "Tampa", "password": "secret", "container": "reskate-server-1", "port": 10001, "slots": {"a": {}}},
+            {"server": 1, "role": "Main", "running": True, "players": 3, "online": 2, "max": 20, "map": "Tampa", "password": "secret", "container": "reskate-server-1", "port": 10001, "slots": {"a": {"running": True, "online": 2, "map": "Tampa", "version": "2.1.1"}, "b": {"running": False}}},
             {"server": 2, "role": "Skate 2", "running": False, "players": None, "max": 20, "map": "Old"},
             {"server": 9, "role": "Test", "running": True, "players": 1, "online": 1, "max": 16, "map": "Secret"}]
         self.d.server_details = lambda: {}
@@ -1123,10 +1123,18 @@ class PublicPageTest(unittest.TestCase):
     def test_status_shows_only_what_a_player_needs(self):
         code, body, _ = self.get("/status/api/servers")
         self.assertEqual(json.loads(body)["servers"], [
-            {"server": 1, "role": "Main", "online": True, "players": 2, "max": 20, "map": "Tampa"},
-            {"server": 2, "role": "Skate 2", "online": False, "players": None, "max": 20, "map": ""}])
+            {"server": 1, "role": "Main", "online": True, "players": 2, "max": 20, "map": "Tampa",
+             "slots": [{"slot": "A", "online": True, "players": 2, "version": "2.1.1"}, {"slot": "B", "online": False, "players": None, "version": ""}]},
+            {"server": 2, "role": "Skate 2", "online": False, "players": None, "max": 20, "map": "", "slots": []}])
         for secret in ("secret", "reskate-server-1", "10001"):
             self.assertNotIn(secret, body)
+
+    def test_only_the_status_page_may_frame_discord(self):
+        code, body, headers = self.get("/status")
+        self.assertIn("frame-src https://discord.com", headers["Content-Security-Policy"])
+        self.assertEqual(len(headers.get_all("Content-Security-Policy")), 1)
+        self.assertIn("https://discord.com/widget?id=", body)
+        self.assertNotIn("frame-src", self.get("/status/api/servers")[2]["Content-Security-Policy"])
 
     def test_the_test_server_is_not_on_the_page_unless_listed(self):
         self.assertNotIn("Secret", self.get("/status/api/servers")[1])
