@@ -28,6 +28,15 @@ restart, nobody else is touched. restart_max_players: 0 means only when empty.
 A restart can be asked for without any change: touching /shared/settings/.restart/server-<n> (the
 dashboard does) restarts that server the same way, once, if the file is newer than the server's start.
 
+Before a container is swapped, its slot's /data volume has to exist (a missing one would start the server
+empty, without its leaderboard, roles or world layers; allow_new_volume: true permits it). After the new one is
+started, it is watched for up to verify_minutes (default 10): it counts as up once its own log says "is up on" and it
+has run verify_steady_seconds (default 40) without a Docker restart. If it crashes or restarts in that time, it is
+stopped and, when it replaced a server in place, the old container is started again (rollback); the same image is
+not tried again for that server for failed_retry_hours (default 6). A server still starting at the end of the window
+is left running and reported. A plain restart (settings, mods, request) is watched the same way and reported if it
+does not come back; there is nothing to roll back to.
+
 The copy is a clone of the running container (env, mounts, restart policy) with the slot's
 ports, token, volume and a new SERVER_NAME. If Docker Hub has an image tag for the release it
 runs that; otherwise it runs the current image with the release installed into its volume
@@ -248,6 +257,7 @@ class Rollover:
         self.mods_checked = {}         # container id -> (time, pending mod updates)
         self.hub_seen = {}             # release -> when it was first seen without an image on Docker Hub
         self.revisions = {}            # (repo, version) -> (when looked up, newest image revision)
+        self.failed = {}               # (server, image) -> when a container of it crashed after we started it
 
     def once(self, key, message):
         if key not in self.waiting:
@@ -579,6 +589,46 @@ class Rollover:
         if not self.dry:
             docker("POST", f"/containers/{s.info['Id']}/restart?t=60", timeout=180)
             self.mods_checked.pop(s.info["Id"], None)
+            if not self.verify(s.info["Id"], s.name, {}) and self.came_down:
+                self.notify(f"{s.name} did not come back after the restart ({self.came_down}); it needs a look.")
+
+    def verify(self, cid, name, server):
+        """Watch a container we just (re)started. True once its own log says it is up and it has run
+        verify_steady_seconds without a Docker restart; False otherwise, with self.came_down set to why
+        when it crashed or stopped ("" when it is only still starting at the end of verify_minutes)."""
+        window = float(setting(self.cfg, server, "verify_minutes", 10)) * 60
+        steady = float(setting(self.cfg, server, "verify_steady_seconds", 40))
+        begin, up_at, self.came_down = time.time(), None, ""
+        while True:
+            info = docker("GET", f"/containers/{cid}/json")
+            state = info["State"]
+            if info.get("RestartCount", 0) > 0:
+                self.came_down = f"restarted by Docker {info['RestartCount']}x, exit code {state.get('ExitCode')}"
+                return False
+            if not state.get("Running"):
+                self.came_down = f"stopped, exit code {state.get('ExitCode')}"
+                return False
+            if up_at is None and any(UP.match((LINE.match(x) or [None, x])[1] or "") for x in logs(info)):
+                up_at = time.time()
+            if up_at is not None and time.time() - up_at >= steady:
+                say(f"{name} is up and stayed up for {steady:.0f} s")
+                return True
+            if time.time() - begin >= window:
+                return False
+            time.sleep(5)
+
+    def recent_failure(self, number, image, server):
+        at = self.failed.get((number, image))
+        return at is not None and time.time() - at < float(setting(self.cfg, server, "failed_retry_hours", 6)) * 3600
+
+    def volume_missing(self, volume):
+        try:
+            docker("GET", f"/volumes/{urllib.parse.quote(volume)}")
+            return False
+        except RuntimeError as e:
+            if ": 404 " in str(e):
+                return True
+            raise
 
     def empty_for(self, s):
         try:
@@ -622,6 +672,14 @@ class Rollover:
         image = f"{self.repo}:{tag}" if tag else old.info["Config"]["Image"]
         install = not tag and not suffix and numbers(old.env.get("RESKATE_IMAGE_VERSION")) < numbers(version)
         in_place = slot == old.slot
+        if self.recent_failure(number, image, server):
+            return self.once(("failed", number, image), f"Server {number}: {what}, but {image} crashed here a short while ago; "
+                                                        f"not trying it again for {setting(self.cfg, server, 'failed_retry_hours', 6)} h.")
+        if not setting(self.cfg, server, "allow_new_volume", False) and self.volume_missing(s["volume"]):
+            return self.once(("no-volume", number, s["volume"]),
+                             f"Server {number}: {what}, but slot {slot.upper()}'s volume {s['volume']} does not exist; "
+                             "a copy would start without the server's data. Create it (a copy of the other slot's) "
+                             "or set allow_new_volume.")
         how = (f"{count} player(s) on {old.name}, replacing it in slot {slot.upper()}" if in_place and count else
                f"nobody is on {old.name}, replacing it in slot {slot.upper()}" if in_place else
                f"{count} player(s) on {old.name} ({old.version}), starting a copy in slot {slot.upper()}")
@@ -681,6 +739,19 @@ class Rollover:
         made = docker("POST", f"/containers/create?name={urllib.parse.quote(name)}", body)
         docker("POST", f"/containers/{made['Id']}/start")
         self.notify(f"Server {number}: {name} started.")
+        if self.verify(made["Id"], name, server):
+            return
+        if not self.came_down:
+            return self.notify(f"Server {number}: {name} is still starting after "
+                               f"{float(setting(self.cfg, server, 'verify_minutes', 10)):.0f} min; leaving it running.")
+        self.failed[(number, image)] = time.time()
+        docker("POST", f"/containers/{made['Id']}/stop?t=10", timeout=60)
+        if in_place:
+            docker("POST", f"/containers/{old.info['Id']}/start")
+        self.notify(f"Server {number}: {name} did not come up ({self.came_down}); stopped it"
+                    + (f" and started {old.name} again." if in_place else f", {old.name} keeps running.")
+                    + f" Its log has the reason; {image} is not tried again for this server for "
+                    f"{setting(self.cfg, server, 'failed_retry_hours', 6)} h.")
 
     def pull(self, repo, tag):
         out = docker("POST", f"/images/create?fromImage={urllib.parse.quote(repo)}&tag={urllib.parse.quote(tag)}",
