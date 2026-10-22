@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import tarfile
 import tempfile
 import unittest
@@ -1096,6 +1097,23 @@ class PublicPageTest(unittest.TestCase):
             self.assertEqual(self.get(path)[0], 200, path)
         for path in ("/api/leaderboard", "/api/teams", "/api/servers"):
             self.assertEqual(self.get(path)[0], 401, path)
+
+    def test_sticker_pack_is_served_by_plain_name_only(self):
+        with open(f"{self.tmp.name}/ok.webp", "wb") as f:
+            f.write(b"RIFF....WEBP")
+        self.d.STICKERS = self.tmp.name
+        code, _, headers = self.get("/status/s/ok.webp")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/webp"))
+        self.assertEqual(self.get("/status/s/nope.webp")[0], 404)
+        for bad in ("..", "a/b", "..%2Fok"):
+            self.assertNotEqual(self.get(f"/status/s/{bad}.webp")[0], 200, bad)
+
+    def test_every_sticker_the_page_uses_is_in_the_repository(self):
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "stickers")
+        names = set(re.findall(r"/status/s/([a-z0-9-]+)\.webp", self.d.PUBLIC_PAGE))
+        self.assertTrue(names)
+        for name in names:
+            self.assertTrue(os.path.isfile(os.path.join(folder, name + ".webp")), name)
 
     def test_status_shows_only_what_a_player_needs(self):
         code, body, _ = self.get("/status/api/servers")

@@ -1887,6 +1887,20 @@ def servers():
 
 
 # ---- public page: read-only, no login, only what players may see (no Steam IDs, roles, passwords, ports, containers) ----
+STICKERS = next((d for d in (os.environ.get("DASHBOARD_STICKERS", ""), "/app/stickers", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "stickers")) if d and os.path.isdir(d)), "")
+
+
+def sticker(name):
+    """One image of the sticker pack (webp with alpha), or None. The name is a plain slug, never a path."""
+    if not STICKERS or not re.fullmatch(r"[a-z0-9-]{1,40}", name):
+        return None
+    try:
+        with open(os.path.join(STICKERS, name + ".webp"), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 PUBLIC_RATE = 90          # requests per address and minute
 PUBLIC_TTL = 20           # seconds a public answer is reused
 PUBLIC_ENTRIES = 100
@@ -2776,7 +2790,7 @@ a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg)
 .join svg{flex:none;width:28px;height:28px}.join div{min-width:0}.join b{display:block;font:italic 700 24px/1.1 var(--head)}.join span{display:block;font:11px/1.5 var(--mono);letter-spacing:.06em;margin-top:6px;color:var(--dim)}.join:hover span{color:var(--bg)}
 .join i{margin-left:auto;flex:none;font:normal 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em;border:1px solid currentColor;padding:9px 12px}
 @media(max-width:480px){.join{flex-wrap:wrap}.join i{margin-left:0}}
-.tick{position:relative;z-index:1;background:#040704;color:#c8ff9c;overflow:visible;clip-path:inset(-320px 0);white-space:nowrap;border-top:2px solid var(--acid);border-bottom:2px solid var(--acid);box-shadow:0 0 10px rgba(102,255,0,.8),0 0 44px 4px rgba(102,255,0,.4),0 0 120px 20px rgba(102,255,0,.2),inset 0 0 26px rgba(102,255,0,.28);animation:neonbar 9s step-end infinite}
+.tick{position:relative;z-index:1;background:#040704;color:#c8ff9c;overflow-x:clip;overflow-y:visible;white-space:nowrap;border-top:2px solid var(--acid);border-bottom:2px solid var(--acid);box-shadow:0 0 10px rgba(102,255,0,.8),0 0 44px 4px rgba(102,255,0,.4),0 0 120px 20px rgba(102,255,0,.2),inset 0 0 26px rgba(102,255,0,.28);animation:neonbar 9s step-end infinite}
 .tk{display:inline-flex;animation:tickhitch 46s linear infinite;will-change:transform}.tkc{display:inline-block;padding:9px 0;font:700 13px/1 var(--mono);text-transform:uppercase;letter-spacing:.24em;text-shadow:0 0 2px rgba(255,255,255,.7),0 0 10px var(--acid),0 0 30px rgba(102,255,0,.8),0 0 64px rgba(102,255,0,.55),0 0 110px rgba(102,255,0,.35);animation:neontxt 6s step-end infinite}
 .tick::before,.tick::after{content:"";position:absolute;left:0;right:0;pointer-events:none;mix-blend-mode:screen;animation:hazeflick 9s step-end infinite}
 .tick::before{top:100%;height:300px;background:radial-gradient(ellipse 70% 100% at 50% 0,rgba(102,255,0,.34),rgba(102,255,0,.12) 45%,transparent 75%),repeating-linear-gradient(90deg,transparent 0 46px,rgba(102,255,0,.07) 46px 92px,transparent 92px 150px);-webkit-mask-image:linear-gradient(#000,transparent);mask-image:linear-gradient(#000,transparent)}
@@ -2891,15 +2905,25 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);filter:url(#bleed2);text-wrap:balance}
 /* printed labels: bone paper, red rules, slight tilt */
 .jw{position:relative;min-width:0}
-.promo{position:absolute;right:18px;top:-64px;width:92px;height:92px;border-radius:50%;overflow:hidden;transform:rotate(-8deg);display:grid;grid-template-rows:1fr 1fr;text-align:center;z-index:2;border:1px solid var(--fg);box-shadow:0 6px 14px rgba(0,0,0,.6)}
-.promo b{display:grid;place-items:center;background:var(--fg);color:#111;font:900 13px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase;padding-top:5px}
-.promo i{display:grid;place-items:center;background:#0b0b0b;color:var(--fg);font:600 11px/1.05 Arial,sans-serif;font-style:normal;padding:0 12px 6px}
-.num,.sum .chip,.disc{background:var(--fg);color:#111;border-top:3px solid var(--red);border-bottom:3px solid var(--red);clip-path:polygon(0 0,100% 0,100% 38%,calc(100% - 5px) 50%,100% 62%,100% 100%,0 100%,0 62%,5px 50%,0 38%)}
-.num{padding:5px 12px;font:700 13px/1 "Courier New",var(--mono);letter-spacing:.1em;transform:rotate(2deg)}
-.sum .chip{padding:7px 16px;font:700 13px/1.2 "Courier New",var(--mono);letter-spacing:.04em;text-transform:none;transform:rotate(-.8deg)}.sum .chip+.chip{background:#cfcabb;transform:rotate(.7deg)}
-.sum .chip b,.sum .chip .dot{color:#111}.sum .dot{border-color:#111}.sum .dot.up{background:#111;box-shadow:none}
-.disc{padding:10px 14px;transform:rotate(-.7deg);border-top-width:3px}
-.disc small,.disc .o s{color:#111;font:700 10px/1.2 "Courier New",var(--mono)}.disc b{color:#111;font:700 44px/.9 "Courier New",var(--mono);letter-spacing:-.04em}
+.stk,.pile img,.gzstk{filter:drop-shadow(0 8px 12px rgba(0,0,0,.65));pointer-events:none;user-select:none}
+.pile{position:absolute;right:0;bottom:calc(100% + 40px);width:min(100%,380px);height:310px}
+.pile img{position:absolute;display:block;height:auto}
+.pile .a{left:26%;top:0;width:190px;transform:rotate(6deg)}
+.pile .b{left:0;top:96px;width:165px;transform:rotate(-11deg)}
+.pile .c{right:0;top:168px;width:190px;transform:rotate(7deg)}
+@media(max-width:820px){.pile{position:relative;right:auto;bottom:auto;margin:0 0 46px;height:260px}.pile .a{left:34%;width:150px}.pile .b{width:130px;top:80px}.pile .c{width:150px;top:140px}}
+.promo{position:absolute;right:18px;top:-64px;width:112px;height:112px;transform:rotate(-8deg);display:grid;align-content:center;justify-items:center;text-align:center;z-index:2;background:url(/status/s/red-ring.webp) center/100% 100% no-repeat;filter:drop-shadow(0 6px 10px rgba(0,0,0,.65));color:#17130c;padding:0 18px}
+.promo b{font:900 14px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase}
+.promo i{font:700 9.5px/1.15 "Courier New",var(--mono);font-style:normal;text-transform:uppercase;margin-top:3px}
+.num,.sum .chip,.disc,h2 .soonchip{background:url(/status/s/yellow-ribbon.webp) center/100% 100% no-repeat;color:#17130c;border:0;clip-path:none;filter:drop-shadow(0 4px 6px rgba(0,0,0,.55))}
+.num{padding:9px 20px 9px;font:700 13px/1 "Courier New",var(--mono);letter-spacing:.1em;transform:rotate(2deg)}
+.sum .chip{padding:11px 26px;font:700 13px/1.2 "Courier New",var(--mono);letter-spacing:.04em;text-transform:none;transform:rotate(-.8deg)}.sum .chip+.chip{background-image:url(/status/s/cream.webp);transform:rotate(.7deg)}
+.sum .chip b,.sum .chip .dot{color:#17130c}.sum .dot{border-color:#17130c}.sum .dot.up{background:#17130c;box-shadow:none}
+.disc{padding:16px 30px 16px 38px;transform:rotate(-.7deg)}
+.sv:nth-child(3n+2) .disc{background-image:url(/status/s/cream.webp);transform:rotate(.8deg)}.sv:nth-child(3n) .disc{background-image:url(/status/s/orange-octagon.webp);transform:rotate(-1.2deg)}
+.disc small,.disc .o s{color:#17130c;font:700 10px/1.2 "Courier New",var(--mono)}.disc b{color:#17130c;font:700 44px/.9 "Courier New",var(--mono);letter-spacing:-.04em}
+h2 .soonchip{background-image:url(/status/s/cream.webp);color:#a3200f;border:0;padding:9px 20px;font:700 12px/1 "Courier New",var(--mono);transform:rotate(-3deg)}
+.gz>.gzstk{position:absolute;right:clamp(8px,2vw,28px);top:-34px;width:clamp(96px,11vw,150px);height:auto;transform:rotate(7deg);z-index:2}
 .adv{width:min(240px,70%);margin:0 auto 22px;background:var(--fg);color:#0b0b0b;border:3px solid #0b0b0b;outline:1px solid var(--fg);text-align:center;transform:rotate(-1deg);text-transform:none;letter-spacing:0}
 .adv small{display:block;font:700 12px/1 Arial,sans-serif;letter-spacing:.5em;text-transform:uppercase;padding:6px 0 0}.adv b{display:block;font:900 32px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase;padding:2px 0 4px;border-bottom:2px solid #0b0b0b}.adv i{display:block;font:700 12px/1 Arial,sans-serif;font-style:normal;letter-spacing:.2em;text-transform:uppercase;background:#0b0b0b;color:var(--fg);padding:5px 0}
 .bc{margin:22px auto 0;width:180px;height:40px;background:repeating-linear-gradient(90deg,var(--fg) 0 2px,transparent 2px 4px,var(--fg) 4px 5px,transparent 5px 9px,var(--fg) 9px 12px,transparent 12px 14px,var(--fg) 14px 15px,transparent 15px 19px)}
@@ -2928,13 +2952,13 @@ h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "G
 <div class="hero"><div class="wrap">
 <div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
 <div class="intro"><div class="l"><h1>Cocojambo's Yard</h1><div class="sum" id="sum"></div><p class="scat">{{scat1}} <span class="par">({{par_live}})</span></p></div>
-<div class="jw"><div class="promo" aria-hidden="true"><b>{{promo_a}}</b><i>{{promo_b}}</i></div><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div></div>
+<div class="jw"><div class="pile" aria-hidden="true"><img class="a" src="/status/s/alien.webp" alt="" width="190" height="280"><img class="b" src="/status/s/offer-lime.webp" alt="" width="170" height="115"><img class="c" src="/status/s/holo-barcode.webp" alt="" width="190" height="153"></div><div class="promo" aria-hidden="true"><b>{{promo_a}}</b><i>{{promo_b}}</i></div><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div></div>
 </div></div>
 <div class="tick" aria-hidden="true"><div class="tk" id="tk"><span class="tkc">{{tick_idle}}</span></div></div>
 <main class="wrap">
 <section id="server"><h2><i class="no">01</i><span>{{nav_servers}}</span> <small>{{live}}</small></h2><div class="kick">{{k_servers}}</div><p class="scat wide">{{scat2}}</p><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
 <section id="leaderboard"><h2><i class="no">02</i><span>{{nav_board}}</span></h2><div class="kick">{{k_board}}</div>
-<div class="gz"><div class="gzhead"><span>{{gz_vol}}</span><b>{{gz_name}}</b><span id="gzdate"></span></div>
+<div class="gz"><img class="gzstk" src="/status/s/pct99.webp" alt="" width="150" height="110" aria-hidden="true"><div class="gzhead"><span>{{gz_vol}}</span><b>{{gz_name}}</b><span id="gzdate"></span></div>
 <div class="ctl" id="lbleague"></div>
 <div class="ctl"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select><span class="mut" id="lbinfo"></span></div>
 <div class="gzban" id="gzban"><h3 id="gzh"></h3><p id="gzd"></p></div>
@@ -3083,6 +3107,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, GOTHIC_FONT, "font/woff2", headers=[("Cache-Control", "public, max-age=604800")])
         if url.path == "/status/grip.svg":
             return self.send(200, GRIP_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
+        m = re.fullmatch(r"/status/s/([a-z0-9-]+)\.webp", url.path)
+        if m:
+            data = sticker(m.group(1))
+            if data is None:
+                return self.send(404, "not found", "text/plain")
+            return self.send(200, data, "image/webp", headers=[("Cache-Control", "public, max-age=604800")])
         if url.path == "/status/grime.svg":
             return self.send(200, GRIME_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if not public_allowed(self.address()):
