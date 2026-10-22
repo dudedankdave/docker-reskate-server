@@ -1961,6 +1961,25 @@ PUBLIC_TEXT = {
 }
 
 
+GRAFFITI = ("#66ff00", "#ff2e93", "#ffe600", "#ffffff", "#18d8ff")
+
+
+def graffiti(text):
+    """The wordmark as spray-paint letters: each letter its own colour, tilt, offset and sometimes a drip (pure CSS, no font download)."""
+    out, n = [], 0
+    for word in text.split(" "):
+        letters = []
+        for ch in word:
+            r, y, d = (-5, 4, -3, 6, -2, 3, -6)[n % 7], (0, -6, 4, -3, 5, -4, 2)[n % 7], (0, 0, .34, 0, .5, 0, .22, 0, 0, .42)[n % 10]
+            style = f"--c:{GRAFFITI[(n * 2 + n // 3) % len(GRAFFITI)]};--r:{r}deg;--y:{y / 100}em"
+            if d:
+                style += f";--d:{d}em;--dx:{(n * 17) % 40 + 25}%"
+            letters.append(f'<i style="{style}"{" class=dr" if d else ""} aria-hidden="true">{html.escape(ch)}</i>')
+            n += 1
+        out.append('<span class="gw">' + "".join(letters) + "</span>")
+    return " ".join(out)
+
+
 def public_page(lang="en"):
     """The status page in `lang` (en or de) with the Discord invite filled in (only a https://discord.gg/ or discord.com/invite/ link; otherwise the links are left out)."""
     text = PUBLIC_TEXT.get(lang, PUBLIC_TEXT["en"])
@@ -1973,7 +1992,7 @@ def public_page(lang="en"):
     values = dict(text, lang=lang, on_en=" on" if lang == "en" else "", on_de=" on" if lang == "de" else "")
     page = re.sub(r"\{\{(\w+)\}\}", lambda m: html.escape(values[m.group(1)]), page)
     data = json.dumps(text, ensure_ascii=False).replace("</", "<\\/")
-    return page.replace("__T__", data).replace("__DISCORD__", link)
+    return page.replace("__T__", data).replace("__DISCORD__", link).replace("__WORDMARK__", graffiti("COCOJAMBO'S YARD"))
 
 
 def public_allowed(address):
@@ -2930,11 +2949,19 @@ footer{color:var(--dim)}footer span{background:var(--panel);color:var(--fg);bord
 .gz td{border-bottom:1px solid rgba(20,19,15,.28);font-size:15px;color:var(--nk)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(20,19,15,.07)}.gz .rk{color:#5a5548;font-weight:700}
 .gz .tag{background:var(--nk);color:#d9d3c1;border-color:var(--nk)}
 .gz .lbcols .tablewrap:last-child{border-top-width:3px}
+
+/* graffiti wordmark, darker header, neon ticker */
+.hero{background:linear-gradient(rgba(0,0,0,.72),rgba(0,0,0,.72)),url(/status/grip.svg),#000}
+h1{transform:none;text-shadow:none;font-size:clamp(46px,9vw,112px);line-height:1.05;letter-spacing:0;margin-bottom:.1em}
+h1 .gw{display:inline-block;white-space:nowrap}
+h1 i{position:relative;display:inline-block;font:italic 900 1em/1 "Arial Black","Helvetica Neue",Arial,sans-serif;color:var(--c);-webkit-text-stroke:.05em #000;paint-order:stroke fill;text-shadow:.045em .06em 0 #000,.09em .12em 0 rgba(0,0,0,.6),0 0 .3em var(--c);transform:translateY(var(--y)) rotate(var(--r)) skewX(-6deg);margin-right:-.015em;text-transform:uppercase}
+h1 i.dr::after{content:"";position:absolute;left:var(--dx);top:86%;width:.1em;height:var(--d);background:var(--c);border:.03em solid #000;border-top:0;border-radius:0 0 .1em .1em;z-index:-1}
+.tick{background:#66ff00}
 </style></head><body>
 <div class="mast"><div class="wrap"><span>{{mast_a}}</span><span id="issue"></span><span>{{mast_b}}</span></div></div>
 <div class="hero"><div class="wrap">
 <div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
-<div class="intro"><svg class="spk a" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk b" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk c" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk d" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="smile" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#f8d21d" stroke="#1d1a16" stroke-width="3"/><circle cx="16.5" cy="19" r="3" fill="#1d1a16"/><circle cx="31.5" cy="19" r="3" fill="#1d1a16"/><path d="M12 28c3 8 21 8 24 0" fill="none" stroke="#1d1a16" stroke-width="3" stroke-linecap="round"/></svg><div class="burst" aria-hidden="true"><span>{{burst}}</span></div><div class="l"><h1>COCOJAMBO'S <span class="yard">YARD</span></h1><div class="sum" id="sum"></div></div>
+<div class="intro"><svg class="spk a" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk b" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk c" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk d" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="smile" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#f8d21d" stroke="#1d1a16" stroke-width="3"/><circle cx="16.5" cy="19" r="3" fill="#1d1a16"/><circle cx="31.5" cy="19" r="3" fill="#1d1a16"/><path d="M12 28c3 8 21 8 24 0" fill="none" stroke="#1d1a16" stroke-width="3" stroke-linecap="round"/></svg><div class="burst" aria-hidden="true"><span>{{burst}}</span></div><div class="l"><h1 aria-label="COCOJAMBO'S YARD">__WORDMARK__</h1><div class="sum" id="sum"></div></div>
 <a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div>
 </div></div>
 <div class="tick" aria-hidden="true"><div class="tk" id="tk"><span class="tkc">{{tick_idle}}</span></div></div>
