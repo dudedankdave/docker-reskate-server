@@ -2798,7 +2798,7 @@ body{margin:0;overflow-x:clip;color:var(--fg);font:16px/1.55 Georgia,"Iowan Old 
 @media(max-width:620px){.mast span:nth-child(3){display:none}}
 .hero{position:relative;overflow:hidden;border-bottom:1px solid var(--edge);background:linear-gradient(rgba(0,0,0,.8),rgba(0,0,0,.8)),url(/status/grip.svg),#000}
 .top{display:flex;gap:10px 24px;flex-wrap:wrap;align-items:center;padding-top:22px}
-.logo{display:block}.logo img{display:block;height:23.4px;width:auto;max-width:100%;filter:grayscale(1) brightness(1.5)}
+.logo{display:block}.logo img{display:block;opacity:.9;height:26px;width:auto;max-width:100%;filter:grayscale(1) brightness(1.5)}
 .top nav{display:flex;gap:6px 22px;flex-wrap:wrap;margin-left:auto;align-items:center}
 a.nb{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim);text-decoration:none;padding:8px 0;border-bottom:1px solid transparent;transition:color .15s,border-color .15s}
 a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg);border-bottom-color:var(--red)}
