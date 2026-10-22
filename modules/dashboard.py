@@ -2905,14 +2905,8 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);filter:url(#bleed2);text-wrap:balance}
 /* printed labels: bone paper, red rules, slight tilt */
 .jw{position:relative;min-width:0}
-.stk,.pile img,.gzstk{filter:drop-shadow(0 8px 12px rgba(0,0,0,.65));pointer-events:none;user-select:none}
-.pile{position:absolute;right:0;bottom:calc(100% + 40px);width:min(100%,380px);height:310px}
-.pile img{position:absolute;display:block;height:auto}
-.pile .a{left:26%;top:0;width:190px;transform:rotate(6deg)}
-.pile .b{left:0;top:96px;width:165px;transform:rotate(-11deg)}
-.pile .c{right:0;top:168px;width:190px;transform:rotate(7deg)}
-@media(max-width:820px){.pile{position:relative;right:auto;bottom:auto;margin:0 0 46px;height:260px}.pile .a{left:34%;width:150px}.pile .b{width:130px;top:80px}.pile .c{width:150px;top:140px}}
-.promo{position:absolute;right:18px;top:-64px;width:112px;height:112px;transform:rotate(-8deg);display:grid;align-content:center;justify-items:center;text-align:center;z-index:2;background:url(/status/s/red-ring.webp) center/100% 100% no-repeat;filter:drop-shadow(0 6px 10px rgba(0,0,0,.65));color:#17130c;padding:0 18px}
+.gzstk{filter:drop-shadow(0 8px 12px rgba(0,0,0,.65));pointer-events:none;user-select:none}
+.promo{position:absolute;right:18px;top:-76px;width:112px;height:112px;transform:rotate(-8deg);display:grid;align-content:center;justify-items:center;text-align:center;z-index:2;background:url(/status/s/red-ring.webp) center/100% 100% no-repeat;filter:drop-shadow(0 6px 10px rgba(0,0,0,.65));color:#17130c;padding:0 18px}
 .promo b{font:900 14px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase}
 .promo i{font:700 9.5px/1.15 "Courier New",var(--mono);font-style:normal;text-transform:uppercase;margin-top:3px}
 .sum .chip,.disc,h2 .soonchip{background:url(/status/s/yellow-ribbon.webp) center/100% 100% no-repeat;color:#17130c;border:0;clip-path:none;filter:drop-shadow(0 4px 6px rgba(0,0,0,.55))}
@@ -2951,7 +2945,7 @@ h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;borde
 <div class="hero"><div class="wrap">
 <div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
 <div class="intro"><div class="l"><h1>Cocojambo's Yard</h1><div class="sum" id="sum"></div><p class="scat">{{scat1}} <span class="par">({{par_live}})</span></p></div>
-<div class="jw"><div class="pile" aria-hidden="true"><img class="a" src="/status/s/alien.webp" alt="" width="190" height="280"><img class="b" src="/status/s/offer-lime.webp" alt="" width="170" height="115"><img class="c" src="/status/s/holo-barcode.webp" alt="" width="190" height="153"></div><div class="promo" aria-hidden="true"><b>{{promo_a}}</b><i>{{promo_b}}</i></div><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div></div>
+<div class="jw"><div class="promo" aria-hidden="true"><b>{{promo_a}}</b><i>{{promo_b}}</i></div><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div></div>
 </div></div>
 <div class="tick" aria-hidden="true"><div class="tk" id="tk"><span class="tkc">{{tick_idle}}</span></div></div>
 <main class="wrap">
