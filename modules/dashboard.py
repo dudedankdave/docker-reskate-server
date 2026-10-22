@@ -2812,7 +2812,7 @@ a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg)
 @keyframes dotglow{50%{box-shadow:0 0 3px #3dff6a,0 0 9px rgba(61,255,106,.7),0 0 18px rgba(61,255,106,.35)}}
 .scat{margin:0;max-width:min(560px,100%);font:11px/2 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--dim)}
 .scat.wide{max-width:min(720px,100%);margin:0 0 26px}
-.join{position:relative;display:flex;gap:18px;align-items:center;padding:20px 22px;border:2px dotted var(--fg);color:var(--fg);text-decoration:none;transition:background .15s,color .15s}
+.join{position:relative;display:flex;gap:18px;align-items:center;padding:20px 22px;border:4px dotted var(--fg);color:var(--fg);text-decoration:none;transition:background .15s,color .15s}
 .join:hover{background:var(--fg);color:var(--bg)}
 .join svg{flex:none;width:28px;height:28px}.join div{min-width:0}.join b{display:block;font:italic 700 24px/1.1 var(--head)}.join span{display:block;font:11px/1.5 var(--mono);letter-spacing:.06em;margin-top:6px;color:var(--dim)}.join:hover span{color:var(--bg)}
 @media(max-width:480px){.join{flex-wrap:wrap}}
