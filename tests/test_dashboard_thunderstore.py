@@ -1266,6 +1266,34 @@ class PublicPageTest(unittest.TestCase):
         used = set(re.findall(r"\bT\.(\w+)", self.d.PUBLIC_PAGE)) | set(re.findall(r"\{\{(\w+)\}\}", self.d.PUBLIC_PAGE))
         self.assertLessEqual(used - {"lang", "on_en", "on_de"}, set(en))
 
+    def test_link_previews_get_absolute_urls_and_the_picture(self):
+        import re
+        for path, lang, url in (("/", "en_US", "https://reskate.cocojambo.net/"), ("/de", "de_DE", "https://reskate.cocojambo.net/de")):
+            page = self.get(path)[1]
+            self.assertIn(f'<meta property="og:url" content="{url}">', page)
+            self.assertIn(f'<meta property="og:locale" content="{lang}">', page)
+            self.assertIn('<meta property="og:image" content="https://reskate.cocojambo.net/status/og.jpg">', page)
+            self.assertIn('<meta name="twitter:card" content="summary_large_image">', page)
+            self.assertIn('<meta name="theme-color"', page)
+            self.assertNotIn("__BASE__", page)
+            self.assertNotIn("__PATH__", page)
+            self.assertTrue(re.search(r'og:title" content="[^"]{10,}"', page))
+        self.assertIn("Live", self.get("/de")[1].split('og:title" content="')[1].split('"')[0])
+
+    def test_the_preview_picture_is_served_and_ships_in_the_repository(self):
+        import os
+        self.d.STICKERS = self.tmp.name
+        with open(f"{self.tmp.name}/og.jpg", "wb") as f:
+            f.write(b"\xff\xd8\xff fake")
+        code, body, headers = self.get("/status/og.jpg")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/jpeg"))
+        os.remove(f"{self.tmp.name}/og.jpg")
+        self.assertEqual(self.get("/status/og.jpg")[0], 404)
+        repo = os.path.join(os.path.dirname(self.d.__file__), "..", "assets", "stickers", "og.jpg")
+        with open(repo, "rb") as f:
+            head = f.read(3)
+        self.assertEqual(head, b"\xff\xd8\xff")
+
     def test_the_admin_page_is_not_touched_by_the_status_page_scripts(self):
         for word in ("podium", "gzh", "tr_(", "T.gz", "T.loc"):
             self.assertNotIn(word, self.d.PAGE, word)

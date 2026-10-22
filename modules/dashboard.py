@@ -1901,6 +1901,16 @@ def sticker(name):
         return None
 
 
+def og_image():
+    """The 1200x630 preview picture for link previews (Discord, chat apps), or None."""
+    try:
+        with open(os.path.join(STICKERS, "og.jpg"), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+PUBLIC_URL = os.environ.get("DASHBOARD_PUBLIC_URL", "https://reskate.cocojambo.net").strip().rstrip("/")   # absolute base for link previews
 PUBLIC_RATE = 90          # requests per address and minute
 PUBLIC_TTL = 20           # seconds a public answer is reused
 PUBLIC_ENTRIES = 100
@@ -1929,7 +1939,7 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
-        "playerOne": "player", "slotIdle": "idle", "slotLbl": "Slot", "promo_a": "Join", "promo_b": "Live now!", "scat1": "A live record of every server, score and crew in the yard. Cut from scan lines, soft ink and bad habits. Reprinted every thirty seconds.", "par_live": "live", "scat2": "Online or offline, who is playing and on which map. Leaderboards for both leagues, every crew on file. No login, nothing private, nothing for sale.", "nowPlaying": "now playing", "slotsOrig": "slots", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
+        "playerOne": "player", "slotIdle": "idle", "og_locale": "en_US", "og_title": "Cocojambo's Yard: live ReSkate servers", "og_desc": "Who is online and on which map, leaderboards for both leagues and every crew. Live status of our ReSkate community servers, no login needed.", "slotLbl": "Slot", "promo_a": "Join", "promo_b": "Live now!", "scat1": "A live record of every server, score and crew in the yard. Cut from scan lines, soft ink and bad habits. Reprinted every thirty seconds.", "par_live": "live", "scat2": "Online or offline, who is playing and on which map. Leaderboards for both leagues, every crew on file. No login, nothing private, nothing for sale.", "nowPlaying": "now playing", "slotsOrig": "slots", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
         "k_servers": "Live status", "k_board": "Top skaters", "k_teams": "The crews", "k_soon": "Next issue",
         "soon_title": "Coming soon",
         "soon_chip": "in the works",
@@ -1957,7 +1967,7 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
-        "playerOne": "Spieler", "slotIdle": "ruht", "slotLbl": "Slot", "promo_a": "Beitreten", "promo_b": "Jetzt live!", "scat1": "Ein Live-Protokoll jedes Servers, jedes Scores und jeder Crew im Yard. Gebaut aus Scanlinien, weicher Tinte und schlechten Angewohnheiten. Alle dreißig Sekunden neu gedruckt.", "par_live": "live", "scat2": "Online oder offline, wer spielt und auf welcher Map. Ranglisten beider Ligen, jede Crew in der Kartei. Kein Login, nichts Privates, nichts zu verkaufen.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "playerOne": "Spieler", "slotIdle": "ruht", "og_locale": "de_DE", "og_title": "Cocojambo's Yard: Live ReSkate-Server", "og_desc": "Wer online ist und auf welcher Map, Ranglisten beider Ligen und jede Crew. Live-Status unserer ReSkate-Community-Server, ganz ohne Login.", "slotLbl": "Slot", "promo_a": "Beitreten", "promo_b": "Jetzt live!", "scat1": "Ein Live-Protokoll jedes Servers, jedes Scores und jeder Crew im Yard. Gebaut aus Scanlinien, weicher Tinte und schlechten Angewohnheiten. Alle dreißig Sekunden neu gedruckt.", "par_live": "live", "scat2": "Online oder offline, wer spielt und auf welcher Map. Ranglisten beider Ligen, jede Crew in der Kartei. Kein Login, nichts Privates, nichts zu verkaufen.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
         "k_servers": "Live-Status", "k_board": "Die Besten", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
         "soon_title": "Demnächst",
         "soon_chip": "in Arbeit",
@@ -1988,7 +1998,7 @@ def public_page(lang="en"):
     values = dict(text, lang=lang, on_en=" on" if lang == "en" else "", on_de=" on" if lang == "de" else "")
     page = re.sub(r"\{\{(\w+)\}\}", lambda m: html.escape(values[m.group(1)]), page)
     data = json.dumps(text, ensure_ascii=False).replace("</", "<\\/")
-    return page.replace("__T__", data).replace("__DISCORD__", link)
+    return page.replace("__T__", data).replace("__DISCORD__", link).replace("__BASE__", html.escape(PUBLIC_URL)).replace("__PATH__", "/de" if lang == "de" else "/")
 
 
 def public_allowed(address):
@@ -2774,7 +2784,12 @@ FAVICON_PNG = base64.b64decode(
 
 PUBLIC_CSP = "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src https://discord.com"
 PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
-<title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png"><style>
+<title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png">
+<meta name="description" content="{{og_desc}}"><meta name="theme-color" content="#d8391d"><link rel="canonical" href="__BASE____PATH__">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Cocojambo's Yard"><meta property="og:title" content="{{og_title}}"><meta property="og:description" content="{{og_desc}}"><meta property="og:url" content="__BASE____PATH__"><meta property="og:locale" content="{{og_locale}}">
+<meta property="og:image" content="__BASE__/status/og.jpg"><meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Cocojambo's Yard: Skate. Compete. Repeat.">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{og_title}}"><meta name="twitter:description" content="{{og_desc}}"><meta name="twitter:image" content="__BASE__/status/og.jpg">
+<style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#0a0a0a;--panel:#0e0e0e;--fg:#e8e3d6;--dim:#a29d8e;--edge:#34332f;--acid:#e6eefa;--red:#d8391d;--bad:#d4553a;--head:Georgia,"Iowan Old Style","Times New Roman",serif;--mono:ui-monospace,"SF Mono","Courier New",monospace}
 *{box-sizing:border-box}html{scroll-behavior:smooth;overflow-x:clip;background:var(--bg)}
 body{margin:0;overflow-x:clip;color:var(--fg);font:16px/1.55 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(ellipse at 50% 0,transparent 40%,rgba(0,0,0,.6) 100%),linear-gradient(rgba(10,10,10,.62),rgba(10,10,10,.62)),url(/status/grime.svg),var(--bg)}
@@ -3088,6 +3103,11 @@ class Handler(BaseHTTPRequestHandler):
             if data is None:
                 return self.send(404, "not found", "text/plain")
             return self.send(200, data, "image/webp", headers=[("Cache-Control", "public, max-age=604800")])
+        if url.path == "/status/og.jpg":
+            data = og_image()
+            if data is None:
+                return self.send(404, "not found", "text/plain")
+            return self.send(200, data, "image/jpeg", headers=[("Cache-Control", "public, max-age=3600")])
         if url.path == "/status/grime.svg":
             return self.send(200, GRIME_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if not public_allowed(self.address()):
