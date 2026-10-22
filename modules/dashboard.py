@@ -1910,6 +1910,19 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
+        "soon_title": "Coming soon",
+        "soon_chip": "in the works",
+        "soon_lead": "We are building more for the community. Here is what is next:",
+        "soon_login_t": "Player login",
+        "soon_login_d": "Sign in with your own account, no shared passwords.",
+        "soon_dash_t": "Online dashboard",
+        "soon_dash_d": "Your own view of the servers, your sessions and your activity.",
+        "soon_stats_t": "Stats",
+        "soon_stats_d": "Detailed numbers per player, map, mode and season.",
+        "soon_profile_t": "Player profile",
+        "soon_profile_d": "A public page with your rank, history and team.",
+        "soon_teams_t": "Team setup",
+        "soon_teams_d": "Create and manage your team, members, logo and applications on the web.",
     },
     "de": {
         "loc": "de-DE", "title": "COCOJAMBO'S YARD – ReSkate Status", "nav_servers": "Server", "nav_board": "Rangliste", "nav_teams": "Teams",
@@ -1924,6 +1937,19 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
+        "soon_title": "Demnächst",
+        "soon_chip": "in Arbeit",
+        "soon_lead": "Wir bauen weiter für die Community. Das kommt als Nächstes:",
+        "soon_login_t": "Login pro Spieler",
+        "soon_login_d": "Mit dem eigenen Konto anmelden, ohne gemeinsame Passwörter.",
+        "soon_dash_t": "Online-Dashboard",
+        "soon_dash_d": "Deine eigene Sicht auf Server, Sessions und Aktivität.",
+        "soon_stats_t": "Stats",
+        "soon_stats_d": "Detaillierte Zahlen pro Spieler, Map, Modus und Saison.",
+        "soon_profile_t": "Spielerprofil",
+        "soon_profile_d": "Eine öffentliche Seite mit Rang, Verlauf und Team.",
+        "soon_teams_t": "Team-Setup",
+        "soon_teams_d": "Team, Mitglieder, Logo und Bewerbungen im Web anlegen und verwalten.",
     },
 }
 
@@ -2756,6 +2782,7 @@ table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px 12px
 .score{display:flex;gap:16px;flex-wrap:wrap}.score div{display:grid}.score b{font-size:20px;font-variant-numeric:tabular-nums;line-height:1.2}.score span{font-size:12px;color:var(--mut)}
 details summary{cursor:pointer;color:var(--acc);font-size:14px}details ul{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:4px}details li{display:flex;gap:8px;justify-content:space-between;font-size:14px}
 th::first-letter,summary::first-letter{text-transform:uppercase}
+.soongrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr))}.soonlead{margin:-6px 0 16px;max-width:60ch}.soonchip{padding:2px 10px;border-radius:99px;background:rgba(196,139,255,.15);color:var(--acc2);font-size:12px;font-weight:650;text-transform:uppercase;letter-spacing:.05em}.sc{display:flex;gap:14px;align-items:flex-start;padding:16px;border:1px dashed var(--line);border-radius:14px;background:linear-gradient(135deg,rgba(142,162,255,.06),rgba(196,139,255,.05))}.sc svg{flex:none;width:34px;height:34px;padding:7px;border-radius:10px;color:var(--acc);background:rgba(142,162,255,.12)}.sc p{margin:3px 0 0;color:var(--mut);font-size:13px}
 footer{padding-top:0;padding-bottom:32px;color:var(--mut);font-size:13px;text-align:center}
 </style></head><body>
 <div class="hero"><div class="wrap">
@@ -2771,6 +2798,7 @@ footer{padding-top:0;padding-bottom:32px;color:var(--mut);font-size:13px;text-al
 <div class="pod" id="pod"></div>
 <div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></section>
 <section id="teams"><h2>{{nav_teams}}</h2><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
+<section id="soon"><h2>{{soon_title}} <small class="soonchip">{{soon_chip}}</small></h2><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
 </main>
 <footer class="wrap">{{footer}}</footer>
 <script>
