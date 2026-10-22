@@ -1898,9 +1898,7 @@ PUBLIC_BAD_LOGOS = {}     # logo link -> time of the failed fetch (not tried aga
 
 
 GRIP_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#0f0f10"/><filter id="a" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="2" seed="7" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .68  0 0 0 0 .68  0 0 0 0 .66  7 0 0 0 -3.85"/></filter><filter id="b" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.36" numOctaves="2" seed="21" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .42  0 0 0 0 .43  6 0 0 0 -3.1"/></filter><filter id="c" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 .95"/></filter><rect width="100%" height="100%" filter="url(#b)"/><rect width="100%" height="100%" filter="url(#a)" opacity=".72"/><rect width="100%" height="100%" filter="url(#c)" opacity=".5"/></svg>')
-PAPER_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" '
-             'numOctaves="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .36 0 0 0 0 .28 0 0 0 0 .16 0 0 0 .7 -.18"/></filter>'
-             '<rect width="100%" height="100%" filter="url(#n)"/></svg>')
+GRIME_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"><filter id="s" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".006 .012" numOctaves="4" seed="5" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .26  0 0 0 0 .23  0 0 0 0 .19  0 0 0 2.6 -1.05"/></filter><filter id="d" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".03 .02" numOctaves="3" seed="9" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 3 -1.5"/></filter><filter id="g" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="2" seed="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .9  0 0 0 0 .88  0 0 0 0 .82  0 0 0 4.5 -2.45"/></filter><rect width="100%" height="100%" filter="url(#s)" opacity=".22"/><rect width="100%" height="100%" filter="url(#d)" opacity=".5"/><rect width="100%" height="100%" filter="url(#g)" opacity=".28"/><path d="M271 336L279 541" stroke="#e6e1d3" stroke-opacity="0.14" stroke-width="0.8"/><path d="M111 307L254 350" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M54 486L199 414" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.8"/><path d="M374 499L411 480" stroke="#e6e1d3" stroke-opacity="0.12" stroke-width="1.4"/><path d="M196 355L261 337" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.6"/><path d="M274 167L468 271" stroke="#e6e1d3" stroke-opacity="0.13" stroke-width="1.0"/><path d="M455 308L490 310" stroke="#e6e1d3" stroke-opacity="0.09" stroke-width="1.0"/><path d="M232 575L400 483" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M282 588L326 684" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.0"/><path d="M202 187L235 184" stroke="#e6e1d3" stroke-opacity="0.06" stroke-width="0.6"/><path d="M7 279L127 301" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M591 462L700 449" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M0 519L215 539" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.4"/><path d="M598 361L723 299" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.0"/><path d="M6 366L192 345" stroke="#e6e1d3" stroke-opacity="0.06" stroke-width="0.8"/><path d="M9 221L63 359" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M520 110L496 164" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="0.8"/><path d="M95 377L228 403" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M253 62L286 79" stroke="#e6e1d3" stroke-opacity="0.13" stroke-width="1.4"/><path d="M154 494L294 465" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M76 288L229 305" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="0.8"/><path d="M449 41L554 15" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.0"/><path d="M319 584L363 567" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.8"/><path d="M354 554L473 537" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.6"/><path d="M359 45L401 37" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.6"/><path d="M272 221L256 256" stroke="#e6e1d3" stroke-opacity="0.13" stroke-width="1.0"/><path d="M211 411L399 484" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M518 344L536 491" stroke="#e6e1d3" stroke-opacity="0.05" stroke-width="0.6"/><path d="M48 384L-33 587" stroke="#e6e1d3" stroke-opacity="0.09" stroke-width="1.4"/><path d="M264 503L309 514" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="0.6"/><path d="M289 138L289 301" stroke="#e6e1d3" stroke-opacity="0.12" stroke-width="1.4"/><path d="M153 7L239 22" stroke="#e6e1d3" stroke-opacity="0.11" stroke-width="1.0"/><path d="M396 265L430 462" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="1.4"/><path d="M482 453L548 434" stroke="#e6e1d3" stroke-opacity="0.11" stroke-width="1.0"/></svg>')
 PUBLIC_TEXT = {
     "en": {
         "loc": "en-US", "title": "COCOJAMBO'S YARD – ReSkate status", "nav_servers": "Servers", "nav_board": "Leaderboard", "nav_teams": "Teams",
@@ -1915,8 +1913,8 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
-        "playerOne": "player", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  ★  ", "tickIdle": "Skate · Compete · Repeat",
-        "k_servers": "Live status", "k_board": "Top scores", "k_teams": "The crews", "k_soon": "Next issue",
+        "playerOne": "player", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  ★  ", "tickIdle": "Skate · Compete · Repeat",
+        "k_servers": "Live status", "k_board": "Most wanted", "k_teams": "The crews", "k_soon": "Next issue",
         "soon_title": "Coming soon",
         "soon_chip": "in the works",
         "soon_lead": "We are building more for the community. Here is what is next:",
@@ -1944,8 +1942,8 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
-        "playerOne": "Spieler", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  ★  ", "tickIdle": "Skaten · Messen · Wiederholen",
-        "k_servers": "Live-Status", "k_board": "Top-Scores", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
+        "playerOne": "Spieler", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  ★  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "k_servers": "Live-Status", "k_board": "Meistgesucht", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
         "soon_title": "Demnächst",
         "soon_chip": "in Arbeit",
         "soon_lead": "Wir bauen weiter für die Community. Das kommt als Nächstes:",
@@ -2749,7 +2747,7 @@ FAVICON_PNG = base64.b64decode(
 
 PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png"><style>
-:root{color-scheme:light;--gut:clamp(16px,3vw,48px);--paper:#ebe2cc;--card:#f7f1e2;--ink:#1d1a16;--mut:#6a604f;--red:#d8391d;--blue:#2146c7;--yel:#f6c91c;--ok:#1b8a4a;--bad:#c0321a;--head:"Arial Black","Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"Courier New",monospace;--sh:5px 5px 0 var(--ink)}
+:root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--paper:#ebe2cc;--card:#f7f1e2;--ink:#1d1a16;--mut:#6a604f;--red:#d8391d;--blue:#2146c7;--yel:#f6c91c;--ok:#1b8a4a;--bad:#c0321a;--head:"Arial Black","Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"Courier New",monospace;--sh:5px 5px 0 var(--ink)}
 *{box-sizing:border-box}html{scroll-behavior:smooth;overflow-x:clip}
 body{margin:0;overflow-x:clip;color:var(--ink);font:16px/1.5 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(1200px 600px at 50% -10%,rgba(255,255,255,.55),transparent 70%),radial-gradient(900px 700px at 110% 110%,rgba(120,80,30,.16),transparent 70%),url(/status/paper.svg),var(--paper)}
 .wrap{width:100%;margin:0;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
@@ -2852,6 +2850,60 @@ main{gap:clamp(56px,8vw,104px)}
 .tmband h3{font-size:30px}.tmband::before{content:attr(data-tag);position:absolute;right:-6px;bottom:-22px;font:900 90px/1 var(--head);color:transparent;-webkit-text-stroke:2px rgba(29,26,22,.3);z-index:0}
 footer span{display:block;margin:0 auto}.bc{margin:18px auto 0;width:180px;height:44px;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 9px,var(--ink) 9px 12px,transparent 12px 14px,var(--ink) 14px 15px,transparent 15px 19px)}
 footer{padding-top:0;padding-bottom:38px;color:var(--mut);font:12px/1.5 var(--mono);text-align:center;text-transform:uppercase;letter-spacing:.06em}footer::before{content:"★ ★ ★";display:block;color:var(--red);letter-spacing:.5em;margin-bottom:6px}
+
+/* dark, gridded, dirty */
+:root{--bg:#0b0b0c;--panel:#141416;--fg:#e6e1d3;--dim:#a8a396;--edge:#55534e;--gridc:rgba(230,225,211,.05)}
+body{color:var(--fg);background:radial-gradient(ellipse at 50% 40%,transparent 40%,rgba(0,0,0,.65) 100%),url(/status/grime.svg),linear-gradient(var(--gridc) 1px,transparent 1px) 0 0/32px 32px,linear-gradient(90deg,var(--gridc) 1px,transparent 1px) 0 0/32px 32px,linear-gradient(rgba(230,225,211,.09) 1px,transparent 1px) 0 0/160px 160px,linear-gradient(90deg,rgba(230,225,211,.09) 1px,transparent 1px) 0 0/160px 160px,var(--bg);background-attachment:scroll}
+.hero::before{content:"";position:absolute;inset:0;background:linear-gradient(rgba(230,225,211,.06) 1px,transparent 1px) 0 0/40px 40px,linear-gradient(90deg,rgba(230,225,211,.06) 1px,transparent 1px) 0 0/40px 40px;pointer-events:none;z-index:0}.hero .wrap{position:relative;z-index:1}
+.mast{background:#000;color:var(--dim);border-bottom:1px solid var(--edge)}
+h2,h3,.svb .nm,.pl b,.pd .r,.pd .who,.pd .pts,.score b{color:var(--fg)}h2{border-bottom-color:var(--fg)}h2 .no{-webkit-text-stroke-color:var(--fg)}
+h2 small{border:2px solid var(--yel);background:#000;color:var(--yel)}
+.kick::after{background:repeating-linear-gradient(90deg,var(--edge) 0 6px,transparent 6px 10px)}
+.mut,.pl,.svb .mp,.score span,.sc p,.rk{color:var(--dim)}
+.sv,.tm,.tablewrap,.sc{background-color:var(--panel);background-image:linear-gradient(rgba(20,20,22,.86),rgba(20,20,22,.86)),url(/status/grime.svg);border-color:var(--edge);box-shadow:6px 6px 0 #000,0 0 0 1px rgba(0,0,0,.6);color:var(--fg)}
+.sv:hover{border-color:var(--yel);box-shadow:9px 9px 0 #000}
+.svb,.tmbody{background:linear-gradient(var(--gridc) 1px,transparent 1px) 0 0/16px 16px,linear-gradient(90deg,var(--gridc) 1px,transparent 1px) 0 0/16px 16px}
+.pic,.tmband{border-bottom-color:var(--edge)}
+.pic{background:linear-gradient(135deg,hsl(var(--h),38%,26%),hsl(calc(var(--h) + 50),38%,11%))}.pic img{filter:contrast(1.25) saturate(.5) brightness(.78) sepia(.2)}
+.pic .ph{text-shadow:2px 2px 0 #000}
+.tmband{background:hsl(var(--h),40%,28%)}.tmlogo{border-color:var(--fg);background:#0b0b0c;color:var(--fg)}
+.st{background:#0b0b0c;color:var(--fg);border-color:var(--edge);box-shadow:2px 2px 0 #000}.sv.off .st{color:var(--bad)}.sv.off .pic{filter:grayscale(1) brightness(.7)}
+.bar{border-color:var(--edge);background:#08080a}
+.dot{border-color:#000}
+.chips .chip{background:transparent;color:var(--dim);border-color:var(--edge)}
+th{border-bottom-color:var(--edge);background:rgba(255,255,255,.05);color:var(--dim)}td{border-bottom-color:rgba(230,225,211,.14)}tbody tr:hover td,tr:hover td{background:rgba(246,201,28,.14)}
+details summary{color:var(--yel)}details li{border-bottom-color:rgba(230,225,211,.2)}
+button,select,a.nb{background:var(--panel);color:var(--fg);border-color:var(--edge);box-shadow:3px 3px 0 #000}
+button:hover,a.nb:hover{background:var(--yel);color:var(--ink);border-color:var(--yel)}
+button.on,a.nb.on,.hero a.nb.on{background:var(--yel);color:var(--ink);border-color:var(--yel)}
+.pd.p1{background-color:var(--yel);background-image:none;border-color:var(--ink);box-shadow:6px 6px 0 #000}.pd.p1 *{color:var(--ink)}.pd.p1 .r{color:#fff}.pd.p1 .mut{color:var(--ink)}
+.pd::after{-webkit-text-stroke-color:rgba(230,225,211,.14)}.pd.p1::after{-webkit-text-stroke-color:rgba(0,0,0,.3)}
+.join{filter:saturate(.8) brightness(.82);box-shadow:7px 7px 0 #000;border-color:#000}
+.sc{border-color:var(--edge)}.sc svg{border-color:#000}
+.quote{background:#000}
+.tick{border-color:#000}
+footer{color:var(--dim)}footer span{background:var(--panel);color:var(--fg);border-color:var(--fg)}.bc{background:repeating-linear-gradient(90deg,var(--fg) 0 2px,transparent 2px 4px,var(--fg) 4px 5px,transparent 5px 9px,var(--fg) 9px 12px,transparent 12px 14px,var(--fg) 14px 15px,transparent 15px 19px)}
+.tmband::before{-webkit-text-stroke-color:rgba(0,0,0,.45)}
+
+/* most wanted */
+#pod{filter:drop-shadow(6px 6px 0 #000)}
+.pd.wp{--pc:#1a140c;position:relative;overflow:visible;display:grid;gap:8px;justify-items:center;text-align:center;padding:26px 18px 20px;color:var(--pc);background:radial-gradient(ellipse at 20% 15%,rgba(120,80,30,.28),transparent 55%),radial-gradient(ellipse at 85% 90%,rgba(90,55,20,.35),transparent 55%),linear-gradient(rgba(212,193,150,.6),rgba(212,193,150,.6)),url(/status/grime.svg),#d4c196;border:0;box-shadow:none;clip-path:polygon(0.0% 0.4%,7.1% 0.2%,14.3% 0.6%,21.4% 0.2%,28.6% 0.1%,35.7% 0.6%,42.9% 1.5%,50.0% 1.3%,57.1% 1.2%,64.3% 0.4%,71.4% 0.9%,78.6% 0.4%,85.7% 0.3%,92.9% 0.2%,100.0% 0.3%,98.7% 10.8%,98.8% 21.6%,98.9% 32.3%,98.9% 43.1%,99.7% 53.9%,99.6% 64.7%,99.1% 75.4%,99.0% 86.2%,100.0% 98.3%,92.9% 98.2%,85.7% 99.8%,78.6% 98.8%,71.4% 98.7%,64.3% 99.0%,57.1% 99.6%,50.0% 99.1%,42.9% 99.8%,35.7% 98.1%,28.6% 98.3%,21.4% 98.9%,14.3% 99.4%,7.1% 98.2%,0.0% 98.9%,1.2% 86.2%,1.2% 75.4%,0.7% 64.7%,0.6% 53.9%,0.8% 43.1%,0.6% 32.3%,0.2% 21.6%,0.4% 10.8%);transform:rotate(-1.2deg);min-width:0}
+.pd.wp.p2{transform:rotate(1.4deg)}.pd.wp.p3{transform:rotate(-.5deg)}.pd.wp.p1{transform:rotate(.4deg);padding-top:34px;padding-bottom:28px}
+.pd.wp *{color:var(--pc)}.pd.wp::after{display:none}.pd.wp::before{display:none}
+.pd.wp .nail{position:absolute;left:50%;top:9px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#bbb,#444 70%);box-shadow:1px 2px 2px rgba(0,0,0,.6)}
+.pd.wp .wt{font:900 clamp(28px,3.6vw,52px)/1 Rockwell,"Rockwell Extra Bold","Courier New",Georgia,serif;letter-spacing:.12em;text-transform:uppercase;border-top:3px solid var(--pc);border-bottom:3px solid var(--pc);padding:4px 10px 2px;width:100%}
+.pd.p1.wp .wt{font-size:clamp(34px,4.6vw,66px)}
+.pd.wp .wsub{font:800 10px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.16em;margin-top:-2px}
+.pd.wp .mug{position:relative;width:min(100%,200px);aspect-ratio:1/1;border:3px solid var(--pc);background:radial-gradient(ellipse 19% 19% at 50% 40%,var(--pc) 0 97%,transparent 100%),radial-gradient(ellipse 38% 31% at 50% 100%,var(--pc) 0 97%,transparent 100%),repeating-linear-gradient(0deg,rgba(26,20,12,.4) 0 1px,transparent 1px 12.5%),rgba(26,20,12,.12);overflow:hidden}
+.pd.p1.wp .mug{width:min(100%,240px)}
+.pd.wp .mug::before{content:"";position:absolute;left:0;top:0;bottom:0;width:10px;background:repeating-linear-gradient(0deg,var(--pc) 0 2px,transparent 2px 12.5%)}
+.pd.wp .mug::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 49.4%,rgba(192,50,26,.7) 49.4% 50.6%,transparent 50.6%),linear-gradient(90deg,transparent 49.4%,rgba(192,50,26,.7) 49.4% 50.6%,transparent 50.6%)}
+.pd.wp .who{font:900 clamp(18px,1.8vw,24px)/1.15 var(--mono);text-transform:uppercase;overflow-wrap:anywhere}.pd.wp .tag{background:var(--pc);color:#d4c196!important;border-color:var(--pc)}
+.pd.wp .rw{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;justify-content:center;border-top:3px solid var(--pc);border-bottom:3px solid var(--pc);padding:4px 10px;width:100%}.pd.wp .rw small{font:800 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}.pd.wp .rw b{font:900 clamp(34px,4vw,56px)/1 Rockwell,"Courier New",Georgia,serif;letter-spacing:.02em}
+.pd.wp .rec{font:700 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;opacity:.8}
+.pd.wp .stamp{position:absolute;right:10px;top:34px;transform:rotate(14deg);border:3px solid #b22a12;color:#b22a12!important;font:900 14px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;opacity:.88;mix-blend-mode:multiply}
+.pd.wp .stamp{color:#b22a12}
+@media(max-width:700px){.pod{grid-template-columns:minmax(0,1fr)}.pd.p1{order:-1}}
 </style></head><body>
 <div class="mast"><div class="wrap"><span>{{mast_a}}</span><span id="issue"></span><span>{{mast_b}}</span></div></div>
 <div class="hero"><div class="wrap">
@@ -2916,7 +2968,7 @@ function drawBoard(){const d=LB.data;if(!d)return;
  for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ',''));o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
  $('lbinfo').textContent=tr_(T.withPoints,{n:d.total});
  const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows;
- if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd p'+r.rank);c.dataset.r=r.rank;c.append(el('div','r','#'+r.rank));const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w,el('div','pts',fmt(r.points)),el('div','mut',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
+ if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd wp p'+r.rank);c.dataset.r=r.rank;c.append(el('i','nail'),el('div','stamp',T.no+' '+r.rank),el('div','wt',T.wanted),el('div','wsub',T.wsub));const mug=el('div','mug');mug.append(el('span','mh','')),c.append(mug);const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w);const rw=el('div','rw');rw.append(el('small','',T.reward),el('b','',fmt(r.points)),el('small','',T.pointsLc));c.append(rw,el('div','rec',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
  const t=$('lbtable');t.textContent='';const hr=el('tr');
  for(const [l,n] of [['#',0],[T.player,0],[T.points,1],[T.wins,1],[T.games,1]])hr.append(el('th',n?'n':'',l));t.append(hr);
  for(const r of rest){const tr=el('tr'),nm=el('td');if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
@@ -3000,8 +3052,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, public_page("de" if url.path == "/status/de" else "en"), headers=[("Cache-Control", "public, max-age=60")])
         if url.path == "/status/grip.svg":
             return self.send(200, GRIP_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
-        if url.path == "/status/paper.svg":
-            return self.send(200, PAPER_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
+        if url.path == "/status/grime.svg":
+            return self.send(200, GRIME_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if not public_allowed(self.address()):
             return self.json(429, {"error": "too many requests"})
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
