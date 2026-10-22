@@ -2880,7 +2880,7 @@ details summary{cursor:pointer;font:11px/1.3 var(--mono);text-transform:uppercas
 .sc{display:flex;gap:14px;align-items:flex-start;padding:22px 18px}.sc svg{flex:none;width:28px;height:28px;color:var(--fg);stroke-width:1.2}.sc h3{font:italic 700 18px/1.2 var(--head)}.sc p{margin:6px 0 0;color:var(--dim);font:12px/1.5 var(--mono)}
 .quote{overflow:hidden;white-space:nowrap;border-top:1px solid var(--edge);border-bottom:1px solid var(--edge);padding:16px 0}
 .qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:italic 700 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:1px var(--fg);letter-spacing:.02em}.qt span::after{content:"/";margin-left:34px;color:var(--red);-webkit-text-stroke:0}
-footer{background:rgba(0,0,0,.9);border-top:1px solid var(--fg);box-shadow:0 -24px 60px rgba(0,0,0,.6);padding-top:clamp(40px,6vw,72px);padding-bottom:36px;color:var(--dim);font:11px/1.7 var(--mono);text-transform:uppercase;letter-spacing:.14em;text-align:center}footer span{display:block;border-top:1px solid var(--edge);padding-top:20px}
+footer{background:rgba(232,227,214,.05);border-top:1px solid var(--fg);padding-top:clamp(40px,6vw,72px);padding-bottom:36px;color:var(--dim);font:11px/1.7 var(--mono);text-transform:uppercase;letter-spacing:.14em;text-align:center}footer span{display:block;border-top:1px solid var(--edge);padding-top:20px}
 
 /* leaderboard */
 .lb{display:grid;gap:clamp(22px,3vw,40px)}
