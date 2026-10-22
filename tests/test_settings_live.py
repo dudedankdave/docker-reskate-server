@@ -35,6 +35,32 @@ class LiveTest(unittest.TestCase):
         self.assertEqual(a, settings.restart_digest({"MAX_PLAYERS": "10", "WELCOME_MESSAGE": "other"}))
         self.assertNotEqual(a, settings.restart_digest({"MAX_PLAYERS": "11", "WELCOME_MESSAGE": "hi"}))
 
+    def test_new_mods_go_first_and_only_the_added_ones(self):
+        old = {"MODS": "A-Map, B-Map", "MAP_POOL": "X"}
+        new = {"MODS": "A-Map,B-Map,C-Map, D-Map", "MAP_POOL": "X,C"}
+        commands, restart = settings.live_commands(old, new)
+        self.assertEqual(commands, ["mods add C-Map D-Map", "map-pool clear", "map-pool add X", "map-pool add C"])
+        self.assertEqual(restart, [])
+
+    def test_removed_mods_send_nothing(self):
+        commands, restart = settings.live_commands({"MODS": "A-Map,B-Map"}, {"MODS": "A-Map"})
+        self.assertEqual((commands, restart), ([], []))
+        self.assertEqual(settings.live_commands({"MODS": "A-Map"}, {})[1], ["MODS"])
+
+    def test_long_mods_lists_are_split(self):
+        names = [f"Owner-Package{i:03d}" for i in range(40)]
+        lines = settings.live_commands({}, {"MODS": ",".join(names)})[0]
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(len(x) <= settings.MODS_LINE and x.startswith("mods add ") for x in lines))
+        self.assertEqual(" ".join(x[len("mods add "):] for x in lines).split(), names)
+
+    def test_restart_digests_accept_older_images(self):
+        values = {"MAX_PLAYERS": "10", "MODS": "A-Map"}
+        older = settings.digest({"MAX_PLAYERS": "10", "MODS": "A-Map"})          # MODS was not LIVE before
+        self.assertIn(older, settings.restart_digests(values))
+        self.assertIn(settings.restart_digest(values), settings.restart_digests(values))
+        self.assertEqual(settings.restart_digest(values), settings.restart_digest({"MAX_PLAYERS": "10", "MODS": "B"}))
+
 
 if __name__ == "__main__":
     unittest.main()
