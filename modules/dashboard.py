@@ -2884,7 +2884,6 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 .lp{position:relative;min-width:0;min-height:260px;padding:18px 20px 20px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;background:var(--panel);border-right:1px solid var(--edge);border-bottom:1px solid var(--edge);overflow:hidden}
 .lp.p1{background:radial-gradient(ellipse at 15% 0,rgba(216,57,29,.22),transparent 65%),var(--panel)}
 .lpn{position:absolute;left:14px;top:-8px;font:700 clamp(120px,15vw,200px)/1 var(--head);color:transparent;-webkit-text-stroke:1px rgba(232,227,214,.26);pointer-events:none}.lp.p1 .lpn{-webkit-text-stroke-color:var(--red)}
-.lp.p1::after{content:"";position:absolute;right:12px;top:12px;width:104px;height:76px;background:url(/status/s/pct99.webp) center/contain no-repeat;transform:rotate(8deg);filter:drop-shadow(0 5px 8px rgba(0,0,0,.65))}
 .lpw{position:relative;font:700 clamp(22px,2.4vw,32px)/1.1 var(--head);overflow-wrap:anywhere}
 .lpp{position:relative;display:flex;align-items:baseline;gap:10px}.lpp b{font:700 clamp(46px,5.2vw,68px)/.9 var(--head)}.lpp small{font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim)}
 .lpr{position:relative;font:11px/1.4 var(--mono);letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
