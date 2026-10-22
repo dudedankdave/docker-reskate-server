@@ -1914,6 +1914,8 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
+        "playerOne": "player", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  ★  ", "tickIdle": "Skate · Compete · Repeat",
+        "k_servers": "Live status", "k_board": "Top scores", "k_teams": "The crews", "k_soon": "Next issue",
         "soon_title": "Coming soon",
         "soon_chip": "in the works",
         "soon_lead": "We are building more for the community. Here is what is next:",
@@ -1941,6 +1943,8 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
+        "playerOne": "Spieler", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  ★  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "k_servers": "Live-Status", "k_board": "Top-Scores", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
         "soon_title": "Demnächst",
         "soon_chip": "in Arbeit",
         "soon_lead": "Wir bauen weiter für die Community. Das kommt als Nächstes:",
@@ -2745,9 +2749,9 @@ FAVICON_PNG = base64.b64decode(
 PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:light;--gut:clamp(16px,3vw,48px);--paper:#ebe2cc;--card:#f7f1e2;--ink:#1d1a16;--mut:#6a604f;--red:#d8391d;--blue:#2146c7;--yel:#f6c91c;--ok:#1b8a4a;--bad:#c0321a;--head:"Arial Black","Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"Courier New",monospace;--sh:5px 5px 0 var(--ink)}
-*{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;color:var(--ink);font:16px/1.5 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(1200px 600px at 50% -10%,rgba(255,255,255,.55),transparent 70%),radial-gradient(900px 700px at 110% 110%,rgba(120,80,30,.16),transparent 70%),url(/status/paper.svg),var(--paper)}
-.wrap{max-width:1360px;margin:0 auto;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
+*{box-sizing:border-box}html{scroll-behavior:smooth;overflow-x:clip}
+body{margin:0;overflow-x:clip;color:var(--ink);font:16px/1.5 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(1200px 600px at 50% -10%,rgba(255,255,255,.55),transparent 70%),radial-gradient(900px 700px at 110% 110%,rgba(120,80,30,.16),transparent 70%),url(/status/paper.svg),var(--paper)}
+.wrap{width:100%;margin:0;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
 .hero{position:relative;overflow:hidden;border-bottom:4px solid var(--ink);background:repeating-linear-gradient(-45deg,transparent 0 14px,rgba(29,26,22,.045) 14px 15px)}
 .hero::after{content:"";position:absolute;inset:auto 0 0 0;height:10px;background:radial-gradient(circle at 7px 0,var(--paper) 6px,transparent 6.5px) 0 0/14px 10px repeat-x;opacity:0}
 .top{display:flex;gap:10px 16px;flex-wrap:wrap;align-items:center;padding-top:18px;padding-bottom:6px}
@@ -2755,7 +2759,7 @@ body{margin:0;color:var(--ink);font:16px/1.5 Georgia,"Iowan Old Style","Times Ne
 .top nav{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-items:center}.lang{display:inline-flex;gap:6px}
 a.nb{font:700 13px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--ink);text-decoration:none;border:2px solid var(--ink);background:var(--card);border-radius:4px;padding:8px 12px;box-shadow:2px 2px 0 var(--ink);transition:transform .1s,box-shadow .1s}
 a.nb:hover{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);background:var(--yel)}a.nb.on{background:var(--ink);color:var(--yel)}
-.intro{position:relative;padding-top:clamp(26px,4vw,56px);padding-bottom:clamp(34px,5vw,64px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,440px);gap:26px 40px;align-items:center}@media(max-width:820px){.intro{grid-template-columns:minmax(0,1fr)}}.intro .l{display:grid;gap:18px;position:relative}
+.intro{position:relative;padding-top:clamp(26px,4vw,56px);padding-bottom:clamp(34px,5vw,64px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,clamp(340px,36vw,620px));gap:26px clamp(24px,4vw,64px);align-items:center}@media(max-width:820px){.intro{grid-template-columns:minmax(0,1fr)}}.intro .l{display:grid;gap:18px;position:relative}
 h1{margin:0;font:900 clamp(40px,8vw,92px)/.95 var(--head);text-transform:uppercase;letter-spacing:.01em;text-wrap:balance;color:var(--ink);text-shadow:3px 3px 0 var(--yel),6px 6px 0 var(--red);transform:rotate(-1deg)}
 .burst{position:absolute;right:clamp(0px,2vw,24px);top:-22px;width:108px;height:108px;display:grid;place-items:center;transform:rotate(10deg);z-index:2;filter:drop-shadow(3px 3px 0 var(--ink))}
 .burst::before{content:"";position:absolute;inset:0;background:#f59a1b;clip-path:polygon(50.0% 0.0%,56.9% 6.5%,65.5% 2.4%,70.0% 10.8%,79.4% 9.5%,81.1% 18.9%,90.5% 20.6%,89.2% 30.0%,97.6% 34.5%,93.5% 43.1%,100.0% 50.0%,93.5% 56.9%,97.6% 65.5%,89.2% 70.0%,90.5% 79.4%,81.1% 81.1%,79.4% 90.5%,70.0% 89.2%,65.5% 97.6%,56.9% 93.5%,50.0% 100.0%,43.1% 93.5%,34.5% 97.6%,30.0% 89.2%,20.6% 90.5%,18.9% 81.1%,9.5% 79.4%,10.8% 70.0%,2.4% 65.5%,6.5% 56.9%,0.0% 50.0%,6.5% 43.1%,2.4% 34.5%,10.8% 30.0%,9.5% 20.6%,18.9% 18.9%,20.6% 9.5%,30.0% 10.8%,34.5% 2.4%,43.1% 6.5%)}.burst::after{content:"";position:absolute;inset:7px;border:2px dashed rgba(29,26,22,.55);border-radius:50%}.burst span{position:relative;transform:rotate(-24deg);font:900 22px/1 var(--head);text-transform:uppercase;color:var(--ink);letter-spacing:.02em}
@@ -2777,7 +2781,7 @@ h2{margin:0 0 20px;font:900 clamp(28px,4vw,40px)/1 var(--head);text-transform:up
 h2::before{content:"";width:22px;height:22px;background:var(--red);clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);flex:none;transform:rotate(-12deg)}
 h2 small{font:700 12px/1 var(--mono);letter-spacing:.08em;background:var(--ink);color:var(--yel);padding:5px 9px;transform:rotate(-2deg)}
 h3{margin:0;font:900 20px/1.1 var(--head);text-transform:uppercase;letter-spacing:.02em}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(18px,2vw,28px)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,clamp(240px,22vw,340px)),1fr));gap:clamp(18px,2vw,32px)}
 .mut{color:var(--mut);font:13px/1.4 var(--mono)}.bad{color:var(--bad)}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--bad);flex:none;border:2px solid var(--ink)}.dot.up{background:#35d07a}
 .sv{background:var(--card);border:3px solid var(--ink);border-radius:6px;box-shadow:var(--sh);display:flex;flex-direction:column;transition:transform .15s,box-shadow .15s;position:relative}
@@ -2826,24 +2830,47 @@ h2 .soonchip{background:var(--red);color:#fff;font:italic 900 14px/1 var(--head)
 .sc{position:relative;padding-top:26px}.sc::before{content:"";position:absolute;left:-3px;right:-3px;top:-3px;height:12px;background:repeating-linear-gradient(-45deg,var(--ink) 0 8px,var(--yel) 8px 16px);border:3px solid var(--ink)}
 .smile{position:absolute;right:42%;bottom:9%;width:56px;height:56px;transform:rotate(-14deg);filter:drop-shadow(2px 2px 0 var(--ink))}@media(max-width:820px){.smile{display:none}}
 footer span{display:inline-block;max-width:560px;border:2px solid var(--ink);border-top:12px solid var(--ink);background:#fff;color:var(--ink);padding:8px 14px;font:800 12px/1.4 var(--mono);letter-spacing:.06em;text-align:left}
+
+.mast{background:var(--ink);color:var(--paper);font:700 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em}.mast .wrap{display:flex;justify-content:space-between;gap:12px;padding-top:8px;padding-bottom:8px;flex-wrap:wrap}.mast span:nth-child(2){color:var(--yel)}
+@media(max-width:620px){.mast span:nth-child(3){display:none}}
+h1{font-size:clamp(46px,9vw,104px);line-height:.88;letter-spacing:-.02em}.yard{display:inline-block;background:var(--ink);color:var(--yel);padding:0 .1em .02em;text-shadow:none;transform:rotate(-2.5deg);box-shadow:6px 6px 0 var(--red);margin-top:.08em}
+.tick{background:var(--yel);border-top:4px solid var(--ink);border-bottom:4px solid var(--ink);overflow:hidden;white-space:nowrap;transform:rotate(-1deg) scale(1.02);margin:-2px 0 0;position:relative;z-index:3;box-shadow:0 6px 0 var(--red)}
+.tk{display:inline-flex;animation:tick 40s linear infinite;will-change:transform}.tkc{display:inline-block;padding:9px 0;font:900 18px/1 var(--head);text-transform:uppercase;letter-spacing:.06em;color:var(--ink)}
+@keyframes tick{to{transform:translateX(-50%)}}@media(prefers-reduced-motion:reduce){.tk{animation:none}}
+h2{gap:14px;margin-bottom:6px;border-bottom:4px solid var(--ink);padding-bottom:8px;align-items:flex-end}h2::before{display:none}
+h2 .no{font:900 clamp(46px,7vw,84px)/.8 var(--head);font-style:normal;color:transparent;-webkit-text-stroke:2px var(--ink);letter-spacing:-.02em}
+h2 span{font-size:clamp(30px,4.6vw,54px);line-height:.9;letter-spacing:-.01em}
+.kick{font:800 11px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--red);margin:0 0 20px;display:flex;align-items:center;gap:10px}.kick::after{content:"";height:2px;flex:1;background:repeating-linear-gradient(90deg,var(--ink) 0 6px,transparent 6px 10px)}
+main{gap:clamp(56px,8vw,104px)}
+.sv,.pd,.tm,.tablewrap,.join,.sc{border-radius:0}.pd{overflow:hidden}.pd>*{position:relative;z-index:1}
+.pd::after{content:attr(data-r);position:absolute;right:-4px;bottom:-26px;font:900 130px/1 var(--head);color:transparent;-webkit-text-stroke:2px rgba(29,26,22,.22);z-index:0;pointer-events:none}
+.pd.p1{overflow:visible}.pd.p1::after{bottom:-24px;-webkit-text-stroke-color:rgba(29,26,22,.35)}
+.quote{background:var(--ink);overflow:hidden;white-space:nowrap;transform:rotate(1.2deg) scale(1.03);border-top:4px solid var(--red);border-bottom:4px solid var(--red);padding:10px 0}
+.qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:900 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:2px var(--paper);letter-spacing:.02em}.qt span::after{content:" ★";color:var(--yel);-webkit-text-stroke:0;font-size:.6em;margin-left:34px;vertical-align:middle}
+@media(prefers-reduced-motion:reduce){.qt{animation:none}}
+.tmband h3{font-size:30px}.tmband::before{content:attr(data-tag);position:absolute;right:-6px;bottom:-22px;font:900 90px/1 var(--head);color:transparent;-webkit-text-stroke:2px rgba(29,26,22,.3);z-index:0}
+footer span{display:block;margin:0 auto}.bc{margin:18px auto 0;width:180px;height:44px;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 9px,var(--ink) 9px 12px,transparent 12px 14px,var(--ink) 14px 15px,transparent 15px 19px)}
 footer{padding-top:0;padding-bottom:38px;color:var(--mut);font:12px/1.5 var(--mono);text-align:center;text-transform:uppercase;letter-spacing:.06em}footer::before{content:"★ ★ ★";display:block;color:var(--red);letter-spacing:.5em;margin-bottom:6px}
 </style></head><body>
+<div class="mast"><div class="wrap"><span>{{mast_a}}</span><span id="issue"></span><span>{{mast_b}}</span></div></div>
 <div class="hero"><div class="wrap">
 <div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
-<div class="intro"><svg class="spk a" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk b" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk c" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk d" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="smile" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#f8d21d" stroke="#1d1a16" stroke-width="3"/><circle cx="16.5" cy="19" r="3" fill="#1d1a16"/><circle cx="31.5" cy="19" r="3" fill="#1d1a16"/><path d="M12 28c3 8 21 8 24 0" fill="none" stroke="#1d1a16" stroke-width="3" stroke-linecap="round"/></svg><div class="burst" aria-hidden="true"><span>{{burst}}</span></div><div class="l"><h1>COCOJAMBO'S YARD</h1><div class="sum" id="sum"></div></div>
+<div class="intro"><svg class="spk a" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk b" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk c" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="spk d" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0l3.1 8.9L24 12l-8.9 3.1L12 24l-3.1-8.9L0 12l8.9-3.1z"/></svg><svg class="smile" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#f8d21d" stroke="#1d1a16" stroke-width="3"/><circle cx="16.5" cy="19" r="3" fill="#1d1a16"/><circle cx="31.5" cy="19" r="3" fill="#1d1a16"/><path d="M12 28c3 8 21 8 24 0" fill="none" stroke="#1d1a16" stroke-width="3" stroke-linecap="round"/></svg><div class="burst" aria-hidden="true"><span>{{burst}}</span></div><div class="l"><h1>COCOJAMBO'S <span class="yard">YARD</span></h1><div class="sum" id="sum"></div></div>
 <a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div>
 </div></div>
+<div class="tick" aria-hidden="true"><div class="tk" id="tk"><span class="tkc">{{tick_idle}}</span></div></div>
 <main class="wrap">
-<section id="server"><h2>{{nav_servers}} <small>{{live}}</small></h2><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
-<section id="leaderboard"><h2>{{nav_board}}</h2>
+<section id="server"><h2><i class="no">01</i><span>{{nav_servers}}</span> <small>{{live}}</small></h2><div class="kick">{{k_servers}}</div><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
+<section id="leaderboard"><h2><i class="no">02</i><span>{{nav_board}}</span></h2><div class="kick">{{k_board}}</div>
 <div class="ctl" id="lbleague"></div>
 <div class="ctl"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select><span class="mut" id="lbinfo"></span></div>
 <div class="pod" id="pod"></div>
 <div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></section>
-<section id="teams"><h2>{{nav_teams}}</h2><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
-<section id="soon"><h2>{{soon_title}} <small class="soonchip">{{soon_chip}}</small></h2><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
+<div class="quote" aria-hidden="true"><div class="qt"><span>{{quote}}</span><span>{{quote}}</span><span>{{quote}}</span></div></div>
+<section id="teams"><h2><i class="no">03</i><span>{{nav_teams}}</span></h2><div class="kick">{{k_teams}}</div><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
+<section id="soon"><h2><i class="no">04</i><span>{{soon_title}}</span> <small class="soonchip">{{soon_chip}}</small></h2><div class="kick">{{k_soon}}</div><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
 </main>
-<footer class="wrap"><span>{{footer}}</span></footer>
+<footer class="wrap"><span>{{footer}}</span><div class="bc" aria-hidden="true"></div></footer>
 <script>
 const T=__T__;
 const $=id=>document.getElementById(id);
@@ -2866,6 +2893,7 @@ async function loadStatus(){
     if(s.max&&s.players!==null){const bar=el('div','bar'),f=el('span',s.players/s.max>.9?'f':s.players/s.max>.7?'w':'');f.style.width=Math.min(100,Math.round(100*s.players/s.max))+'%';bar.append(f);b.append(bar)}}
    else b.append(el('div','mp bad',T.down));
    c.append(pic,b);g.append(c)}
+  const tk=$('tk');if(tk){const items=d.servers.filter(x=>x.online).map(x=>'● '+(x.role||'#'+x.server)+' — '+(x.players===null?'?':x.players)+' '+(x.players==1?T.playerOne:T.players));const line=(items.length?items.join('   ★   '):T.tickIdle)+'   ★   ';tk.textContent='';for(let i=0;i<2;i++)tk.append(el('span','tkc',line.repeat(4)))}
   const sm=$('sum');sm.textContent='';
   if(d.servers.length){const a=el('span','chip'),x=el('span','dot'+(up?' up':''));a.append(x,el('b','',up+' / '+d.servers.length),' '+T.srvOnline);const p=el('span','chip');p.append(el('b','',pl),' '+(pl==1?T.playerNow:T.playersNow));sm.append(a,p)}
   $('stat').textContent=d.servers.length?'':T.noServers}
@@ -2887,7 +2915,7 @@ function drawBoard(){const d=LB.data;if(!d)return;
  for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ',''));o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
  $('lbinfo').textContent=tr_(T.withPoints,{n:d.total});
  const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows;
- if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd p'+r.rank);c.append(el('div','r','#'+r.rank));const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w,el('div','pts',fmt(r.points)),el('div','mut',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
+ if(podium)for(const r of [d.rows[1],d.rows[0],d.rows[2]]){const c=el('div','pd p'+r.rank);c.dataset.r=r.rank;c.append(el('div','r','#'+r.rank));const w=el('div','who');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);c.append(w,el('div','pts',fmt(r.points)),el('div','mut',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
  const t=$('lbtable');t.textContent='';const hr=el('tr');
  for(const [l,n] of [['#',0],[T.player,0],[T.points,1],[T.wins,1],[T.games,1]])hr.append(el('th',n?'n':'',l));t.append(hr);
  for(const r of rest){const tr=el('tr'),nm=el('td');if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
@@ -2902,7 +2930,7 @@ $('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.boar
 const LEAGUE={unranked:T.unranked,ranked:T.ranked,both:T.both};
 async function loadTeams(){
  try{const d=await get('/status/api/teams'),g=$('teamlist');g.textContent='';
-  for(const t of d.teams){const c=el('div','tm'),band=el('div','tmband');band.style.setProperty('--h',hue(t.tag));
+  for(const t of d.teams){const c=el('div','tm'),band=el('div','tmband');band.dataset.tag=t.tag;band.style.setProperty('--h',hue(t.tag));
    const logo=el('div','tmlogo',t.tag.slice(0,3));
    if(t.logo){const img=new Image();img.alt='';img.className='tmlogo';img.src='/status/api/logo?tag='+encodeURIComponent(t.tag);img.onload=()=>logo.replaceWith(img)}
    const head=el('div');head.append(el('h3','',t.name),el('div','mut','['+t.tag+']'+(t.motto?' · '+t.motto:'')));band.append(logo,head);
@@ -2916,6 +2944,7 @@ async function loadTeams(){
    body.append(dt);c.append(band,body);g.append(c)}
   $('tmstat').textContent=d.teams.length?'':T.noTeams}
  catch(e){$('tmstat').textContent=e.message}}
+try{$('issue').textContent=T.issue+' '+new Date().toLocaleDateString(T.loc,{month:'long',year:'numeric'})}catch(e){}
 loadStatus();loadBoard();loadTeams();
 setInterval(()=>{if(!document.hidden)loadStatus()},30000);
 setInterval(()=>{if(!document.hidden){loadBoard();loadTeams()}},60000);
