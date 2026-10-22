@@ -2908,7 +2908,8 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 
 /* masthead */
 @font-face{font-family:"Gothic";src:url(/status/font.woff2) format("woff2");font-weight:700;font-display:swap}
-h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);text-wrap:balance}
+h1{display:inline-block;margin:0 0 .12em;white-space:nowrap;font:700 100px/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);font-size:min(210px,calc((100vw - 2*var(--gut) - clamp(300px,30vw,460px) - clamp(24px,5vw,80px))/6.9))}
+@media(max-width:820px){h1{font-size:calc((100vw - 2*var(--gut))/6.9)}}
 /* printed labels: bone paper, red rules, slight tilt */
 .jw{position:relative;min-width:0}
 .gzstk{filter:drop-shadow(0 8px 12px rgba(0,0,0,.65));pointer-events:none;user-select:none}
