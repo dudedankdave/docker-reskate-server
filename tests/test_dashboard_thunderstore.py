@@ -1033,3 +1033,134 @@ class TeamsTest(unittest.TestCase):
         self.d.bridge = lambda path, body=None: {"ok": False, "lines": ["Only the owner can remove a leader."]}
         with self.assertRaisesRegex(ValueError, "owner can remove"):
             self.d.team_action({"action": "kick", "team": "CRW", "player": "76561198000000001"})
+
+
+class PublicPageTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        import threading
+        import http.server
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        self.d.PUBLIC_CACHE.clear()
+        self.d.PUBLIC_HITS.clear()
+        self.d.PUBLIC_BAD_LOGOS.clear()
+        con = sqlite3.connect(f"{self.tmp.name}/leaderboard-unranked.db")
+        con.executescript(
+            "CREATE TABLE boards (id TEXT PRIMARY KEY, name TEXT, kind TEXT, created_at REAL, closed_at REAL);"
+            "CREATE TABLE players (steam_id TEXT PRIMARY KEY, name TEXT);"
+            "CREATE TABLE scores (board TEXT, steam_id TEXT, points INT, wins INT, played INT);"
+            "CREATE TABLE ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL, board TEXT, steam_id TEXT, points INT, reason TEXT, server TEXT);"
+            "INSERT INTO boards VALUES ('general','All Time','general',1,NULL),('week-2026-43','Week 43','week',2,5);"
+            "INSERT INTO players VALUES ('76561198000000001','Ann'),('76561198000000002','Bo');"
+            "INSERT INTO scores VALUES ('general','76561198000000001',50,1,3),('general','76561198000000002',80,2,4);")
+        con.commit()
+        con.close()
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.executescript(
+            "CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT, tag TEXT, motto TEXT, description TEXT, logo TEXT, league TEXT, category TEXT, open INT, created REAL);"
+            "CREATE TABLE members (steam_id TEXT PRIMARY KEY, team INT, role TEXT, joined REAL);"
+            "CREATE TABLE known (steam_id TEXT PRIMARY KEY, name TEXT, seen REAL);"
+            "CREATE TABLE invites (team INT, steam_id TEXT);"
+            "CREATE TABLE applications (id INTEGER PRIMARY KEY, applicant TEXT, name TEXT, tag TEXT, status TEXT, created REAL, decided_by TEXT, decided_at REAL);"
+            "INSERT INTO teams VALUES (1,'Crew','crw','Go','We skate','https://example.com/a.png','unranked','Street',1,0);"
+            "INSERT INTO members VALUES ('76561198000000001',1,'owner',0),('76561198000000002',1,'member',1),('76561198000000003',1,'member',2);"
+            "INSERT INTO known VALUES ('76561198000000001','Ann',0),('76561198000000002','Bo',0);")
+        con.commit()
+        con.close()
+        self.d.bridge = lambda path, body=None: [
+            {"server": 1, "role": "Main", "running": True, "players": 3, "online": 2, "max": 20, "map": "Tampa", "password": "secret", "container": "reskate-server-1", "port": 10001, "slots": {"a": {}}},
+            {"server": 2, "role": "Skate 2", "running": False, "players": None, "max": 20, "map": "Old"}]
+        self.d.server_details = lambda: {}
+        self.d.server_players = lambda number, rows=None: [{"name": "x", "steam_id": "1", "slot": "a"}] * 2
+        self.web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.d.Handler)
+        threading.Thread(target=self.web.serve_forever, daemon=True).start()
+        self.addCleanup(self.web.server_close)
+        self.addCleanup(self.web.shutdown)
+
+    def get(self, path):
+        import urllib.error
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.web.server_address[1]}{path}", timeout=5) as r:
+                return r.status, r.read().decode(errors="replace"), r.headers
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode(), e.headers
+
+    def test_page_and_data_need_no_login_and_the_rest_still_does(self):
+        self.assertEqual(self.get("/public")[0], 200)
+        for path in ("/public/status", "/public/board?league=unranked&board=general", "/public/teams"):
+            self.assertEqual(self.get(path)[0], 200, path)
+        for path in ("/api/leaderboard", "/api/teams", "/api/servers"):
+            self.assertEqual(self.get(path)[0], 401, path)
+
+    def test_status_shows_only_what_a_player_needs(self):
+        code, body, _ = self.get("/public/status")
+        self.assertEqual(json.loads(body)["servers"], [
+            {"server": 1, "role": "Main", "online": True, "players": 2, "max": 20, "map": "Tampa"},
+            {"server": 2, "role": "Skate 2", "online": False, "players": None, "max": 20, "map": ""}])
+        for secret in ("secret", "reskate-server-1", "10001"):
+            self.assertNotIn(secret, body)
+
+    def test_leaderboard_has_no_steam_ids_and_checks_the_league(self):
+        code, body, _ = self.get("/public/board?league=unranked&board=general")
+        data = json.loads(body)
+        self.assertEqual([(r["rank"], r["name"], r["tag"], r["points"]) for r in data["rows"]], [(1, "Bo", "CRW", 80), (2, "Ann", "CRW", 50)])
+        self.assertEqual([b["open"] for b in data["boards"]], [True, False])
+        self.assertNotIn("7656119", body)
+        self.assertNotIn("steam_id", body)
+        self.assertEqual(self.get("/public/board?league=../x")[0], 400)
+        self.assertEqual(json.loads(self.get("/public/board?league=unranked&board=nope")[1])["board"], "general")
+        self.assertEqual(json.loads(self.get("/public/board?league=ranked")[1])["rows"], [])
+
+    def test_teams_show_names_not_steam_ids(self):
+        code, body, _ = self.get("/public/teams")
+        team = json.loads(body)["teams"][0]
+        self.assertEqual((team["tag"], team["logo"], team["points"]), ("CRW", True, {"unranked": 130, "ranked": 0}))
+        self.assertEqual([m["name"] for m in team["members"]], ["Ann", "Bo", "Unbekannt"])
+        self.assertNotIn("7656119", body)
+        self.assertNotIn("https://example.com", body)
+
+    def test_logo_only_by_tag_and_a_failed_one_is_not_retried(self):
+        calls = []
+
+        def logo(url):
+            calls.append(url)
+            raise ValueError("broken")
+        self.d.team_logo = logo
+        self.assertEqual(self.get("/public/logo?tag=NOPE")[0], 404)
+        self.assertEqual(self.get("/public/logo?tag=crw")[0], 404)
+        self.assertEqual(self.get("/public/logo?tag=CRW")[0], 404)
+        self.assertEqual(calls, ["https://example.com/a.png"])
+        self.d.PUBLIC_BAD_LOGOS.clear()
+        self.d.team_logo = lambda url: ("image/png", b"\x89PNG")
+        code, body, headers = self.get("/public/logo?tag=CRW")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/png"))
+
+    def test_answers_are_cached_and_the_last_good_one_survives_a_failure(self):
+        calls = []
+        real = self.d.bridge
+
+        def bridge(path, body=None):
+            calls.append(path)
+            return real(path, body)
+        self.d.bridge = bridge
+        self.get("/public/status")
+        self.get("/public/status")
+        self.assertEqual(len(calls), 1)
+        self.d.PUBLIC_CACHE["status"] = (0, self.d.PUBLIC_CACHE["status"][1])
+        self.d.bridge = lambda path, body=None: (_ for _ in ()).throw(OSError("down"))
+        self.assertEqual(self.get("/public/status")[0], 200)
+        self.d.PUBLIC_CACHE.clear()
+        self.assertEqual(self.get("/public/status")[0], 503)
+
+    def test_rate_limit_per_address(self):
+        self.d.PUBLIC_RATE = 3
+        self.assertEqual([self.get("/public/teams")[0] for _ in range(5)], [200, 200, 200, 429, 429])
+
+    def test_page_renders_text_only(self):
+        page = self.d.PUBLIC_PAGE
+        self.assertNotIn("innerHTML", page)
+        self.assertNotIn("steam", page.lower())

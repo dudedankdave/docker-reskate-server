@@ -1883,6 +1883,108 @@ def servers():
     return {"cutoff": CUTOFF, "say": SAY and MOD, "mod": MOD, "tp": bool(TP), "servers": rows}
 
 
+# ---- public page: read-only, no login, only what players may see (no Steam IDs, roles, passwords, ports, containers) ----
+PUBLIC_RATE = 90          # requests per address and minute
+PUBLIC_TTL = 20           # seconds a public answer is reused
+PUBLIC_ENTRIES = 100
+PUBLIC_ROWS = 50
+PUBLIC_CACHE = {}         # key -> (time, value)
+PUBLIC_HITS = {}          # address -> [window start, count]
+PUBLIC_LOCK = threading.Lock()
+PUBLIC_BAD_LOGOS = {}     # logo link -> time of the failed fetch (not tried again for five minutes)
+
+
+def public_allowed(address):
+    """True while `address` is within PUBLIC_RATE requests in the current minute."""
+    now = time.time()
+    with PUBLIC_LOCK:
+        if len(PUBLIC_HITS) > 5000:
+            for k in [k for k, v in PUBLIC_HITS.items() if now - v[0] >= 60]:
+                del PUBLIC_HITS[k]
+        hit = PUBLIC_HITS.get(address)
+        if not hit or now - hit[0] >= 60:
+            hit = PUBLIC_HITS[address] = [now, 0]
+        hit[1] += 1
+        return hit[1] <= PUBLIC_RATE
+
+
+def public_cached(key, make):
+    """make() reused for PUBLIC_TTL seconds; when it fails, the last good answer (if any) is served."""
+    now = time.time()
+    with PUBLIC_LOCK:
+        have = PUBLIC_CACHE.get(key)
+    if have and now - have[0] < PUBLIC_TTL:
+        return have[1]
+    try:
+        value = make()
+    except (RuntimeError, OSError, ValueError, urllib.error.URLError):
+        if have:
+            return have[1]
+        raise
+    with PUBLIC_LOCK:
+        while len(PUBLIC_CACHE) >= PUBLIC_ENTRIES:
+            PUBLIC_CACHE.pop(next(iter(PUBLIC_CACHE)))
+        PUBLIC_CACHE[key] = (now, value)
+    return value
+
+
+def public_status():
+    """[{server, role, online, players, max, map}] for the status cards."""
+    def make():
+        out = []
+        for r in servers()["servers"]:
+            players = r.get("online") if r.get("online") is not None else r.get("players")
+            out.append({"server": r.get("server"), "role": str(r.get("role") or ""), "online": bool(r.get("running")),
+                        "players": players if isinstance(players, int) and r.get("running") else None,
+                        "max": r.get("max") if isinstance(r.get("max"), int) else None, "map": str(r.get("map") or "") if r.get("running") else ""})
+        return {"servers": out}
+    return public_cached("status", make)
+
+
+def public_board(league, board):
+    """The top PUBLIC_ROWS of one board: name, team tag, points, wins, games; the boards of the league; the team standing."""
+    def make():
+        snap = lb_snapshot(league, board, PUBLIC_ROWS)
+        boards = [{"id": b["id"], "base": b["base"], "name": b["name"], "kind": b["kind"], "mode": b["mode"], "players": b["players"], "open": b["closed_at"] is None}
+                  for b in snap["boards"]]
+        return {"league": snap["league"], "board": snap["board"], "boards": boards, "total": snap["total"],
+                "rows": [{"rank": r["rank"], "name": r["name"], "tag": r["tag"].upper(), "points": r["points"], "wins": r["wins"], "played": r["played"]}
+                         for r in snap["rows"]],
+                "teams": [{"tag": t["tag"].upper(), "name": t["name"], "points": t["points"], "wins": t["wins"], "members": t["members"]}
+                          for t in snap["teams"][:PUBLIC_ROWS]]}
+    return public_cached(("board", league, str(board)[:80]), make)
+
+
+def public_teams():
+    """The teams with profile, members (names only) and All Time points on both leagues."""
+    def make():
+        out = []
+        for t in teams_snapshot()["teams"]:
+            out.append({"tag": t["tag"], "name": t["name"], "motto": t["motto"] or "", "description": t["description"] or "",
+                        "logo": bool(t["logo"]), "league": t["league"] or "", "category": t["category"] or "", "open": t["open"],
+                        "points": t["points"],
+                        "members": [{"name": ("" if m["name"] == m["steam_id"] else m["name"]) or "Unbekannt", "role": m["role"],
+                                     "points": m.get("points", {})} for m in t["members"]]})
+        return {"teams": out}
+    return public_cached("teams", make)
+
+
+def public_logo(tag):
+    """(content type, bytes) of the logo saved on the team `tag`, through team_logo; a link that failed is not tried again for a while."""
+    url = next((t["logo"] for t in teams_snapshot()["teams"] if t["tag"] == str(tag).upper()), "")
+    if not url:
+        raise ValueError("no logo")
+    if time.time() - PUBLIC_BAD_LOGOS.get(url, 0) < 300:
+        raise ValueError("no logo")
+    try:
+        return team_logo(url)
+    except ValueError:
+        while len(PUBLIC_BAD_LOGOS) >= LOGO_ENTRIES:
+            PUBLIC_BAD_LOGOS.pop(next(iter(PUBLIC_BAD_LOGOS)))
+        PUBLIC_BAD_LOGOS[url] = time.time()
+        raise ValueError("no logo") from None
+
+
 PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
@@ -2551,6 +2653,108 @@ LOGO_SVG = '<svg id="Ebene_2" data-name="Ebene 2" xmlns="http://www.w3.org/2000/
 FAVICON_PNG = base64.b64decode(
     "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")
 
+PUBLIC_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
+<title>COCOJAMBO'S YARD – ReSkate</title><link rel="icon" type="image/png" href="/favicon.png"><style>
+:root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--bad:#f97066;--acc:#8ea2ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
+header{display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center;padding:14px max(var(--gut),env(safe-area-inset-right,0px)) 14px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
+header img{max-width:100%;height:auto}header nav{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+a.nb{color:var(--fg);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:5px 12px}a.nb:hover{border-color:var(--acc);color:var(--acc)}
+main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px)) clamp(32px,5vw,64px) max(var(--gut),env(safe-area-inset-left,0px));display:grid;gap:clamp(36px,5vw,64px);max-width:1400px;margin:0 auto}
+h2{margin:0 0 12px;font-size:20px}h3{margin:0 0 6px;font-size:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:clamp(10px,1.2vw,16px)}
+.card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px}
+.mut{color:var(--mut);font-size:13px}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:var(--bad)}.dot.up{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.sv .nm{font-weight:600}.sv .pl{font-size:26px;font-weight:600;margin:6px 0 2px}.sv .pl small{font-size:14px;font-weight:400;color:var(--mut)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;align-items:center}
+button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}button.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+.lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);font-size:14px}tr:last-child td{border-bottom:0}th{color:var(--mut);font-weight:500}
+.n{text-align:right;font-variant-numeric:tabular-nums}.rk{width:40px;color:var(--mut)}.r1{color:#f5c542;font-weight:700}.r2{color:#c8ccd2;font-weight:700}.r3{color:#d08a54;font-weight:700}
+.tag{display:inline-block;margin-right:6px;padding:0 6px;border-radius:4px;font-size:12px;border:1px solid var(--line);color:var(--acc)}
+.tm{display:flex;flex-direction:column;gap:6px;padding:0;overflow:hidden}.tmband{display:flex;gap:12px;align-items:center;padding:14px;background:hsl(var(--h),35%,22%)}
+.tmlogo{width:56px;height:56px;border-radius:8px;object-fit:cover;background:hsl(var(--h),35%,16%);flex:none;display:grid;place-items:center;font-weight:700;font-size:18px}
+.tmbody{padding:0 14px 14px;display:grid;gap:8px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{padding:1px 8px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--mut)}
+details summary{cursor:pointer;color:var(--acc)}details ul{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:3px}details li{display:flex;gap:8px;justify-content:space-between}
+footer{padding:0 max(var(--gut),env(safe-area-inset-right,0px)) 32px max(var(--gut),env(safe-area-inset-left,0px));color:var(--mut);font-size:13px;text-align:center}
+</style></head><body>
+<header><img src="/logo.svg" alt="Cocojambo" width="230" height="32"><nav><a class="nb" href="#status">Server</a><a class="nb" href="#rangliste">Rangliste</a><a class="nb" href="#teams">Teams</a></nav></header>
+<main>
+<section id="status"><h2>Server</h2><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
+<section id="rangliste"><h2>Rangliste</h2>
+<div class="bar" id="lbleague"></div>
+<div class="bar"><select id="lbboard" aria-label="Zeitraum"></select><select id="lbmode" aria-label="Modus"></select><span class="mut" id="lbinfo"></span></div>
+<div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></section>
+<section id="teams"><h2>Teams</h2><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
+</main>
+<footer>Aktualisiert sich automatisch. Nur Spielernamen, Punkte und Teams – keine privaten Daten.</footer>
+<script>
+const $=id=>document.getElementById(id);
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined&&text!==null)e.textContent=text;return e}
+async function get(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(r.status==429?'Zu viele Anfragen – gleich noch einmal.':'Nicht erreichbar ('+r.status+')');return r.json()}
+const fmt=n=>(n||0).toLocaleString('de-DE');
+const hue=tag=>{let h=0;for(const c of tag)h=(h*31+c.charCodeAt(0))%360;return h};
+async function loadStatus(){
+ try{const d=await get('/public/status'),g=$('servers');g.textContent='';
+  for(const s of d.servers){const c=el('div','card sv'),h=el('div','nm');
+   h.append(el('span',s.online?'dot up':'dot'),'Server '+s.server+(s.role?' · '+s.role:''));c.append(h);
+   if(s.online){const p=el('div','pl',s.players===null?'?':s.players);if(s.max)p.append(el('small','',' / '+s.max+' Spieler'));c.append(p);c.append(el('div','mut',s.map?'Map: '+s.map:'Map: –'))}
+   else{c.append(el('div','pl bad','Offline'))}
+   g.append(c)}
+  $('stat').textContent=d.servers.length?'':'Keine Server gefunden.'}
+ catch(e){$('stat').textContent=e.message}}
+const LB={league:'unranked',board:'general',data:null};
+async function loadBoard(){
+ try{LB.data=await get('/public/board?league='+LB.league+'&board='+encodeURIComponent(LB.board));LB.board=LB.data.board;drawBoard()}
+ catch(e){$('lbinfo').textContent=e.message}}
+function drawBoard(){const d=LB.data;if(!d)return;
+ const lg=$('lbleague');lg.textContent='';
+ for(const [k,l] of [['unranked','Unranked · Server 1–5'],['ranked','Ranked · Server 6']]){const b=el('button',k==LB.league?'on':'',l);b.onclick=()=>{LB.league=k;LB.board='general';loadBoard()};lg.append(b)}
+ const base=LB.board.split(':')[0],mode=LB.board.split(':')[1]||'';
+ const periods=d.boards.filter(b=>!b.mode),sel=$('lbboard');sel.textContent='';
+ const KN={general:'Gesamt',year:'Jahr',month:'Monat',week:'Woche',event:'Event'};let grp=null,gk='';
+ for(const b of periods){if(b.kind!=gk){gk=b.kind;grp=document.createElement('optgroup');grp.label=KN[gk]||gk;sel.append(grp)}
+  const o=el('option',0,b.name+(b.open?'':' (beendet)'));o.value=b.id;if(b.id==base)o.selected=true;grp.append(o)}
+ const ms=$('lbmode');ms.textContent='';const all=el('option',0,'Alle Modi');all.value='';ms.append(all);
+ const bn=(periods.find(b=>b.id==base)||{name:''}).name;
+ for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ',''));o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
+ $('lbinfo').textContent=d.total+' Spieler mit Punkten';
+ const t=$('lbtable');t.textContent='';const hr=el('tr');
+ for(const [l,n] of [['#',0],['Spieler',0],['Punkte',1],['Siege',1],['Spiele',1]])hr.append(el('th',n?'n':'',l));t.append(hr);
+ for(const r of d.rows){const tr=el('tr'),nm=el('td');if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
+  tr.append(el('td','rk'+(r.rank<4?' r'+r.rank:''),r.rank),nm,el('td','n',fmt(r.points)),el('td','n',fmt(r.wins)),el('td','n',fmt(r.played)));t.append(tr)}
+ if(!d.rows.length){const tr=el('tr'),td=el('td','mut','Noch keine Einträge.');td.colSpan=5;tr.append(td);t.append(tr)}
+ else if(d.total>d.rows.length){const tr=el('tr'),td=el('td','mut','Top '+d.rows.length+' von '+d.total);td.colSpan=5;tr.append(td);t.append(tr)}
+ const tt=$('lbteams');tt.textContent='';const th=el('tr');for(const [l,n] of [['Team',0],['Mitglieder',1],['Punkte',1]])th.append(el('th',n?'n':'',l));tt.append(th);
+ for(const x of d.teams){const tr=el('tr'),c=el('td');c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','n',x.members),el('td','n',fmt(x.points)));tt.append(tr)}
+ if(!d.teams.length){const tr=el('tr'),td=el('td','mut','Noch keine Team-Punkte auf diesem Board.');td.colSpan=3;tr.append(td);tt.append(tr)}}
+$('lbboard').onchange=()=>{LB.board=$('lbboard').value;loadBoard()};
+$('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;loadBoard()};
+const LEAGUE={unranked:'Unranked',ranked:'Ranked',both:'Beide Ligen'};
+async function loadTeams(){
+ try{const d=await get('/public/teams'),g=$('teamlist');g.textContent='';
+  for(const t of d.teams){const c=el('div','card tm'),band=el('div','tmband');band.style.setProperty('--h',hue(t.tag));
+   const logo=el('div','tmlogo',t.tag.slice(0,3));
+   if(t.logo){const img=new Image();img.alt='';img.className='tmlogo';img.src='/public/logo?tag='+encodeURIComponent(t.tag);img.onload=()=>logo.replaceWith(img)}
+   const head=el('div');head.append(el('h3','',t.name),el('div','mut','['+t.tag+']'+(t.motto?' · '+t.motto:'')));band.append(logo,head);
+   const body=el('div','tmbody'),chips=el('div','chips');
+   chips.append(el('span','chip',t.members.length+(t.members.length==1?' Mitglied':' Mitglieder')),el('span','chip',t.open?'offen':'auf Anfrage'));
+   if(t.league)chips.append(el('span','chip',LEAGUE[t.league]||t.league));if(t.category)chips.append(el('span','chip',t.category));
+   body.append(chips);if(t.description)body.append(el('div','mut',t.description));
+   body.append(el('div','',fmt(t.points.unranked)+' Punkte Unranked · '+fmt(t.points.ranked)+' Ranked'));
+   const dt=el('details'),ul=el('ul');dt.append(el('summary','','Mitglieder'),ul);
+   for(const m of t.members){const li=el('li');li.append(el('span','',m.name+(m.role=='owner'?' (Gründer)':m.role=='leader'?' (Leader)':'')),el('span','mut',fmt((m.points.unranked||0)+(m.points.ranked||0))));ul.append(li)}
+   body.append(dt);c.append(band,body);g.append(c)}
+  $('tmstat').textContent=d.teams.length?'':'Noch keine Teams.'}
+ catch(e){$('tmstat').textContent=e.message}}
+loadStatus();loadBoard();loadTeams();
+setInterval(()=>{if(!document.hidden)loadStatus()},30000);
+setInterval(()=>{if(!document.hidden){loadBoard();loadTeams()}},60000);
+</script></body></html>"""
+
+
 LOGIN = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--bg:#1a1a1a;--fg:#e8e8e8;--line:#333}
@@ -2593,10 +2797,38 @@ class Handler(BaseHTTPRequestHandler):
         secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
         return ("Set-Cookie", f"{COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}{secure}")
 
+    def public(self, url):
+        """The page and data anyone may read: no login, rate limited per address, whitelisted fields only."""
+        if url.path == "/public":
+            return self.send(200, PUBLIC_PAGE, headers=[("Cache-Control", "public, max-age=60")])
+        if not public_allowed(self.address()):
+            return self.json(429, {"error": "too many requests"})
+        q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        try:
+            if url.path == "/public/status":
+                return self.json(200, public_status())
+            if url.path == "/public/board":
+                league = q.get("league", "unranked")
+                if league not in LB_FILES:
+                    raise ValueError("unknown league")
+                return self.json(200, public_board(league, q.get("board", "general")))
+            if url.path == "/public/teams":
+                return self.json(200, public_teams())
+            if url.path == "/public/logo":
+                kind, data = public_logo(q.get("tag", ""))
+                return self.send(200, data, kind, headers=[("Cache-Control", "public, max-age=3600")])
+        except ValueError:
+            return self.json(404 if url.path == "/public/logo" else 400, {"error": "not available"})
+        except (urllib.error.URLError, OSError, RuntimeError):
+            return self.json(503, {"error": "temporarily not available"})
+        self.json(404, {"error": "not found"})
+
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/health":
             return self.json(200, {"ok": True})
+        if url.path == "/public" or url.path.startswith("/public/"):
+            return self.public(url)
         if url.path == "/logo.svg":
             return self.send(200, LOGO_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if url.path in ("/favicon.png", "/favicon.ico"):
