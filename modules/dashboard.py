@@ -2908,7 +2908,7 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 
 /* masthead */
 @font-face{font-family:"Gothic";src:url(/status/font.woff2) format("woff2");font-weight:700;font-display:swap}
-h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);filter:url(#bleed2);text-wrap:balance}
+h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);text-wrap:balance}
 /* printed labels: bone paper, red rules, slight tilt */
 .jw{position:relative;min-width:0}
 .gzstk{filter:drop-shadow(0 8px 12px rgba(0,0,0,.65));pointer-events:none;user-select:none}
@@ -2927,7 +2927,6 @@ h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;borde
 /* newspaper on dark newsprint */
 .gz{--nk:var(--fg);background:linear-gradient(rgba(14,14,14,.84),rgba(14,14,14,.84)),url(/status/grime.svg),#0e0e0e;color:var(--fg);border:1px solid var(--fg)}
 .gz::before{background:radial-gradient(circle,rgba(232,227,214,.5) .8px,transparent 1.1px) 0 0/4px 4px;mix-blend-mode:screen;opacity:.12}
-.gzhead b{filter:url(#bleed2)}
 .gz button,.gz select{background:transparent;color:var(--fg);border-color:var(--fg)}.gz button:hover{background:rgba(232,227,214,.14)}.gz button.on{background:var(--fg);color:#0e0e0e}.gz select option{background:#0e0e0e;color:var(--fg)}
 .gz .mut,.gzban p,.gz .rk{color:var(--dim)}
 .gz td{border-bottom-color:rgba(232,227,214,.18)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(232,227,214,.07)}
