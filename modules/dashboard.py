@@ -37,11 +37,13 @@ Settings: DASHBOARD_PASSWORD, BRIDGE_URL, BRIDGE_TOKEN, DASHBOARD_BIND, DASHBOAR
 DASHBOARD_DOCKER (socket path, default none), DASHBOARD_SESSION_HOURS, DASHBOARD_SAY (default true), DASHBOARD_MOD (default true), DASHBOARD_TP_COMMAND
 (console line for a teleport, e.g. "tp {player} {target}"; unset = no teleport buttons). Standard library only."""
 import base64
+import datetime
 from functools import reduce
 from math import gcd
 import glob
-import gzip
 import hashlib
+import html
+import ipaddress
 import re
 import shutil
 import stat
@@ -52,6 +54,7 @@ import json
 import os
 import secrets
 import socket
+import ssl
 import sqlite3
 import sys
 import tarfile
@@ -60,9 +63,10 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 BRIDGE_URL = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8780").rstrip("/")
@@ -74,6 +78,8 @@ DOCKER = os.environ.get("DASHBOARD_DOCKER", "").strip()
 SAY = os.environ.get("DASHBOARD_SAY", "true").strip().lower() not in ("false", "0", "off", "no")
 MOD = os.environ.get("DASHBOARD_MOD", "true").strip().lower() not in ("false", "0", "off", "no")
 SHARED = os.environ.get("DASHBOARD_SHARED", "/shared").rstrip("/")
+PUBLIC_SERVERS = {n.strip() for n in os.environ.get("DASHBOARD_PUBLIC_SERVERS", "1,2,3,4,5,6").split(",") if n.strip()}    # servers on the status page; the test server stays off it
+DISCORD = os.environ.get("DASHBOARD_DISCORD", "https://discord.gg/Vz2CSREqjB").strip()      # invite on the status page; "" hides the links
 BLOCKED = {"quit", "exit", "stop", "update", "restart", "shutdown"}
 PACKAGE = re.compile(r"^[A-Za-z0-9_]+-[A-Za-z0-9_]+(?:-\d+\.\d+\.\d+)?$")
 MAPNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _'.-]{0,63}$")
@@ -214,7 +220,7 @@ def ts_fetch(url, limit):
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read(limit + 1)
         if r.headers.get("Content-Encoding") == "gzip":
-            data = gzip.decompress(data)
+            data = zlib.decompressobj(16 + zlib.MAX_WBITS).decompress(data, limit + 1)   # a bomb stops at the limit
         return data, r.headers.get("Content-Type", "")
 
 
@@ -601,10 +607,19 @@ def upload_layers(server, text):
     targets = [n for n in rows if server == "*" or n == server]
     if not targets:
         raise ValueError("no running container for that server")
+    version = ""
     for number in targets:
         for c in rows[number]["containers"]:
             docker_put_file(c["id"], "/data", "world-layers.json", text.encode())
             docker_put_file(c["id"], "/data", LAYERS_BUILD, (c.get("version") or "").encode())
+            version = version or c.get("version") or ""
+    try:   # the copy a server without the file (new volume) puts back at its start
+        for name, body in (("world-layers.json", text.encode()), (LAYERS_BUILD, version.encode())):
+            with open(f"{SHARED}/{name}.tmp", "wb") as f:
+                f.write(body)
+            os.replace(f"{SHARED}/{name}.tmp", f"{SHARED}/{name}")
+    except OSError as e:
+        say(f"dashboard: shared copy of world-layers.json not written: {e}")
     MAPS["at"] = 0
     return f"world-layers.json written for server {', '.join(sorted(targets))} ({len(text) // 1024} KB)"
 
@@ -784,6 +799,27 @@ def apply_pool(number, target, lib):
     return len(commands)
 
 
+def persist_pool(number, target, lib):
+    """Save the pool for the server's next start (MAP_POOL), and a start map (MAP) that is in it: the environment of the
+    container would otherwise bring the old pool and start map back at every restart. An empty pool = every map."""
+    live = (server_maps(True, number).get(number) or {})
+    if live.get("live"):                                  # only what the server really took: a name it refused
+        have = {x.lower() for x in live["pool"]}          # (two packages with it) must not stop it from starting
+        target = [n for n in target if not have or n.lower() in have]
+    if any("," in n for n in target):
+        return                                           # a comma list cannot carry that name
+    every = not target or {x.lower() for x in lib} <= {x.lower() for x in target}
+    changes = {"MAP_POOL": "off" if every else ",".join(target)}
+    if every:
+        changes["MAP"] = None
+    else:
+        row = server_details().get(number) or {}
+        start = env_read(number).get("MAP") or (row.get("env") or {}).get("MAP") or ""
+        if start.lower() not in {x.lower() for x in target}:
+            changes["MAP"] = target[0]
+    env_write(number, changes)
+
+
 def pools_action(body):
     """{action: create|assign|set|delete|reapply|sync, server, name, map, on}; saves first, links any map package the servers
     concerned are missing, then applies to them. sync links every map package of the store on every server."""
@@ -840,7 +876,12 @@ def pools_action(body):
             sync_links(set(targets))          # a pool can name maps the server has not linked yet
         for number in targets:
             if number in server_maps():
-                apply_pool(number, pools.get(assign.get(number, ALL_MAPS), []), lib)
+                wanted = pools.get(assign.get(number, ALL_MAPS), [])
+                apply_pool(number, wanted, lib)
+                try:
+                    persist_pool(number, wanted, lib)
+                except OSError as e:
+                    say(f"dashboard: pool of server {number} not saved for the next start: {e}")
         MAPS["at"] = 0
         return pools_snapshot(pools, assign)
 
@@ -1100,6 +1141,71 @@ def lb_snapshot(league, board="general", limit=100):
     return {"league": league, "board": board, "boards": boards, "total": len(rows), "rows": rows[:limit],
             "teams": sorted(standing.values(), key=lambda t: -t["points"]), "recent": recent, "stats": stats,
             "exists": os.path.exists(path)}
+
+
+LOGO_CACHE = {}
+LOGO_MAX = 1_500_000
+LOGO_ENTRIES = 200
+
+
+class _PinnedHTTPS(http.client.HTTPSConnection):
+    """https to an address checked beforehand, with the certificate checked against the host name (no second DNS lookup)."""
+
+    def __init__(self, hostname, address, **kwargs):
+        super().__init__(hostname, 443, **kwargs)
+        self.address = address
+
+    def connect(self):
+        self.sock = self._context.wrap_socket(socket.create_connection((self.address, 443), self.timeout), server_hostname=self.host)
+
+
+def _fetch_pinned(hostname, address, path, limit):
+    """(status, content type, body up to limit + 1 bytes, Location) of GET https://hostname/path, asked at `address`."""
+    conn = _PinnedHTTPS(hostname, address, timeout=10, context=ssl.create_default_context())
+    try:
+        conn.request("GET", path, headers={"User-Agent": "reskate-dashboard", "Accept": "image/*"})
+        r = conn.getresponse()
+        return r.status, r.getheader("Content-Type", ""), r.read(limit + 1), r.getheader("Location", "")
+    finally:
+        conn.close()
+
+
+def team_logo(url):
+    """(content type, bytes) of a team's logo link, fetched here because the page may not load other hosts. Only a link that
+    is saved on a team; every step (the link and up to 3 redirects) is https on the standard port at a public address (the
+    checked one is the one connected to); a plain picture up to 1.5 MB."""
+    if url in LOGO_CACHE and time.time() - LOGO_CACHE[url][0] < 3600:
+        return LOGO_CACHE[url][1], LOGO_CACHE[url][2]
+    if not any(r["logo"] == url for r in db_rows(f"{SHARED}/teams.db", "SELECT logo FROM teams")):
+        raise ValueError("not a team logo")
+    at = url
+    for _ in range(4):
+        u = urlparse(at)
+        if u.scheme != "https" or not u.hostname or u.port:
+            raise ValueError("a logo link has to be https")
+        try:
+            found = sorted({ipaddress.ip_address(a[4][0]) for a in socket.getaddrinfo(u.hostname, 443, proto=socket.IPPROTO_TCP)}, key=lambda ip: (ip.version, int(ip)))
+        except (OSError, ValueError):
+            raise ValueError("the logo host does not resolve") from None
+        if not found or any(not ip.is_global for ip in found):
+            raise ValueError("the logo host is not a public address")
+        try:
+            status, kind, data, where = _fetch_pinned(u.hostname, str(found[0]), (u.path or "/") + (f"?{u.query}" if u.query else ""), LOGO_MAX)
+        except (OSError, http.client.HTTPException, ssl.SSLError) as e:
+            raise ValueError(f"the logo could not be fetched: {e}") from None
+        if status in (301, 302, 303, 307, 308) and where:
+            at = urljoin(at, where)
+            continue
+        break
+    else:
+        raise ValueError("too many redirects")
+    kind = kind.split(";")[0].strip().lower()
+    if status != 200 or len(data) > LOGO_MAX or kind not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+        raise ValueError("not a plain picture")
+    while len(LOGO_CACHE) >= LOGO_ENTRIES:
+        LOGO_CACHE.pop(next(iter(LOGO_CACHE)))
+    LOGO_CACHE[url] = (time.time(), kind, data)
+    return kind, data
 
 
 def teams_snapshot():
@@ -1470,7 +1576,7 @@ def pw_memory(number, word=None):
 
 MARK = "# set by the dashboard"
 MANAGED = {"SERVER_PASSWORD": True, "ENFORCE_TUNING": False, "SCORE_CHECK": False, "SPEED_CHECK": False, "BOARD_CHECK": False,
-           "LEADERBOARD_LEAGUE": False}      # the settings keys the dashboard writes (True = a secret)
+           "LEADERBOARD_LEAGUE": False, "MAP_POOL": False, "MAP": False}      # the settings keys the dashboard writes (True = a secret)
 
 
 def env_path(number, secret):
@@ -1638,6 +1744,15 @@ def package_maps(mods, pool=()):
 
 
 LAYERS_SEEN = {}
+LAYERS_GRACE = 300         # seconds a fresh container may take before "no layers line in the log" counts as a failure
+
+
+def _age(started):
+    """Seconds since a Docker timestamp (2026-10-21T22:31:50.57Z)."""
+    try:
+        return time.time() - datetime.datetime.strptime(started[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def layers_loaded(cid, started):
@@ -1652,7 +1767,10 @@ def layers_loaded(cid, started):
         except (RuntimeError, OSError, KeyError, tarfile.TarError):
             return None
         stamps = [x[1:20] for x in text.splitlines() if "from world-layers.json" in x and x.startswith("[")]
-        LAYERS_SEEN[key] = bool(stamps) and stamps[-1] >= begin
+        seen = bool(stamps) and stamps[-1] >= begin
+        if not seen and LAYERS_GRACE > _age(started):
+            return None                    # the server has not got to that log line yet; do not remember "not loaded"
+        LAYERS_SEEN[key] = seen
     return LAYERS_SEEN[key]
 
 
@@ -1768,11 +1886,239 @@ def servers():
     return {"cutoff": CUTOFF, "say": SAY and MOD, "mod": MOD, "tp": bool(TP), "servers": rows}
 
 
+# ---- public page: read-only, no login, only what players may see (no Steam IDs, roles, passwords, ports, containers) ----
+STICKERS = next((d for d in (os.environ.get("DASHBOARD_STICKERS", ""), "/app/stickers", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "stickers")) if d and os.path.isdir(d)), "")
+
+
+def sticker(name):
+    """One image of the sticker pack (webp with alpha), or None. The name is a plain slug, never a path."""
+    if not STICKERS or not re.fullmatch(r"[a-z0-9-]{1,40}", name):
+        return None
+    try:
+        with open(os.path.join(STICKERS, name + ".webp"), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def og_image():
+    """The 1200x630 preview picture for link previews (Discord, chat apps), or None."""
+    try:
+        with open(os.path.join(STICKERS, "og.jpg"), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+PUBLIC_URL = os.environ.get("DASHBOARD_PUBLIC_URL", "https://reskate.cocojambo.net").strip().rstrip("/")   # absolute base for link previews
+PUBLIC_RATE = 90          # requests per address and minute
+PUBLIC_TTL = 20           # seconds a public answer is reused
+PUBLIC_ENTRIES = 100
+PUBLIC_ROWS = 50
+PUBLIC_CACHE = {}         # key -> (time, value)
+PUBLIC_HITS = {}          # address -> [window start, count]
+PUBLIC_LOCK = threading.Lock()
+PUBLIC_BAD_LOGOS = {}     # logo link -> time of the failed fetch (not tried again for five minutes)
+
+
+# UnifrakturCook Bold, subset to Latin letters and digits (SIL Open Font License 1.1, (c) 2010 j. 'mach' wust, (c) 2009 Peter Wiegel)
+GOTHIC_FONT = base64.b64decode(
+    "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")
+GRIP_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#0f0f10"/><filter id="a" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="2" seed="7" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .68  0 0 0 0 .68  0 0 0 0 .66  7 0 0 0 -3.85"/></filter><filter id="b" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.36" numOctaves="2" seed="21" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .42  0 0 0 0 .42  0 0 0 0 .43  6 0 0 0 -3.1"/></filter><filter id="c" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 .95"/></filter><rect width="100%" height="100%" filter="url(#b)"/><rect width="100%" height="100%" filter="url(#a)" opacity=".72"/><rect width="100%" height="100%" filter="url(#c)" opacity=".5"/></svg>')
+GRIME_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"><filter id="s" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".006 .012" numOctaves="4" seed="5" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .22  0 0 0 0 .22  0 0 0 0 .21  0 0 0 2.6 -1.05"/></filter><filter id="d" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".03 .02" numOctaves="3" seed="9" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 3 -1.5"/></filter><filter id="f" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9 .035" numOctaves="2" seed="13" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .85  0 0 0 0 .85  0 0 0 0 .82  0 0 0 2.4 -1.35"/></filter><filter id="g" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="2" seed="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .9  0 0 0 0 .88  0 0 0 0 .82  0 0 0 4.5 -2.45"/></filter><rect width="100%" height="100%" filter="url(#s)" opacity=".16"/><rect width="100%" height="100%" filter="url(#f)" opacity=".13"/><rect width="100%" height="100%" filter="url(#d)" opacity=".5"/><rect width="100%" height="100%" filter="url(#g)" opacity=".28"/><path d="M271 336L279 541" stroke="#e6e1d3" stroke-opacity="0.14" stroke-width="0.8"/><path d="M111 307L254 350" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M54 486L199 414" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.8"/><path d="M374 499L411 480" stroke="#e6e1d3" stroke-opacity="0.12" stroke-width="1.4"/><path d="M196 355L261 337" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.6"/><path d="M274 167L468 271" stroke="#e6e1d3" stroke-opacity="0.13" stroke-width="1.0"/><path d="M455 308L490 310" stroke="#e6e1d3" stroke-opacity="0.09" stroke-width="1.0"/><path d="M232 575L400 483" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M282 588L326 684" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.0"/><path d="M202 187L235 184" stroke="#e6e1d3" stroke-opacity="0.06" stroke-width="0.6"/><path d="M7 279L127 301" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M591 462L700 449" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M0 519L215 539" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.4"/><path d="M598 361L723 299" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.0"/><path d="M6 366L192 345" stroke="#e6e1d3" stroke-opacity="0.06" stroke-width="0.8"/><path d="M9 221L63 359" stroke="#e6e1d3" stroke-opacity="0.10" stroke-width="0.8"/><path d="M520 110L496 164" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="0.8"/><path d="M95 377L228 403" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M253 62L286 79" stroke="#e6e1d3" stroke-opacity="0.13" stroke-width="1.4"/><path d="M154 494L294 465" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M76 288L229 305" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="0.8"/><path d="M449 41L554 15" stroke="#e6e1d3" stroke-opacity="0.07" stroke-width="1.0"/><path d="M319 584L363 567" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.8"/><path d="M354 554L473 537" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.6"/><path d="M359 45L401 37" stroke="#e6e1d3" stroke-opacity="0.16" stroke-width="0.6"/><path d="M272 221L256 256" stroke="#e6e1d3" stroke-opacity="0.13" stroke-width="1.0"/><path d="M211 411L399 484" stroke="#e6e1d3" stroke-opacity="0.15" stroke-width="0.6"/><path d="M518 344L536 491" stroke="#e6e1d3" stroke-opacity="0.05" stroke-width="0.6"/><path d="M48 384L-33 587" stroke="#e6e1d3" stroke-opacity="0.09" stroke-width="1.4"/><path d="M264 503L309 514" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="0.6"/><path d="M289 138L289 301" stroke="#e6e1d3" stroke-opacity="0.12" stroke-width="1.4"/><path d="M153 7L239 22" stroke="#e6e1d3" stroke-opacity="0.11" stroke-width="1.0"/><path d="M396 265L430 462" stroke="#e6e1d3" stroke-opacity="0.08" stroke-width="1.4"/><path d="M482 453L548 434" stroke="#e6e1d3" stroke-opacity="0.11" stroke-width="1.0"/></svg>')
+PUBLIC_TEXT = {
+    "en": {
+        "loc": "en-US", "title": "COCOJAMBO'S YARD – ReSkate status", "nav_servers": "Servers", "nav_board": "Leaderboard", "nav_teams": "Teams",
+        "join_title": "Join our Discord", "join_text": "Find players, start a team, get updates and leaderboard news", 
+        "live": "live", "period": "Period", "mode": "Mode", "allModes": "All modes",
+        "tooMany": "Too many requests, try again in a moment.", "unreachable": "Not reachable",
+        "online": "Online", "offline": "Offline", "map": "Map", "players": "players", "down": "Not reachable right now",
+        "srvOnline": "servers online", "playerNow": "player in game right now", "playersNow": "players in game right now", "noServers": "No servers found.",
+        "unranked": "Unranked", "ranked": "Ranked", "both": "Both leagues", "servers15": "Servers 1–5", "server6": "Server 6",
+        "kinds": {"general": "All time", "year": "Year", "month": "Month", "week": "Week", "event": "Event"}, "ended": "ended",
+        "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
+        "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
+        "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
+        "playerOne": "player", "slotIdle": "idle", "og_locale": "en_US", "og_title": "Cocojambo's Yard: live ReSkate servers", "og_desc": "Who is online and on which map, leaderboards for both leagues and every crew. Live status of our ReSkate community servers, no login needed.", "slotLbl": "Slot", "promo_a": "Join", "promo_b": "Live now!", "scat1": "Live status of the Cocojambo community servers for ReSkate, with leaderboards and teams. Updated every 30 seconds.", "scat2": "Pick a server and jump in. Each card shows the current map and how many skaters are on.", "nowPlaying": "now playing", "slotsOrig": "slots", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
+        "k_servers": "Online 24/7", "k_board": "Top skaters", "k_teams": "The crews", "k_soon": "Next issue",
+        "soon_title": "Coming soon",
+        "soon_chip": "in the works",
+        "soon_lead": "We are building more for the community. Here is what is next:",
+        "soon_login_t": "Player login",
+        "soon_login_d": "Sign in with your own account, no shared passwords.",
+        "soon_dash_t": "Online dashboard",
+        "soon_dash_d": "Your own view of the servers, your sessions and your activity.",
+        "soon_stats_t": "Stats",
+        "soon_stats_d": "Detailed numbers per player, map, mode and season.",
+        "soon_profile_t": "Player profile",
+        "soon_profile_d": "A public page with your rank, history and team.",
+        "soon_teams_t": "Team setup",
+        "soon_teams_d": "Create and manage your team, members, logo and applications on the web.",
+    },
+    "de": {
+        "loc": "de-DE", "title": "COCOJAMBO'S YARD – ReSkate Status", "nav_servers": "Server", "nav_board": "Rangliste", "nav_teams": "Teams",
+        "join_title": "Komm auf unseren Discord", "join_text": "Mitspieler finden, Teams gründen, Updates und Ranglisten-News", 
+        "live": "live", "period": "Zeitraum", "mode": "Modus", "allModes": "Alle Modi",
+        "tooMany": "Zu viele Anfragen, gleich noch einmal versuchen.", "unreachable": "Nicht erreichbar",
+        "online": "Online", "offline": "Offline", "map": "Map", "players": "Spieler", "down": "Gerade nicht erreichbar",
+        "srvOnline": "Server online", "playerNow": "Spieler gerade im Spiel", "playersNow": "Spieler gerade im Spiel", "noServers": "Keine Server gefunden.",
+        "unranked": "Unranked", "ranked": "Ranked", "both": "Beide Ligen", "servers15": "Server 1–5", "server6": "Server 6",
+        "kinds": {"general": "Gesamt", "year": "Jahr", "month": "Monat", "week": "Woche", "event": "Event"}, "ended": "beendet",
+        "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
+        "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
+        "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
+        "playerOne": "Spieler", "slotIdle": "ruht", "og_locale": "de_DE", "og_title": "Cocojambo's Yard: Live ReSkate-Server", "og_desc": "Wer online ist und auf welcher Map, Ranglisten beider Ligen und jede Crew. Live-Status unserer ReSkate-Community-Server, ganz ohne Login.", "slotLbl": "Slot", "promo_a": "Beitreten", "promo_b": "Jetzt live!", "scat1": "Live-Status der Cocojambo-Community-Server für ReSkate, mit Ranglisten und Teams. Alle 30 Sekunden aktualisiert.", "scat2": "Server aussuchen und rein. Jede Karte zeigt die aktuelle Map und wie viele Skater online sind.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "k_servers": "Rund um die Uhr online", "k_board": "Die Besten", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
+        "soon_title": "Demnächst",
+        "soon_chip": "in Arbeit",
+        "soon_lead": "Wir bauen weiter für die Community. Das kommt als Nächstes:",
+        "soon_login_t": "Login pro Spieler",
+        "soon_login_d": "Mit dem eigenen Konto anmelden, ohne gemeinsame Passwörter.",
+        "soon_dash_t": "Online-Dashboard",
+        "soon_dash_d": "Deine eigene Sicht auf Server, Sessions und Aktivität.",
+        "soon_stats_t": "Stats",
+        "soon_stats_d": "Detaillierte Zahlen pro Spieler, Map, Modus und Saison.",
+        "soon_profile_t": "Spielerprofil",
+        "soon_profile_d": "Eine öffentliche Seite mit Rang, Verlauf und Team.",
+        "soon_teams_t": "Team-Setup",
+        "soon_teams_d": "Team, Mitglieder, Logo und Bewerbungen im Web anlegen und verwalten.",
+    },
+}
+
+
+def public_page(lang="en"):
+    """The status page in `lang` (en or de) with the Discord invite filled in (only a https://discord.gg/ or discord.com/invite/ link; otherwise the links are left out)."""
+    text = PUBLIC_TEXT.get(lang, PUBLIC_TEXT["en"])
+    lang = lang if lang in PUBLIC_TEXT else "en"
+    link = DISCORD if re.fullmatch(r"https://(?:discord\.gg|discord\.com/invite)/[A-Za-z0-9-]{2,40}", DISCORD) else ""
+    page = PUBLIC_PAGE
+    if not link:
+        page = re.sub(r'<a class="join".*?</a>', "", page, flags=re.S)
+        page = re.sub(r'<a class="nb" href="__DISCORD__".*?</a>', "", page, flags=re.S)
+    values = dict(text, lang=lang, on_en=" on" if lang == "en" else "", on_de=" on" if lang == "de" else "")
+    page = re.sub(r"\{\{(\w+)\}\}", lambda m: html.escape(values[m.group(1)]), page)
+    data = json.dumps(text, ensure_ascii=False).replace("</", "<\\/")
+    return page.replace("__T__", data).replace("__DISCORD__", link).replace("__BASE__", html.escape(PUBLIC_URL)).replace("__PATH__", "/de" if lang == "de" else "/")
+
+
+def public_allowed(address):
+    """True while `address` is within PUBLIC_RATE requests in the current minute."""
+    now = time.time()
+    with PUBLIC_LOCK:
+        if len(PUBLIC_HITS) > 5000:
+            for k in [k for k, v in PUBLIC_HITS.items() if now - v[0] >= 60]:
+                del PUBLIC_HITS[k]
+        hit = PUBLIC_HITS.get(address)
+        if not hit or now - hit[0] >= 60:
+            hit = PUBLIC_HITS[address] = [now, 0]
+        hit[1] += 1
+        return hit[1] <= PUBLIC_RATE
+
+
+def public_cached(key, make):
+    """make() reused for PUBLIC_TTL seconds; when it fails, the last good answer (if any) is served."""
+    now = time.time()
+    with PUBLIC_LOCK:
+        have = PUBLIC_CACHE.get(key)
+    if have and now - have[0] < PUBLIC_TTL:
+        return have[1]
+    try:
+        value = make()
+    except (RuntimeError, OSError, ValueError, urllib.error.URLError):
+        if have:
+            return have[1]
+        raise
+    with PUBLIC_LOCK:
+        while len(PUBLIC_CACHE) >= PUBLIC_ENTRIES:
+            PUBLIC_CACHE.pop(next(iter(PUBLIC_CACHE)))
+        PUBLIC_CACHE[key] = (now, value)
+    return value
+
+
+def public_status():
+    """[{server, role, online, players, max, map}] for the status cards."""
+    def make():
+        out = []
+        for r in servers()["servers"]:
+            if str(r.get("server")) not in PUBLIC_SERVERS:
+                continue
+            raw = r.get("slots") or {}
+            slots = []
+            for letter in sorted(raw):
+                sl = raw[letter] or {}
+                run = bool(sl.get("running"))
+                n = sl.get("online")
+                slots.append({"slot": str(letter).upper()[:2], "online": run, "players": n if run and isinstance(n, int) else None,
+                              "version": str(sl.get("version") or "")[:24] if run else "", "map": str(sl.get("map") or "") if run else ""})
+            running = any(x["online"] for x in slots) or bool(r.get("running"))
+            players = r.get("online") if r.get("online") is not None else r.get("players")
+            lead = max((x for x in slots if x["online"]), key=lambda x: x["players"] or 0, default=None)
+            out.append({"server": r.get("server"), "role": str(r.get("role") or ""), "online": running,
+                        "players": players if isinstance(players, int) and running else None,
+                        "max": r.get("max") if isinstance(r.get("max"), int) else None,
+                        "map": ((lead or {}).get("map") or str(r.get("map") or "")) if running else "",
+                        "slots": [{k: v for k, v in x.items() if k != "map"} for x in slots]})
+        return {"servers": out}
+    return public_cached("status", make)
+
+
+def public_board(league, board):
+    """The top PUBLIC_ROWS of one board: name, team tag, points, wins, games; the boards of the league; the team standing."""
+    def make():
+        snap = lb_snapshot(league, board, PUBLIC_ROWS)
+        boards = [{"id": b["id"], "base": b["base"], "name": b["name"], "kind": b["kind"], "mode": b["mode"], "players": b["players"], "open": b["closed_at"] is None}
+                  for b in snap["boards"]]
+        return {"league": snap["league"], "board": snap["board"], "boards": boards, "total": snap["total"],
+                "rows": [{"rank": r["rank"], "name": r["name"], "tag": r["tag"].upper(), "points": r["points"], "wins": r["wins"], "played": r["played"]}
+                         for r in snap["rows"]],
+                "teams": [{"tag": t["tag"].upper(), "name": t["name"], "points": t["points"], "wins": t["wins"], "members": t["members"]}
+                          for t in snap["teams"][:PUBLIC_ROWS]]}
+    return public_cached(("board", league, str(board)[:80]), make)
+
+
+def public_teams():
+    """The teams with profile, members (names only) and All Time points on both leagues."""
+    def make():
+        out = []
+        for t in teams_snapshot()["teams"]:
+            out.append({"tag": t["tag"], "name": t["name"], "motto": t["motto"] or "", "description": t["description"] or "",
+                        "logo": bool(t["logo"]), "league": t["league"] or "", "category": t["category"] or "", "open": t["open"],
+                        "points": t["points"],
+                        "members": [{"name": ("" if m["name"] == m["steam_id"] else m["name"]) or "Unbekannt", "role": m["role"],
+                                     "points": m.get("points", {})} for m in t["members"]]})
+        return {"teams": out}
+    return public_cached("teams", make)
+
+
+def public_mapimg(name):
+    """(content type, bytes) of the picture of a map the status page shows; ValueError when there is none."""
+    found = map_image(str(name)[:80])
+    if not found:
+        raise ValueError("no picture")
+    return found
+
+
+def public_logo(tag):
+    """(content type, bytes) of the logo saved on the team `tag`, through team_logo; a link that failed is not tried again for a while."""
+    url = next((t["logo"] for t in teams_snapshot()["teams"] if t["tag"] == str(tag).upper()), "")
+    if not url:
+        raise ValueError("no logo")
+    if time.time() - PUBLIC_BAD_LOGOS.get(url, 0) < 300:
+        raise ValueError("no logo")
+    try:
+        return team_logo(url)
+    except ValueError:
+        while len(PUBLIC_BAD_LOGOS) >= LOGO_ENTRIES:
+            PUBLIC_BAD_LOGOS.pop(next(iter(PUBLIC_BAD_LOGOS)))
+        PUBLIC_BAD_LOGOS[url] = time.time()
+        raise ValueError("no logo") from None
+
+
 PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#1a1a1a;--fg:#e8e8e8;--card:#232323;--line:#333;--mut:#9a9a9a;--ok:#4cc38a;--warn:#f0a53c;--bad:#f97066;--acc:#8ea2ff}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}.annrow>input:not(.annnum){flex:1 1 220px}.annnum{width:64px;flex:none}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
+header{display:flex;gap:8px 12px;flex-wrap:wrap;align-items:center;padding:12px max(var(--gut),env(safe-area-inset-right,0px)) 12px max(var(--gut),env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}header h1{font-size:17px;margin:0;flex:1 1 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.logo{height:32px;width:auto}.flags{display:grid;gap:2px}.card h4.sub{margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.card h3+h4.sub{margin-top:4px}.drop{display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;margin:8px 0;padding:10px;border:2px dashed var(--line);border-radius:8px;color:var(--mut);font-size:13px;cursor:pointer;overflow-wrap:anywhere}.drop:hover,.drop.over{border-color:var(--acc);color:var(--fg);background:var(--line)}.annrow{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}.annrow>input:not(.annnum){flex:1 1 220px}.annnum{width:64px;flex:none}.annrow input[type=text],.annrow>input:not([type]){flex:1;min-width:0}.poollist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;margin-top:8px}.tgl{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:6px;cursor:pointer;min-width:0}.tgl:hover{background:var(--line)}.tgl input{position:absolute;opacity:0;width:0;height:0;min-width:0;padding:0;border:0}.tgl .sw{flex:none;width:34px;height:18px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}.tgl .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mut);transition:left .15s,background .15s}.tgl.on .sw{background:var(--ok)}.tgl.on .sw::after{left:18px;background:#111}.tgl input:focus-visible+.sw{outline:2px solid var(--acc)}.tgl input:disabled+.sw{opacity:.5}.tgl .tn{min-width:0;overflow-wrap:anywhere;font-size:13px}.ring{flex:none;transform:rotate(-90deg)}.ring circle{fill:none;stroke-width:2.5}.ring .rb{stroke:var(--line)}.ring .rf{stroke:var(--acc);stroke-dasharray:100;stroke-dashoffset:100;stroke-linecap:round}.ring.go .rf{animation:ringfill 5s linear forwards}.ring.busy .rf{stroke-dashoffset:0;animation:none;opacity:.6}@keyframes ringfill{to{stroke-dashoffset:0}}@media(prefers-reduced-motion:reduce){.ring.go .rf{animation:none;stroke-dashoffset:50}}
 main{padding:clamp(20px,3vw,40px) max(var(--gut),env(safe-area-inset-right,0px)) clamp(32px,5vw,64px) max(var(--gut),env(safe-area-inset-left,0px));width:100%;margin:0;display:grid;grid-template-columns:minmax(0,1fr);gap:clamp(40px,5.5vw,72px)}section h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 clamp(12px,1.4vw,18px)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:clamp(10px,1.2vw,16px)}
 .card{min-width:0;overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}.cmdstack{display:grid;gap:clamp(12px,1.6vw,24px);margin-top:clamp(10px,1.4vw,18px)}.toprow{display:grid;grid-template-columns:clamp(240px,24vw,340px) minmax(0,1fr);gap:clamp(10px,1.2vw,16px);align-items:stretch}.toprow .pic{aspect-ratio:16/10}.twocol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(10px,1.2vw,16px);align-items:start}.col{display:grid;gap:clamp(10px,1.2vw,16px);align-content:start;min-width:0}@media(max-width:900px){.toprow,.twocol{grid-template-columns:minmax(0,1fr)}}.term{background:var(--bg);border:1px solid var(--line);border-radius:6px;margin:8px 0;font:12px/1.45 ui-monospace,monospace}.term pre{background:transparent;border:0;height:220px;max-height:none;margin:0;border-radius:6px 6px 0 0}.prompt{display:flex;gap:8px;align-items:center;padding:6px 10px;border-top:1px solid var(--line)}.prompt span{color:var(--ok);font-weight:700}.prompt input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:inherit;font:inherit;padding:0}.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:clamp(10px,1.2vw,16px);margin:clamp(10px,1.4vw,18px) 0}.cgrid h3{margin:0 0 4px;font-size:14px}.crow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}.crow select{flex:1;min-width:0}button.arm{background:var(--bad);color:#111}details.adv{margin:8px 0}details.adv summary{cursor:pointer;color:var(--mut);padding:4px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}.chip{background:var(--line);border-radius:4px;padding:2px 8px;font-size:12px}.chip.on{background:var(--acc);color:#111}.chip.mod{font-family:ui-monospace,monospace;font-size:11px}.fit{display:inline-block;width:1.4em;height:1.4em;line-height:1.4em;text-align:center;border-radius:50%;font-weight:700;color:#fff;margin-right:.4em}.fit.ok{background:#2e9e4f}.fit.bad{background:#d23b3b}.fit.warn{background:#d49a1a}
@@ -1793,7 +2139,7 @@ nav{display:flex;gap:6px;flex-wrap:wrap;width:100%;margin:0;padding:12px max(var
 .lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(10px,1.2vw,16px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}.lbcols .col{display:grid;gap:clamp(10px,1.2vw,16px)}td.lbn,th.lbn{text-align:right;font-variant-numeric:tabular-nums}.lbbar{height:4px;border-radius:2px;background:var(--acc);margin-top:3px;opacity:.7}.rk{font-weight:600;color:var(--mut)}.rk.r1{color:#f2c94c}.rk.r2{color:#c4c9d4}.rk.r3{color:#d08a5a}.tag{color:var(--acc);font-weight:600;margin-right:4px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:grid;place-items:center;z-index:50;padding:16px}.mbox{max-width:500px;width:100%;display:grid;gap:12px}.mbox h3{margin:0}.mbox .big{font-size:28px;font-weight:600}.mbox .crow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.mbox label.chk{display:flex;gap:8px;align-items:flex-start}button.rst{margin-top:8px}button.danger{border-color:var(--bad);color:var(--bad)}button:disabled{opacity:.4;cursor:default}
 .sv{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.sv.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.svleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.svpic{border-radius:0;margin:0;padding:0}.svtop{position:absolute;left:0;right:0;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:8px 10px 16px;background:linear-gradient(rgba(0,0,0,.78),transparent);color:#fff;text-align:left}.svtop h3{flex:1;color:#fff}.svmapname{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:18px 10px 8px;background:linear-gradient(transparent,rgba(0,0,0,.82));color:#fff;font-size:13px;font-weight:600;text-align:left}.sv.offline .svpic{filter:grayscale(1);opacity:.6}.svbody{padding:0 12px;display:grid;gap:10px}.svstat{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}.svstat .pill{margin:0 0 0 auto}.svcount{font-size:30px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.svpills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.svpills .pill{margin:0}.pill.acc{color:var(--acc)}.svact{display:flex;gap:8px;flex-wrap:wrap}.svact button{flex:1 1 auto;margin:0}.svright{padding:12px 14px 14px 2px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;align-content:start}.svsec{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}.svsec h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.svsec .kv{margin:0}.svright .wide{grid-column:1/-1}.svcode{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.svcode code,.svsec code{font:12px ui-monospace,monospace;word-break:break-all}.svrun{margin-bottom:8px}.svrun b{font-size:15px}.svraw summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:8px}@media(max-width:700px){.sv.open{display:flex}.svright{padding:0 12px 12px}}
-.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:10px;align-content:start}.tm.open{grid-column:1/-1}.tmhead{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.tmhead h3{flex:1;font-size:16px}.tmtag{color:var(--acc);font-weight:700}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts b{font-size:22px;font-variant-numeric:tabular-nums}.tmedit{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}.tmedit .crow{margin:0}.tmedit input,.tmedit select{flex:1;min-width:0;font:inherit;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
+.tm{min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}.tm.open{grid-column:1/-1;display:grid;grid-template-columns:clamp(260px,26vw,340px) minmax(0,1fr)}.tmleft{display:flex;flex-direction:column;gap:12px;padding-bottom:12px}.tmband{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 12px;color:#fff;background:linear-gradient(135deg,hsl(var(--h) 52% 34%),hsl(var(--h) 58% 20%))}.tmlogo{width:40px;height:40px;border-radius:8px;object-fit:cover;background:rgba(0,0,0,.3);flex:none}.tmlogo.big{width:72px;height:72px}.tmprev{display:flex;align-items:center;min-height:20px;font-size:12px}.tmband h3{flex:1 1 120px;min-width:0;font-size:16px;color:#fff}.tmpills{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}.tmtag{color:var(--acc);font-weight:700}.tmband .tmtag{background:rgba(0,0,0,.35);color:#fff;border-radius:4px;padding:2px 8px}.tmband .pill{margin:0}.tmbody{padding:0 12px;display:grid;gap:10px}.tmpts{display:flex;gap:16px;flex-wrap:wrap}.tmpts{gap:20px}.tmpts b{font-size:26px;line-height:1;font-variant-numeric:tabular-nums}.tmchips{display:flex;flex-wrap:wrap;gap:6px}.tmchip{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:2px 9px;font-size:12px}.tmright{padding:12px 12px 12px 2px;min-width:0}@media(max-width:700px){.tm.open{display:flex}.tmright{padding:12px}}.tmform{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px 14px}.tmfld{display:grid;gap:3px;min-width:0;font-size:12px}.tmfld.wide{grid-column:1/-1}.tmfld input,.tmfld select{font:inherit;font-size:14px;padding:6px 9px;border-radius:5px;border:1px solid var(--line);background:var(--bg);color:var(--fg);min-width:0;width:100%;box-sizing:border-box}button.primary{justify-self:start}.tmapp{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin-bottom:8px}.tmapp .who{flex:1;min-width:200px}
 button,select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:5px 10px}button{cursor:pointer}
 </style></head><body>
 <header><h1><img class="logo" src="/logo.svg" alt="Cocojambo" width="230" height="32"> ReSkate Dashboard</h1><svg id="ring" class="ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle class="rb" cx="10" cy="10" r="8"/><circle class="rf" cx="10" cy="10" r="8" pathLength="100"/></svg><span class="mut" id="upd"></span><button onclick="fetch('/logout',{method:'POST'}).then(()=>location.reload())">Abmelden</button></header>
@@ -1815,30 +2161,33 @@ button,select{font:inherit;color:var(--fg);background:var(--card);border:1px sol
 <div class="bar"><select id="csrv"></select></div>
 <div class="cmdstack">
 <div class="toprow">
-<div class="card" id="mapcard"><h3>Läuft gerade</h3><div class="pic" id="mappic"></div><div class="mut" id="mapinfo"></div></div>
-<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div><div class="mut">Das Terminal zeigt das laufende Log des gewählten Servers. Befehle wirken sofort; nach einem Neustart gelten wieder die Einstellungen des Servers.</div></div>
+<div class="sv" id="mapcard"></div>
+<div class="card consolecard" id="consolecard"><h3>Terminal <span class="mut" id="termsrv"></span></h3><div class="term" id="term"><pre id="cout"></pre><div class="prompt"><span>&rsaquo;</span><input id="cmd" maxlength="300" list="cmdsug" autocomplete="off" spellcheck="false" placeholder="Befehl eingeben, Tab ergänzt, ↑ Verlauf"><datalist id="cmdsug"></datalist></div></div><div class="crow"><select id="cat"></select><button id="termclear">Leeren</button></div></div>
 </div>
 <div class="twocol">
 <div class="col">
+<div class="card"><h3>Server</h3><h4 class="sub">Features</h4><div id="cflags" class="flags"></div>
+<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
+<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
+<h4 class="sub">Regeln</h4>
+<div id="copts" class="flags"></div>
+<div id="copts2"></div>
+<h4 class="sub">Sicherheit</h4><div id="csec" class="flags"></div>
+<div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
+</div>
+</div>
+<div class="col">
+<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
+<div class="card"><h3>Liga</h3>
+<div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
+<div class="mut" id="opthint"></div>
+</div>
 <div class="card"><h3>Map wechseln</h3><div class="crow"><select id="cmap"></select><button id="cmapgo">Wechseln</button></div></div>
 <div class="card"><h3>Tageszeit</h3><div class="crow"><select id="ctod"><option value="default">Standard</option><option value="morning">Morgen</option><option value="noon">Mittag</option><option value="afternoon">Nachmittag</option><option value="evening">Abend</option><option value="night">Nacht</option></select><button id="ctodgo">Setzen</button></div></div>
 <div class="card"><h3>world-layers.json</h3><div class="mut" id="laystate"></div><label id="laydrop" class="drop"><span id="laydroptxt">world-layers.json hierher ziehen oder klicken</span><input type="file" id="layfile" accept=".json,application/json" hidden></label><div class="crow"><select id="layscope"><option value="one">nur dieser Server</option><option value="*">alle Server</option></select><button id="laygo">Hochladen</button></div></div>
 </div>
-<div class="col">
-<div class="card"><h3>Schalter</h3><div id="cflags" class="flags"></div>
-<div id="copts" class="flags"></div>
-<div id="copts2"></div>
-<div class="crow"><input id="pwnew" maxlength="64" placeholder="Neues Passwort" autocomplete="off" style="flex:1;min-width:140px"><button id="pwset">Passwort setzen</button></div>
-<div class="crow"><label class="chk"><input type="checkbox" id="persist"> Dauerhaft speichern (überlebt den Neustart des Servers)</label></div>
-<div class="crow"><span class="mut">Liga ab nächstem Start</span><select id="lgsel"><option value="unranked">Unranked</option><option value="ranked">Ranked</option></select><button id="lgforget" title="Löscht alles, was das Dashboard für diesen Server gespeichert hat">Gespeichertes verwerfen</button></div>
-<div class="mut" id="opthint"></div>
-<div class="crow"><span class="mut">Rotation alle</span><select id="crot"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>45</option><option>60</option><option>90</option><option>120</option></select><span class="mut">Minuten</span></div>
-<div class="crow"><button data-c="vote-cancel">Laufenden Vote abbrechen</button></div>
 </div>
-<div class="card"><h3>Info</h3><div class="crow"><button data-c="status">Status</button><button data-c="players">Spieler</button><button data-c="maps">Maps</button><button data-c="net">Netzwerk</button><button data-c="help">Hilfe</button></div></div>
-</div>
-</div>
-<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><button id="poolsync" title="Verlinkt jede Map aus dem gemeinsamen Speicher auf jedem Server, damit sie dort wählbar ist (jeder Server behält seinen eigenen Pool)">Maps abgleichen</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
+<div class="card" id="poolcard"><div class="crow" style="margin:0 0 8px"><h3 style="margin:0">Map-Pool</h3><select id="poolsel" title="Pool dieses Servers"></select><button id="poolnew">Neuer Pool</button><button id="pooldel">Pool löschen</button><button id="poolsync" title="Verlinkt jede Map aus dem gemeinsamen Speicher auf jedem Server, damit sie dort wählbar ist (jeder Server behält seinen eigenen Pool)">Maps neu laden</button><input id="poolfilter" placeholder="Maps filtern" style="flex:1;min-width:120px"></div>
 <div class="crow" id="poolnewrow" hidden><input id="poolname" maxlength="40" placeholder="Name des neuen Pools (Kopie des gewählten)" style="flex:1;min-width:160px"><button id="poolmk">Anlegen</button></div>
 <div class="mut" id="poolhint"></div><div class="poollist" id="poollist"></div></div>
 </div>
@@ -1955,10 +2304,11 @@ function restartDialog(s0){
  no.onclick=close;ov.onclick=e=>{if(e.target==ov)close()};
  row.append(pick,no,go);box.append(head,count,info,warn,chk,out,row);ov.append(box);document.body.append(ov);
  draw();refresh();timer=setInterval(refresh,3000)}
+let lastServers=[];
 async function servers(){
  const d=await api('/api/servers'),real=$('servers'),box=document.createElement('div');
  const sel=$('sel');if(sel.options.length==1)d.servers.forEach(s=>sel.add(new Option(s.server+' '+s.role,s.server)));
- tabs(d);mod(d);
+ tabs(d);mod(d);lastServers=d.servers;
  if(Date.now()-cardMapsAt>25000){cardMapsAt=Date.now();try{Object.assign(mapsCache,await api('/api/maps'))}catch(e){}}
  for(const s of d.servers)box.append(svCard(s,d))
  put(real,[...box.childNodes])
@@ -2011,12 +2361,24 @@ async function cmdMaps(force){const sv=$('csrv').value;if(!sv)return;
  const x=mapsCache[sv]||{pool:[],available:[],map:''},pool=x.pool||[],av=x.available||[],lower=new Set(pool.map(n=>n.toLowerCase())),rest=av.filter(n=>!lower.has(n.toLowerCase()));
  const fillSel=(sel,groups)=>{const sig=JSON.stringify(groups);if(sel.dataset.sig===sig&&sel.options.length)return;sel.dataset.sig=sig;const keep=sel.value;sel.replaceChildren();for(const [label,list] of groups){if(!list.length)continue;const o=document.createElement('optgroup');o.label=label;for(const n of list)o.append(new Option(n,n));sel.append(o)}
   if(!sel.options.length)sel.add(new Option('(keine)',''));if([...sel.options].some(o=>o.value==keep))sel.value=keep};
- fillSel($('cmap'),[['Im Pool',pool],['Weitere installierte',rest]]);drawPool(sv);drawFlags(sv,x.flags);
+ fillSel($('cmap'),[['Im Pool',pool],['Installiert, nicht im Pool',rest]]);drawPool(sv);drawFlags(sv,x.flags);
  drawMapCard((x.map||'').replace(/[.]$/,''),pool.length,av.length)}
-function drawMapCard(name,np,na){const pic=$('mappic'),sig=name;
- if(pic.dataset.name!=sig){pic.dataset.name=sig;pic.replaceChildren(el('span',0,name||'?'));
-  if(name&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}}
- $('mapinfo').textContent=(name||'Karte unbekannt')+' · Pool: '+(np||'alle')+' · installiert: '+na}
+function drawMapCard(name,np,na){const sv=$('csrv').value,card=$('mapcard'),s=(lastServers.find(x=>x.server==sv))||{server:sv,running:true},mx=mapsCache[sv]||{},fl=mx.flags||{};
+ const sig=sv+'|'+name+'|'+(s.role||'')+'|'+(s.running?1:0)+'|'+(s.locked?1:0);
+ if(card.dataset.sig!=sig){card.dataset.sig=sig;card.classList.toggle('offline',s.running===false);
+  const pic=el('div','pic svpic');pic.append(el('span',0,name||'Kein Bild'));
+  if(name&&s.running!==false&&imgState[name]!='none'){const im=el('img','mapimg');im.alt='';im.style.opacity=imgState[name]=='ok'?1:0;im.onload=()=>{imgState[name]='ok';im.style.opacity=1};im.onerror=()=>{imgState[name]='none';im.remove()};im.src='/api/mapimg?name='+encodeURIComponent(name);pic.append(im)}
+  const top=el('div','svtop');top.append(el('span','num','#'+sv),el('h3',0,s.role||('Server '+sv)));
+  pic.append(top,Object.assign(el('div','svmapname'),{textContent:s.running===false?'offline':(name||'?')}));
+  const body=el('div','svbody');body.id='mapbody';card.replaceChildren(el('div','svleft'));card.firstChild.append(pic,body)}
+ const body=$('mapbody'),cnt=s.running===false?null:(s.online!=null?s.online:s.players),stat=el('div','svstat');
+ stat.append(el('span','svcount',s.running===false?'–':(cnt==null?'?':cnt)),el('span','mut','/ '+(s.running===false?'?':(s.max||'?'))+' Spieler'),pill('Läuft gerade','ok'));
+ const kids=[stat];
+ if(s.running!==false&&cnt!=null&&s.max){const f=Math.min(1,cnt/s.max),bar=el('div',f>=1?'pbar full':'pbar'),fill=el('span',f>=.85?'bad':f>=.5?'warn':'ok');fill.style.width=Math.max(f*100,cnt?3:0)+'%';bar.append(fill);bar.title=Math.round(f*100)+' % belegt';kids.push(bar)}
+ const badges=el('div','svpills');badges.append(pill('Pool: '+(np||'alle'),'acc'),pill('installiert: '+na,'mut'));
+ if(mx.league)badges.append(pill(mx.league=='ranked'?'Ranked-Liga':'Unranked-Liga','acc'));
+ if(fl.ranked)badges.append(pill('Ranked-Modus','ok'));
+ kids.push(badges);put(body,kids)}
 const armed=(b,f)=>{if(!b.classList.contains('arm')){b.dataset.t=b.textContent;b.classList.add('arm');b.textContent='Sicher?';setTimeout(()=>{if(b.classList.contains('arm')){b.classList.remove('arm');b.textContent=b.dataset.t}},3000);return}b.classList.remove('arm');b.textContent=b.dataset.t;f()};
 $('csrv').onchange=()=>cmdMaps(true);
 $('cmapgo').onclick=e=>{const m=$('cmap').value;if(m)armed(e.target,()=>sendCmd('map '+m))};
@@ -2040,19 +2402,17 @@ function drawFlags(sv,fl){const real=$('cflags'),box=document.createElement('div
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'flag:'+k,cb.checked,cb.checked?(onc||'rotation '+$('crot').value):offc,x=>{const f=x.flags||{};return k=='rotation'?f.rotation>0:!!f[k]})};
   lb.append(cb,el('span','sw'),el('span','tn',label+(k=='rotation'&&cur?' ('+fl.rotation+' min)':'')));box.append(lb)}
 put(real,[...box.childNodes]);drawOpts(sv,fl)}
-const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:$('persist').checked},b));
-let persistOn=true;try{persistOn=localStorage.getItem('persist')!='0'}catch(e){}
-$('persist').checked=persistOn;$('persist').onchange=()=>{try{localStorage.setItem('persist',$('persist').checked?'1':'0')}catch(e){}};
-function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div');
+const optBody=(sv,b)=>post('/api/option',Object.assign({server:sv,persist:true},b));
+function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div'),sbox=document.createElement('div');
  for(const [k,label,tip,body] of [['locked','Gesperrt (Passwort aktiv)','Ein: das gemerkte Passwort wird wieder gesetzt. Aus: Passwort wird entfernt und gemerkt.',on=>({action:on?'lock':'unlock'})],
    ['ranked','Ranked-Modus','Ein: Physik erzwungen, Score-Check und Speed-Check auf kick. Aus: Score-Check und Speed-Check auf warn.',on=>({action:'ranked',on})]]){
   const cur=!!fl[k],on=wanted(sv,'opt:'+k,cur),lb=el('label','tgl'+(on?' on':'')),cb=document.createElement('input');cb.type='checkbox';cb.checked=on;lb.title=tip;
   cb.onchange=()=>{lb.classList.toggle('on',cb.checked);toggle(sv,'opt:'+k,cb.checked,()=>optBody(sv,body(cb.checked)),x=>!!(x.flags||{})[k])};
-  lb.append(cb,el('span','sw'),el('span','tn',label));box.append(lb)}
+  lb.append(cb,el('span','sw'),el('span','tn',label));(k=='locked'?sbox:box).append(lb)}
  const tl=wanted(sv,'opt:tuning',fl.enforce_tuning),tb=el('label','tgl'+(tl?' on':'')),tc=document.createElement('input');tc.type='checkbox';tc.checked=tl;tb.title='Ein: alle spielen mit der Standard-Physik des Spiels. Aus: Spieler dürfen ihre eigene Physik-Einstellung nutzen (dann zählt niemand als Ranked).';
  tc.onchange=()=>{tb.classList.toggle('on',tc.checked);toggle(sv,'opt:tuning',tc.checked,()=>optBody(sv,{action:'tuning',on:tc.checked}),x=>!!(x.flags||{}).enforce_tuning)};
  tb.append(tc,el('span','sw'),el('span','tn','Physik erzwungen'));box.append(tb);
- put(real,[...box.childNodes]);
+ put(real,[...box.childNodes]);put($('csec'),[...sbox.childNodes]);
  const cs=$('copts2'),rows=document.createElement('div');
  for(const [k,label,key,tip] of [['score','Score-Check','score_check','Spieler mit Mods, die die Punkte verändern'],['speed','Speed-Check','speed_check','Spieler mit beschleunigtem Spiel'],['board','Board-Check','board_check','Spieler mit angepinntem Board']]){
   const cur=fl[key]||'',val=wanted(sv,'opt:'+k,cur),row=el('div','crow'),sel=document.createElement('select');row.dataset.v=val;
@@ -2061,10 +2421,10 @@ function drawOpts(sv,fl){const real=$('copts'),box=document.createElement('div')
   row.append(el('span','mut',label),sel);rows.append(row)}
  put(cs,[...rows.childNodes]);
 
- const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga'},keys=Object.keys(sv_);
+ const mc=mapsCache[sv]||{},sv_=mc.saved||{},names={SERVER_PASSWORD:'Passwort',ENFORCE_TUNING:'Physik',SCORE_CHECK:'Score-Check',SPEED_CHECK:'Speed-Check',BOARD_CHECK:'Board-Check',LEADERBOARD_LEAGUE:'Liga',MAP_POOL:'Map-Pool',MAP:'Startmap'},keys=Object.keys(sv_);
  const lg=$('lgsel');if(document.activeElement!==lg)lg.value=sv_.LEADERBOARD_LEAGUE||mc.league||'ranked';lg.onchange=()=>optBody(sv,{action:'league',value:lg.value,persist:true}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message));
  $('lgforget').disabled=!keys.length;$('lgforget').onclick=()=>armed($('lgforget'),()=>optBody(sv,{action:'forget'}).then(()=>cmdMaps(true)).catch(e=>tprint('Fehler: '+e.message)));
- $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
+ $('opthint').textContent=(keys.length?'Für den Neustart gespeichert: '+keys.map(k=>names[k]+' '+({ENFORCE_TUNING:v=>v=='false'?'frei':'erzwungen',SERVER_PASSWORD:v=>v=='set'?'gesetzt':'aus',MAP_POOL:v=>v=='off'?'alle Maps':v.split(',').length+' Maps'}[k]||(v=>v))(sv_[k])).join(' · ')+'. ':'Nichts gespeichert: nach einem Neustart gelten die Einstellungen des Containers. ')+'Die Liga (in welche Rangliste Punkte laufen) wird nur beim Start gelesen, ein Wechsel braucht also einen Neustart. Laufende Liga: '+(mc.league||'?')+'.'}
 $('pwset').onclick=async()=>{const sv=$('csrv').value,w=$('pwnew').value.trim();if(!sv||!w)return;
  try{await optBody(sv,{action:'password',value:w});$('pwnew').value='';tprint('Passwort von Server '+sv+' gesetzt');await sleep(600);await cmdMaps(true)}catch(e){tprint('Fehler: '+e.message)}};
 let POOLS=null;
@@ -2361,22 +2721,33 @@ function tmDraw(){const d=TM;if(!d)return;
  if(d.exists&&!d.pending.length)apps.append(el('div','mut','Keine offenen Bewerbungen.'));
  if(d.recent.length){const m=el('div','mut','Zuletzt entschieden: '),st={accepted:'angenommen',denied:'abgelehnt',cancelled:'zurückgezogen'};m.append(d.recent.map(a=>'['+a.tag+'] '+a.name+' ('+(st[a.status]||a.status)+')').join(' · '));apps.append(m)}
  const box=document.createElement('div');
- for(const t of d.teams){const open=openTeams.has(t.tag),c=el('div','tm'+(open?' open':'')),h=el('div','tmhead');
-  h.append(el('span','tmtag','['+t.tag+']'),el('h3',0,t.name),pill(t.open?'offen':'nur Einladung',t.open?'ok':'warn'));
-  if(t.league)h.append(pill(t.league=='both'?'beide Ligen':t.league=='ranked'?'Ranked':'Unranked','acc'));if(t.category)h.append(pill(t.category,'mut'));
-  const pts=el('div','tmpts');for(const [l,n] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b',0,t.points[l]),el('div','mut',n+' · Gesamt'));pts.append(x)}
-  const mm=el('div');mm.append(el('b',0,t.members.length),el('div','mut','Mitglieder'+(t.invites?' · '+t.invites+' eingeladen':'')));pts.append(mm);
-  c.append(h);if(t.motto)c.append(el('div','mut','„'+t.motto+'“'));c.append(pts);
-  const more=el('button',0,open?'Schließen ▴':'Verwalten ▾');more.onclick=()=>{if(openTeams.has(t.tag))openTeams.delete(t.tag);else openTeams.add(t.tag);tmDraw()};c.append(more);
-  if(open)c.append(tmManage(t));box.append(c)}
+ for(const t of d.teams){const open=openTeams.has(t.tag),c=el('div','tm'+(open?' open':'')),left=el('div','tmleft'),band=el('div','tmband');
+  let hue=0;for(const ch of t.tag)hue=(hue*31+ch.charCodeAt(0))%360;c.style.setProperty('--h',hue);
+  const pl=el('div','tmpills');pl.append(pill(t.open?'offen':'nur Einladung',t.open?'ok':'warn'));
+  if(t.league)pl.append(pill(t.league=='both'?'beide Ligen':t.league=='ranked'?'Ranked':'Unranked','acc'));if(t.category)pl.append(pill(t.category,'mut'));
+  if(t.logo){const lg=el('img','tmlogo');lg.alt='';lg.onerror=()=>lg.remove();lg.src='/api/teamlogo?u='+encodeURIComponent(t.logo);band.append(lg)}
+  band.append(el('span','tmtag','['+t.tag+']'),el('h3',0,t.name),pl);
+  const body=el('div','tmbody'),pts=el('div','tmpts');for(const [l,n] of [['unranked','Unranked'],['ranked','Ranked']]){const x=el('div');x.append(el('b',0,t.points[l]),el('div','mut',n));x.title=n+', Gesamtpunkte';pts.append(x)}
+  const mm=el('div');mm.append(el('b',0,t.members.length),el('div','mut','Mitglieder'+(t.invites?' (+'+t.invites+')':'')));if(t.invites)mm.title=t.invites+' eingeladen';pts.append(mm);body.append(pts);
+  if(t.motto)body.append(el('div','mut','„'+t.motto+'“'));
+  const chips=el('div','tmchips'),MI={owner:'👑 ',leader:'★ '};for(const m of t.members.slice(0,8))chips.append(el('span','tmchip',(MI[m.role]||'')+m.name));if(t.members.length>8)chips.append(el('span','tmchip mut','+'+(t.members.length-8)));
+  if(t.members.length)body.append(chips);
+  const more=el('button',0,open?'Schließen ▴':'Verwalten ▾');more.onclick=()=>{if(openTeams.has(t.tag))openTeams.delete(t.tag);else openTeams.add(t.tag);tmDraw()};body.append(more);
+  left.append(band,body);c.append(left);
+  if(open){const r=el('div','tmright');r.append(tmManage(t));c.append(r)}box.append(c)}
  if(d.exists&&!d.teams.length)box.append(el('div','mut','Noch keine Teams. Bewerbungen kommen aus dem Spiel mit /team apply.'));
  $('tmlist').replaceChildren(...box.childNodes)}
-function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='12px';
- const ed=el('div','tmedit'),field=(label,key,val,ph)=>{const r=el('div','crow'),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'?300:60;const b=el('button',0,'Speichern');b.onclick=()=>tmPost({action:'set',team:t.tag,key,value:i.value});r.append(el('span','mut',label),i,b);return r};
- ed.append(field('Motto','motto',t.motto),field('Beschreibung','description',t.description),field('Kategorie','category',t.category,'z. B. Casual'),field('Tag','tag',t.tag),field('Logo-Link','logo',t.logo,'https://…'));
- const lr=el('div','crow'),ls=document.createElement('select');for(const [v,l] of [['','keine Angabe'],['ranked','Ranked'],['unranked','Unranked'],['both','beide']])ls.add(new Option(l,v));ls.value=t.league||'';ls.onchange=()=>tmPost({action:'set',team:t.tag,key:'league',value:ls.value});lr.append(el('span','mut','Liga'),ls);
- const or=el('div','crow'),ob=el('button',0,t.open?'Auf „nur Einladung“ stellen':'Für alle öffnen');ob.onclick=()=>tmPost({action:'set',team:t.tag,key:'open',value:t.open?'no':'yes'});or.append(el('span','mut','Beitritt'),ob);
- ed.append(lr,or);w.append(ed);
+function logoPreview(url){const b=el('div','tmprev');if(!url){b.append(el('span','mut','Kein Logo gesetzt'));return b}
+ const im=el('img','tmlogo big');im.alt='Logo';im.onload=()=>{b.dataset.ok='1'};im.onerror=()=>{im.remove();b.append(el('span','mut','Das Logo lässt sich nicht laden (https, öffentlich erreichbar, PNG/JPG/WebP/GIF bis 1,5 MB).'))};im.src='/api/teamlogo?u='+encodeURIComponent(url);b.append(im);return b}
+function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='14px';
+ const form=el('div','tmform'),vals={},fld=(label,key,val,ph,wide,extra)=>{const l=el('label','tmfld'+(wide?' wide':'')),i=document.createElement('input');i.value=val||'';i.placeholder=ph||'';i.maxLength=key=='description'||key=='logo'?300:60;vals[key]=[i,val||''];l.append(el('span','mut',label),i);if(extra)l.append(extra);return l};
+ const sel=(label,key,opts,val)=>{const l=el('label','tmfld'),x=document.createElement('select');for(const [v,n] of opts)x.add(new Option(n,v));x.value=val;vals[key]=[x,val];l.append(el('span','mut',label),x);return l};
+ form.append(fld('Motto','motto',t.motto),fld('Kategorie','category',t.category,'z. B. Casual'),fld('Beschreibung','description',t.description,'',true),fld('Tag','tag',t.tag),fld('Logo-Link','logo',t.logo,'https://…',false,logoPreview(t.logo)),
+  sel('Liga','league',[['','keine Angabe'],['ranked','Ranked'],['unranked','Unranked'],['both','beide']],t.league||''),sel('Beitritt','open',[['yes','offen'],['no','nur Einladung']],t.open?'yes':'no'));
+ const save=el('button','primary','Änderungen speichern');save.disabled=true;
+ const dirty=()=>Object.values(vals).some(([x,o])=>x.value!==o);form.addEventListener('input',()=>{save.disabled=!dirty()});form.addEventListener('change',()=>{save.disabled=!dirty()});
+ save.onclick=async()=>{const todo=Object.entries(vals).filter(([k,[x,o]])=>x.value!==o).map(([k,[x]])=>[k,x.value]);save.disabled=true;for(const [key,value] of todo)await tmPost({action:'set',team:t.tag,key,value})};
+ w.append(form,save);
  const tw=el('div','tablewrap'),tb=el('table'),hr=el('tr');for(const [l,n] of [['Mitglied',0],['Rolle',0],['Unranked',1],['Ranked',1],['',0]])hr.append(el('th',n?'lbn':'',l));tb.append(hr);
  const RN={owner:'Besitzer',leader:'Leader',member:'Mitglied'};
  for(const m of t.members){const tr=el('tr'),nm=el('td',0,m.name);nm.title=m.steam_id;const act=el('td'),box=el('div','act');
@@ -2384,7 +2755,7 @@ function tmManage(t){const w=el('div');w.style.display='grid';w.style.gap='12px'
    ld.onclick=()=>tmPost({action:'leader',team:t.tag,player:m.steam_id});ow.onclick=()=>armed(ow,()=>tmPost({action:'owner',team:t.tag,player:m.steam_id}));kk.onclick=()=>armed(kk,()=>tmPost({action:'kick',team:t.tag,player:m.steam_id}));box.append(ld,ow,kk)}
   act.append(box);tr.append(nm,el('td',0,RN[m.role]||m.role),el('td','lbn',m.points.unranked),el('td','lbn',m.points.ranked),act);tb.append(tr)}
  tw.append(tb);w.append(tw);
- const dr=el('div','crow'),db=el('button','danger','Team auflösen');db.onclick=()=>armed(db,()=>tmPost({action:'disband',team:t.tag}).then(()=>openTeams.delete(t.tag)));dr.append(db,el('span','mut','Entfernt das Team für alle Mitglieder. Änderungen laufen wie vom Besitzer ausgeführt, die Spieler bekommen die Meldung im Spiel.'));w.append(dr);return w}
+ const dr=el('div','crow'),db=el('button','danger','Team auflösen …');db.title='Entfernt das Team für alle Mitglieder; die Spieler bekommen die Meldung im Spiel.';db.onclick=()=>armed(db,()=>tmPost({action:'disband',team:t.tag}).then(()=>openTeams.delete(t.tag)));dr.append(db);w.append(dr);return w}
 const VIEWS=[['uebersicht','Übersicht'],['chat','Chat'],['moderator','Moderator'],['befehle','Befehle & Maps'],['logs','Logs'],['ansagen','Ansagen'],['rangliste','Rangliste'],['teams','Teams']];
 let tsLoaded=false;
 let view='uebersicht';
@@ -2411,6 +2782,259 @@ LOGO_SVG = '<svg id="Ebene_2" data-name="Ebene 2" xmlns="http://www.w3.org/2000/
 FAVICON_PNG = base64.b64decode(
     "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")
 
+PUBLIC_CSP = "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src https://discord.com"
+PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
+<title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png">
+<meta name="description" content="{{og_desc}}"><meta name="theme-color" content="#d8391d"><link rel="canonical" href="__BASE____PATH__">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Cocojambo's Yard"><meta property="og:title" content="{{og_title}}"><meta property="og:description" content="{{og_desc}}"><meta property="og:url" content="__BASE____PATH__"><meta property="og:locale" content="{{og_locale}}">
+<meta property="og:image" content="__BASE__/status/og.jpg"><meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Cocojambo's Yard: Skate. Compete. Repeat.">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{og_title}}"><meta name="twitter:description" content="{{og_desc}}"><meta name="twitter:image" content="__BASE__/status/og.jpg">
+<style>
+:root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#0a0a0a;--panel:#0e0e0e;--fg:#e8e3d6;--dim:#a29d8e;--edge:#34332f;--acid:#e6eefa;--red:#d8391d;--bad:#d4553a;--head:Georgia,"Iowan Old Style","Times New Roman",serif;--mono:ui-monospace,"SF Mono","Courier New",monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth;overflow-x:clip;background:var(--bg)}
+body{margin:0;overflow-x:clip;color:var(--fg);font:16px/1.55 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(ellipse at 50% 0,transparent 40%,rgba(0,0,0,.6) 100%),linear-gradient(rgba(10,10,10,.62),rgba(10,10,10,.62)),url(/status/grime.svg),var(--bg)}
+.wrap{width:100%;margin:0;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
+.mast{border-bottom:1px solid var(--edge);color:var(--dim);font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.18em}.mast .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}.mast span:nth-child(2){color:var(--fg)}
+@media(max-width:620px){.mast span:nth-child(3){display:none}}
+.hero{position:relative;overflow:hidden;border-bottom:1px solid var(--edge);background:linear-gradient(rgba(0,0,0,.8),rgba(0,0,0,.8)),url(/status/grip.svg),#000}
+.top{display:flex;gap:10px 24px;flex-wrap:wrap;align-items:center;padding-top:22px}
+.logo{display:block}.logo img{display:block;opacity:.4;height:26px;width:auto;max-width:100%;filter:grayscale(1) brightness(1.5)}
+.top nav{display:flex;gap:6px 22px;flex-wrap:wrap;margin-left:auto;align-items:center}
+a.nb{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim);text-decoration:none;padding:8px 0;border-bottom:1px solid transparent;transition:color .15s,border-color .15s}
+a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg);border-bottom-color:var(--red)}
+.lang{display:inline-flex;gap:16px;margin-left:8px;padding-left:22px;border-left:1px solid var(--edge)}
+.intro{position:relative;padding-top:clamp(40px,7vw,96px);padding-bottom:clamp(40px,6vw,80px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,clamp(300px,30vw,460px));gap:36px clamp(24px,5vw,80px);align-items:end}@media(max-width:820px){.intro{grid-template-columns:minmax(0,1fr)}}
+.intro .l{display:grid;gap:26px;justify-items:start;min-width:0}
+.sum{display:flex;gap:8px 26px;flex-wrap:wrap;font:12px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--dim)}.sum b{color:var(--fg);font-weight:700}
+.chip{display:inline-flex;align-items:center;gap:9px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ff3b2f;box-shadow:0 0 4px #ff3b2f,0 0 12px rgba(255,59,47,.85),0 0 24px rgba(255,59,47,.45);flex:none}
+.dot.up{background:#3dff6a;box-shadow:0 0 4px #3dff6a,0 0 12px rgba(61,255,106,.85),0 0 26px rgba(61,255,106,.5);animation:dotglow 3.2s ease-in-out infinite}
+@keyframes dotglow{50%{box-shadow:0 0 3px #3dff6a,0 0 9px rgba(61,255,106,.7),0 0 18px rgba(61,255,106,.35)}}
+.scat{margin:0;max-width:min(560px,100%);font:11px/2 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--dim)}
+.scat.wide{max-width:min(720px,100%);margin:0 0 26px}
+.join{position:relative;display:flex;gap:18px;align-items:center;padding:20px 22px;border:3px dashed var(--fg);color:var(--fg);text-decoration:none;transition:background .15s,color .15s}
+.join:hover{background:var(--fg);color:var(--bg)}
+.join svg{flex:none;width:28px;height:28px}.join div{min-width:0}.join b{display:block;font:italic 700 24px/1.1 var(--head)}.join span{display:block;font:11px/1.5 var(--mono);letter-spacing:.06em;margin-top:6px;color:var(--dim)}.join:hover span{color:var(--bg)}
+@media(max-width:480px){.join{flex-wrap:wrap}}
+.tick{position:relative;z-index:1;background:#040704;color:#f7f9ff;overflow-x:clip;overflow-y:visible;white-space:nowrap;border-top:2px solid var(--acid);border-bottom:2px solid var(--acid);box-shadow:0 0 10px rgba(222,236,255,.8),0 0 44px 4px rgba(222,236,255,.4),0 0 120px 20px rgba(222,236,255,.2),inset 0 0 26px rgba(222,236,255,.28);animation:neonbar 9s step-end infinite}
+.tk{display:inline-flex;animation:tickhitch 46s linear infinite;will-change:transform}.tkc{display:inline-block;padding:9px 0;font:700 13px/1 var(--mono);text-transform:uppercase;letter-spacing:.24em;text-shadow:0 0 2px rgba(255,255,255,.7),0 0 10px var(--acid),0 0 30px rgba(222,236,255,.8),0 0 64px rgba(222,236,255,.55),0 0 110px rgba(222,236,255,.35);animation:neontxt 6s step-end infinite}
+.tick::before,.tick::after{content:"";position:absolute;left:0;right:0;pointer-events:none;animation:hazeflick 9s step-end infinite}
+.tick::before{top:100%;height:300px;background:radial-gradient(ellipse 70% 100% at 50% 0,rgba(222,236,255,.34),rgba(222,236,255,.12) 45%,transparent 75%);-webkit-mask-image:linear-gradient(#000,transparent);mask-image:linear-gradient(#000,transparent)}
+.tick::after{bottom:100%;height:170px;background:radial-gradient(ellipse 70% 100% at 50% 100%,rgba(222,236,255,.26),rgba(222,236,255,.08) 50%,transparent 80%);-webkit-mask-image:linear-gradient(transparent,#000);mask-image:linear-gradient(transparent,#000)}
+@keyframes hazeflick{0%,28%,33%,36%,64%,69%,100%{opacity:1}29%,34%,65%,67%{opacity:.3}}
+@keyframes tick{to{transform:translateX(-50%)}}
+@keyframes tickhitch{0%{transform:translateX(0)}24%{transform:translateX(-12%)}26%{transform:translateX(-12%)}52%{transform:translateX(-27%)}53.5%{transform:translateX(-27%)}56%{transform:translateX(-28.5%)}57%{transform:translateX(-28.5%)}79%{transform:translateX(-39%)}81%{transform:translateX(-39%)}100%{transform:translateX(-50%)}}
+@keyframes neonbar{0%,28%,33%,36%,64%,69%,100%{border-color:var(--acid);box-shadow:0 0 10px rgba(222,236,255,.8),0 0 44px 4px rgba(222,236,255,.4),0 0 120px 20px rgba(222,236,255,.2),inset 0 0 26px rgba(222,236,255,.28)}29%,34%,65%,67%{border-color:rgba(222,236,255,.3);box-shadow:none}}
+@keyframes neontxt{0%,6%,9%,40%,43%,45%,76%,100%{opacity:1}7%,41%,44%,77%{opacity:.35}8%{opacity:.8}78%{opacity:.15}79%{opacity:.9}}
+@media(prefers-reduced-motion:reduce){.tk,.qt,.tick,.tkc,.tick::before,.tick::after{animation:none}html{scroll-behavior:auto}}
+main{padding-top:clamp(96px,12vw,170px);padding-bottom:clamp(40px,6vw,80px);display:grid;gap:clamp(64px,9vw,120px)}
+h2{margin:0 0 10px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--fg);padding-bottom:14px;font:700 clamp(34px,5vw,64px)/1 var(--head);letter-spacing:-.02em;text-transform:uppercase;color:var(--fg)}
+h2 .no{font:normal 12px/1 var(--mono);letter-spacing:.2em;color:var(--red)}
+h2 small{font:11px/1 var(--mono);letter-spacing:.2em;color:var(--dim);border:1px solid var(--edge);padding:5px 8px;text-transform:uppercase}
+h2 .soonchip{color:var(--red);border-color:var(--red)}
+h3{margin:0;font:700 20px/1.1 var(--head);color:var(--fg)}
+.kick{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.22em;color:var(--dim);margin:0 0 22px}
+.mut{color:var(--dim);font:12px/1.5 var(--mono);letter-spacing:.04em}.bad{color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,clamp(240px,22vw,340px)),1fr));gap:0;border-top:1px solid var(--edge);border-left:1px solid var(--edge)}
+.sv,.tm,.sc{background:var(--panel);min-width:0;border-right:1px solid var(--edge);border-bottom:1px solid var(--edge)}
+.sv{position:relative;display:flex;flex-direction:column}
+.pic{position:relative;aspect-ratio:16/9;display:grid;place-items:center;overflow:hidden;background:#151515;border-bottom:1px solid var(--edge)}
+.pic.ok .ph{position:absolute;z-index:2;left:0;right:0;bottom:0;display:block;padding:26px 12px 8px;text-align:left;font:700 11px/1.2 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--fg);background:linear-gradient(transparent,rgba(0,0,0,.88));text-shadow:0 1px 2px #000}
+.pic .ph{position:relative;z-index:0;padding:10px;text-align:center;font:italic 700 22px/1.1 var(--head);color:var(--dim)}
+.pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:url(#crt) grayscale(.55) sepia(.25) contrast(1.35) brightness(.82) saturate(1.3);animation:crtflick 5s step-end infinite}
+.pic::before,.pic::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:1}
+.pic::after{background:repeating-linear-gradient(0deg,rgba(0,0,0,.42) 0 1px,transparent 1px 3px),radial-gradient(ellipse at 50% 50%,transparent 50%,rgba(0,0,0,.72) 100%);box-shadow:inset 0 0 26px 6px rgba(0,0,0,.75)}
+.pic::before{top:-40%;bottom:auto;height:40%;background:linear-gradient(transparent,rgba(238,243,255,.1),transparent);animation:crtroll 6.5s linear infinite}
+@keyframes crtroll{to{transform:translateY(360%)}}
+@keyframes crtflick{0%,100%{opacity:1}12%{opacity:.88}13%{opacity:1}57%{opacity:.92}58%{opacity:1}83%{opacity:.85}84%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.pic img,.pic::before,.dot.up{animation:none}}
+.st,.num{position:absolute;top:12px;z-index:2;display:inline-flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(0,0,0,.72);font:10px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em}
+.st{left:12px}
+.num{right:12px;top:8px;height:38px;aspect-ratio:1.37;box-sizing:border-box;justify-content:center;padding:0 0 2px;color:#17130c;font:700 13px/1 "Courier New",var(--mono);letter-spacing:.08em;background:url(/status/s/yellow-oval.webp) center/100% 100% no-repeat;filter:drop-shadow(0 3px 5px rgba(0,0,0,.6));transform:rotate(3deg)}
+.sv:nth-child(2) .num{aspect-ratio:.91;background-image:url(/status/s/orange-octagon.webp);transform:rotate(-3deg)}.sv:nth-child(3) .num{aspect-ratio:1.22;background-image:url(/status/s/yellow-octagon.webp);transform:rotate(2deg)}.sv:nth-child(4) .num{aspect-ratio:1.5;background-image:url(/status/s/green-floral.webp);transform:rotate(-2deg)}.sv:nth-child(5) .num{aspect-ratio:1;background-image:url(/status/s/sunset-round.webp);transform:rotate(4deg)}.sv:nth-child(6) .num{aspect-ratio:1.01;background-image:url(/status/s/yellow-round.webp);transform:rotate(-4deg)}.sv:nth-child(n+7) .num{height:auto;aspect-ratio:auto;padding:6px 8px;background:rgba(0,0,0,.72);color:var(--fg);transform:none;filter:none}
+.sv.off .pic>img,.sv.off .pic .ph{filter:grayscale(1) brightness(.6)}.sv.off .num{filter:grayscale(1) drop-shadow(0 3px 5px rgba(0,0,0,.6))}.sv.off .st{color:var(--bad)}
+.svb{padding:16px 18px 20px;display:grid;gap:12px}.svb .nm{font:700 26px/1 var(--head);text-transform:uppercase;letter-spacing:-.01em}.svb .mp{font:11px/1.5 var(--mono);color:var(--dim);letter-spacing:.06em;overflow-wrap:anywhere}
+.ab{display:flex;gap:8px;flex-wrap:wrap}.abi{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--edge);padding:6px 9px;font:10px/1 var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--dim)}.abi b{color:var(--fg)}.abi em{font-style:normal}.abi.on em{color:var(--fg)}
+.disc{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:end;gap:0 10px;border-top:1px solid var(--edge);padding-top:12px}
+.disc small{font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim)}.disc .o{grid-column:1/-1;margin-bottom:6px}.disc .o s{text-decoration:none;color:var(--fg)}
+.disc b{grid-row:2;grid-column:2;font:700 48px/.9 var(--head);color:var(--fg)}.disc .d{align-self:end}
+.bar{height:2px;background:var(--edge)}.bar span{display:block;height:100%;background:var(--fg);transition:width .4s}.bar .f{background:var(--bad)}
+.ctl{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px;align-items:center}
+button,select{font:700 12px/1.2 var(--mono);color:var(--fg);background:var(--panel);border:1px solid var(--edge);border-radius:0;padding:8px 12px}button{cursor:pointer;text-transform:uppercase;letter-spacing:.1em}
+.lbcols{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:clamp(16px,2vw,28px);align-items:start}@media(max-width:900px){.lbcols{grid-template-columns:minmax(0,1fr)}}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-family:var(--mono)}th,td{text-align:left;padding:9px 12px;border-bottom:1px solid rgba(232,227,214,.14);font-size:14px}tr:last-child td{border-bottom:0}
+th{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--dim)}
+.n{text-align:right;font-variant-numeric:tabular-nums}.rk{width:44px;color:var(--dim)}
+.tag{display:inline-block;margin-right:6px;padding:0 6px;font:700 11px/1.6 var(--mono);border:1px solid currentColor}
+.tm{display:flex;flex-direction:column}
+.tmband{position:relative;display:flex;gap:14px;align-items:center;padding:16px 18px;overflow:hidden;border-bottom:1px solid var(--edge);background:linear-gradient(90deg,hsl(var(--h),22%,14%),transparent 85%)}
+.tmband::before{content:attr(data-tag);position:absolute;right:10px;bottom:-16px;font:700 84px/1 var(--head);color:transparent;-webkit-text-stroke:1px rgba(232,227,214,.14);pointer-events:none}
+.tmlogo{width:56px;height:56px;object-fit:cover;flex:none;display:grid;place-items:center;background:#000;border:1px solid var(--edge);font:700 22px/1 var(--head);color:var(--fg);filter:grayscale(1) contrast(1.1);position:relative;z-index:1}
+.tmband>div{position:relative;z-index:1}.tmband h3{font-size:26px}
+.tmbody{padding:16px 18px 18px;display:grid;gap:14px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chips .chip{font:10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--edge);padding:5px 7px;color:var(--dim)}
+.score{display:flex;gap:26px;flex-wrap:wrap}.score div{display:grid}.score b{font:700 32px/1.05 var(--head)}.score span{font:10px/1.4 var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.16em}
+details summary{cursor:pointer;font:11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--fg)}details ul{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:4px}details li{display:flex;gap:8px;justify-content:space-between;font:13px/1.4 var(--mono);border-bottom:1px solid rgba(232,227,214,.14)}
+.soongrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr))}.soonlead{margin:0 0 22px;max-width:60ch}
+.sc{display:flex;gap:14px;align-items:flex-start;padding:22px 18px}.sc svg{flex:none;width:28px;height:28px;color:var(--fg);stroke-width:1.2}.sc h3{font:italic 700 18px/1.2 var(--head)}.sc p{margin:6px 0 0;color:var(--dim);font:12px/1.5 var(--mono)}
+.quote{overflow:hidden;white-space:nowrap;border-top:1px solid var(--edge);border-bottom:1px solid var(--edge);padding:16px 0}
+.qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:italic 700 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:1px var(--fg);letter-spacing:.02em}.qt span::after{content:"/";margin-left:34px;color:var(--red);-webkit-text-stroke:0}
+footer{background:linear-gradient(rgba(0,0,0,.8),rgba(0,0,0,.8)),url(/status/grip.svg),#000;border-top:1px solid var(--edge);padding-top:clamp(40px,6vw,72px);color:var(--dim)}footer .top{padding-top:0;padding-bottom:22px}footer .mast{border-bottom:0;border-top:1px solid var(--edge)}
+
+/* leaderboard */
+.lb{display:grid;gap:clamp(22px,3vw,40px)}
+.lbbar{display:flex;gap:12px 28px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--edge)}
+#lbleague{display:flex;gap:clamp(16px,2.6vw,36px);flex-wrap:wrap}
+#lbleague button{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:0 0 12px;color:var(--dim);font:700 12px/1.2 var(--mono);letter-spacing:.16em;text-transform:uppercase}
+#lbleague button:hover{color:var(--fg)}#lbleague button.on{color:var(--fg);border-bottom-color:var(--red)}
+.sels{display:flex;gap:10px;flex-wrap:wrap;padding-bottom:10px}
+.lb select{background:var(--bg);color:var(--dim);border:1px solid var(--edge);padding:6px 8px;font:11px/1.2 var(--mono);letter-spacing:.08em;max-width:100%}
+.lbhead{display:grid;gap:10px}
+.lbhead h3{margin:0;max-width:22ch;font:700 clamp(34px,5vw,68px)/1 "Gothic","UnifrakturCook","Old English Text MT",Georgia,serif;text-wrap:balance}
+.lbhead p{margin:0;font:12px/1.5 var(--mono);color:var(--dim);letter-spacing:.06em}
+.pod{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--edge);border-left:1px solid var(--edge)}.pod:empty{display:none}
+.lp{position:relative;min-width:0;min-height:260px;padding:18px 20px 20px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;background:var(--panel);border-right:1px solid var(--edge);border-bottom:1px solid var(--edge);overflow:hidden}
+.lp.p1{background:radial-gradient(ellipse at 15% 0,rgba(216,57,29,.22),transparent 65%),var(--panel)}
+.lpn{position:absolute;left:14px;top:-8px;font:700 clamp(120px,15vw,200px)/1 var(--head);color:transparent;-webkit-text-stroke:1px rgba(232,227,214,.26);pointer-events:none}.lp.p1 .lpn{-webkit-text-stroke-color:var(--red)}
+.lpw{position:relative;font:700 clamp(30px,3.2vw,44px)/1 "Gothic","UnifrakturCook","Old English Text MT",Georgia,serif;overflow-wrap:anywhere}
+.lpp{position:relative;display:flex;align-items:baseline;gap:10px}.lpp b{font:700 clamp(46px,5.2vw,68px)/.9 var(--head)}.lpp small{font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim)}
+.lpr{position:relative;font:11px/1.4 var(--mono);letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
+@media(max-width:700px){.pod{grid-template-columns:minmax(0,1fr)}.lp{min-height:170px}}
+.lbcols{gap:clamp(24px,3vw,44px)}.lbcols .tablewrap{border-top:1px solid var(--fg)}
+.lb tr.rb{background:linear-gradient(90deg,rgba(232,227,214,.1) calc(var(--p)*1%),transparent 0)}
+.lb td:not(.n):not(.rk):not(.mut){font:600 18px/1.2 var(--head)}.lb .rk{font:12px/1 var(--mono)}
+.lb .tag{background:var(--fg);color:#0b0b0b;border:0;padding:0 5px;margin-right:8px;vertical-align:2px}
+/* footer */
+.fgrid{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:clamp(24px,5vw,72px);margin-bottom:clamp(32px,5vw,56px)}
+.dw{display:block;width:640px;max-width:100%;height:300px;border:1px solid var(--edge);background:var(--panel)}
+.fr{display:grid;place-items:center;min-width:0}.fr img{width:min(100%,170px);height:auto;transform:rotate(-7deg);filter:drop-shadow(0 14px 20px rgba(0,0,0,.7))}
+
+/* masthead */
+@font-face{font-family:"Gothic";src:url(/status/font.woff2) format("woff2");font-weight:700;font-display:swap}
+h1{display:inline-block;margin:0 0 .4em;white-space:nowrap;font:700 100px/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);font-size:min(130px,calc((100vw - 2*var(--gut) - clamp(300px,30vw,460px) - clamp(24px,5vw,80px))/10.4))}
+@media(max-width:820px){h1{font-size:calc((100vw - 2*var(--gut))/9)}}
+/* printed labels: bone paper, red rules, slight tilt */
+.jw{position:relative;min-width:0}
+.promo{position:absolute;right:-8px;top:-84px;width:112px;height:112px;transform:rotate(-8deg);display:grid;align-content:center;justify-items:center;text-align:center;z-index:2;background:url(/status/s/red-ring.webp) center/100% 100% no-repeat;filter:drop-shadow(0 6px 10px rgba(0,0,0,.65));color:#17130c;padding:0 18px}
+.promo{text-decoration:none;transition:transform .15s}.promo:hover{transform:rotate(-3deg) scale(1.06)}
+.promo b{font:900 15px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase}
+.promo i{font:700 11px/1.15 "Courier New",var(--mono);font-style:normal;text-transform:uppercase;margin-top:4px}
+.sum .chip,h2 .soonchip{background:url(/status/s/yellow-ribbon.webp) center/100% 100% no-repeat;color:#17130c;border:0;clip-path:none;filter:drop-shadow(0 4px 6px rgba(0,0,0,.55))}
+.sum .chip{padding:11px 26px;font:700 13px/1.2 "Courier New",var(--mono);letter-spacing:.04em;text-transform:none;transform:rotate(-.8deg)}.sum .chip+.chip{background-image:url(/status/s/cream.webp);transform:rotate(.7deg)}
+.sum .chip b{color:#17130c}.sum .dot{box-shadow:0 0 3px currentColor}.sum .dot.up{background:#12b83a;box-shadow:0 0 4px #12b83a,0 0 10px rgba(18,184,58,.7)}
+h2 .soonchip{background-image:url(/status/s/blue-label.webp);color:#1d3e8a;border:0;padding:9px 20px;font:700 12px/1 "Courier New",var(--mono);transform:rotate(-3deg)}
+@media(max-width:820px){.scat:not(.wide){max-width:calc(100% - 100px)}}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<filter id="bleed" x="-4%" y="-8%" width="108%" height="116%"><feTurbulence type="fractalNoise" baseFrequency=".04 .07" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="6" result="d"/><feGaussianBlur in="d" stdDeviation="1.1" result="b"/><feComponentTransfer in="b"><feFuncA type="discrete" tableValues="0 0 0 1 1 1"/></feComponentTransfer></filter>
+<filter id="bleed2" x="-4%" y="-8%" width="108%" height="116%"><feTurbulence type="fractalNoise" baseFrequency=".05 .09" numOctaves="2" seed="9" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="3" result="d"/><feGaussianBlur in="d" stdDeviation=".6" result="b"/><feComponentTransfer in="b"><feFuncA type="discrete" tableValues="0 0 0 1 1 1"/></feComponentTransfer></filter>
+<filter id="crt" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/><feOffset in="r" dx="-2" result="ro"/><feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g"/><feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b"/><feOffset in="b" dx="2" result="bo"/><feBlend in="ro" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="bo" mode="screen"/></filter>
+</defs></svg>
+<div class="mast"><div class="wrap"><span>{{mast_a}}</span><span id="issue"></span><span>{{mast_b}}</span></div></div>
+<div class="hero"><div class="wrap">
+<div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/de" hreflang="de" lang="de">DE</a></span></nav></div>
+<div class="intro"><div class="l"><h1>Cocojambo's Yard</h1><div class="sum" id="sum"></div><p class="scat">{{scat1}}</p></div>
+<div class="jw"><a class="promo" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><b>{{promo_a}}</b><i>{{promo_b}}</i></a><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div></a></div></div>
+</div></div>
+<div class="tick" aria-hidden="true"><div class="tk" id="tk"><span class="tkc">{{tick_idle}}</span></div></div>
+<main class="wrap">
+<section id="server"><h2><i class="no">01</i><span>{{nav_servers}}</span> <small>{{live}}</small></h2><div class="kick">{{k_servers}}</div><p class="scat wide">{{scat2}}</p><div class="grid" id="servers"></div><div class="mut" id="stat"></div></section>
+<section id="leaderboard"><h2><i class="no">02</i><span>{{nav_board}}</span></h2><div class="kick">{{k_board}}</div>
+<div class="lb"><div class="lbbar"><div id="lbleague"></div><div class="sels"><select id="lbboard" aria-label="{{period}}"></select><select id="lbmode" aria-label="{{mode}}"></select></div></div>
+<div class="lbhead"><h3 id="gzh"></h3><p id="gzd"></p><span class="mut" id="lbinfo"></span></div>
+<div class="pod" id="pod"></div>
+<div class="lbcols"><div class="tablewrap"><table id="lbtable"></table></div><div class="tablewrap"><table id="lbteams"></table></div></div></div>
+</section>
+<div class="quote" aria-hidden="true"><div class="qt"><span>{{quote}}</span><span>{{quote}}</span><span>{{quote}}</span></div></div>
+<section id="teams"><h2><i class="no">03</i><span>{{nav_teams}}</span></h2><div class="kick">{{k_teams}}</div><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
+<section id="soon"><h2><i class="no">04</i><span>{{soon_title}}</span> <small class="soonchip">{{soon_chip}}</small></h2><div class="kick">{{k_soon}}</div><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
+</main>
+<footer><div class="wrap"><div class="fgrid"><div class="fl"><iframe class="dw" src="https://discord.com/widget?id=1558637403869155488&amp;theme=dark" width="640" height="300" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts" title="Discord" loading="lazy"></iframe></div><div class="fr"><img src="/status/s/alien.webp" alt="" width="380" height="560" aria-hidden="true" loading="lazy"></div></div></div><div class="wrap"><div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a></nav></div></div><div class="mast"><div class="wrap"><span>© COCOJAMBO CREW 2026</span><span>{{quote}}</span><span>{{mast_b}}</span></div></div></footer>
+<script>
+const T=__T__;
+const $=id=>document.getElementById(id);
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined&&text!==null)e.textContent=text;return e}
+async function get(url){const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(r.status==429?T.tooMany:T.unreachable+' ('+r.status+')');return r.json()}
+const fmt=n=>(n||0).toLocaleString(T.loc);const tr_=(s,o)=>s.replace(/[{]([a-z0-9]+)[}]/g,(_,k)=>o[k]);
+const hue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h};
+const imgState={};
+async function loadStatus(){
+ try{const d=await get('/status/api/servers'),g=$('servers');g.textContent='';
+  let up=0,pl=0;
+  for(const s of d.servers){if(s.online){up++;pl+=s.players||0}
+   const c=el('div','sv'+(s.online?'':' off')),pic=el('div','pic');pic.style.setProperty('--h',hue(s.map||s.role||'x'));
+   pic.append(el('div','ph',s.online&&s.map?s.map:s.role||'Server '+s.server));
+   if(s.online&&s.map&&imgState[s.map]!='none'){const im=new Image();im.alt='';im.onload=()=>{imgState[s.map]='ok';pic.append(im);pic.classList.add('ok')};im.onerror=()=>{imgState[s.map]='none'};im.src='/status/api/mapimg?name='+encodeURIComponent(s.map)}
+   const st=el('div','st');st.append(el('span',s.online?'dot up':'dot'),s.online?T.online:T.offline);pic.append(st,el('div','num','#'+s.server));
+   const b=el('div','svb');b.append(el('div','nm',s.role||'Server '+s.server));
+   if(s.online){if(!s.map)b.append(el('div','mp',T.map+': –'));
+    if(s.slots&&s.slots.filter(x=>x.online).length>1){const ab=el('div','ab');for(const x of s.slots){const i=el('span','abi'+(x.online?' on':''));i.append(el('span','dot'+(x.online?' up':'')),el('b','',T.slotLbl+' '+x.slot),el('em','',x.online?(x.players===null?'?':x.players)+' '+(x.players==1?T.playerOne:T.players):T.slotIdle));ab.append(i)}b.append(ab)}
+    const p=el('div','disc');if(s.max){const o=el('small','o',T.slotsOrig+' ');o.append(el('s','',s.max));p.append(o)}p.append(el('small','d',T.nowPlaying),el('b','',s.players===null?'?':s.players));b.append(p);
+    if(s.max&&s.players!==null){const bar=el('div','bar'),f=el('span',s.players/s.max>.9?'f':s.players/s.max>.7?'w':'');f.style.width=Math.min(100,Math.round(100*s.players/s.max))+'%';bar.append(f);b.append(bar)}}
+   else b.append(el('div','mp bad',T.down));
+   c.append(pic,b);g.append(c)}
+  const tk=$('tk');if(tk){const items=d.servers.filter(x=>x.online).map(x=>'● '+(x.role||'#'+x.server)+' — '+(x.players===null?'?':x.players)+' '+(x.players==1?T.playerOne:T.players));const line=(items.length?items.join('   /   '):T.tickIdle)+'   /   ';tk.textContent='';for(let i=0;i<2;i++)tk.append(el('span','tkc',line.repeat(4)))}
+  const sm=$('sum');sm.textContent='';
+  if(d.servers.length){const a=el('span','chip'),x=el('span','dot'+(up?' up':''));a.append(x,el('b','',up+' / '+d.servers.length),' '+T.srvOnline);const p=el('span','chip');p.append(el('b','',pl),' '+(pl==1?T.playerNow:T.playersNow));sm.append(a,p)}
+  $('stat').textContent=d.servers.length?'':T.noServers}
+ catch(e){$('stat').textContent=e.message}}
+const LB={league:'unranked',board:'general',data:null};
+async function loadBoard(){
+ try{LB.data=await get('/status/api/board?league='+LB.league+'&board='+encodeURIComponent(LB.board));LB.board=LB.data.board;drawBoard()}
+ catch(e){$('lbinfo').textContent=e.message}}
+function drawBoard(){const d=LB.data;if(!d)return;
+ const lg=$('lbleague');lg.textContent='';
+ for(const [k,l] of [['unranked',T.unranked+' · '+T.servers15],['ranked',T.ranked+' · '+T.server6]]){const b=el('button',k==LB.league?'on':'',l);b.onclick=()=>{LB.league=k;LB.board='general';loadBoard()};lg.append(b)}
+ const base=LB.board.split(':')[0],mode=LB.board.split(':')[1]||'';
+ const periods=d.boards.filter(b=>!b.mode),sel=$('lbboard');sel.textContent='';
+ const KN=T.kinds;let grp=null,gk='';
+ for(const b of periods){if(b.kind!=gk){gk=b.kind;grp=document.createElement('optgroup');grp.label=KN[gk]||gk;sel.append(grp)}
+  const o=el('option',0,b.name+(b.open?'':' ('+T.ended+')'));o.value=b.id;if(b.id==base)o.selected=true;grp.append(o)}
+ const ms=$('lbmode');ms.textContent='';const all=el('option',0,T.allModes);all.value='';ms.append(all);
+ const bn=(periods.find(b=>b.id==base)||{name:''}).name;
+ for(const b of d.boards.filter(b=>b.base==base&&b.mode)){const o=el('option',0,b.name.replace(bn+' - ',''));o.value=b.mode;if(b.mode==mode)o.selected=true;ms.append(o)}
+ $('lbinfo').textContent=tr_(T.withPoints,{n:d.total});
+ const pod=$('pod');pod.textContent='';const podium=d.rows.length>=3,rest=podium?d.rows.slice(3):d.rows,top=d.rows.length?d.rows[0].points||1:1;
+ if(podium)for(const r of d.rows.slice(0,3)){const c=el('div','lp p'+r.rank);c.append(el('div','lpn',r.rank));const w=el('div','lpw');if(r.tag)w.append(el('span','tag','['+r.tag+']'));w.append(r.name);const pp=el('div','lpp');pp.append(el('b','',fmt(r.points)),el('small','',T.pointsLc));c.append(w,pp,el('div','lpr',fmt(r.wins)+' '+T.wins+' · '+fmt(r.played)+' '+T.games));pod.append(c)}
+ const gh=$('gzh'),gd=$('gzd');gh.textContent='';gd.textContent='';
+ if(d.rows.length){const a=d.rows[0];gh.textContent=tr_(T.gzH,{name:a.name});gd.textContent=tr_(T.gzD,{pts:fmt(a.points),games:fmt(a.played),wins:fmt(a.wins)})}
+ else gh.textContent=T.gzNone;
+ const t=$('lbtable');t.textContent='';t.parentNode.hidden=podium&&!rest.length&&d.total<=d.rows.length;const hr=el('tr');
+ for(const [l,n] of [['#',0],[T.player,0],[T.points,1],[T.wins,1],[T.games,1]])hr.append(el('th',n?'n':'',l));t.append(hr);
+ for(const r of rest){const tr=el('tr','rb'),nm=el('td');tr.style.setProperty('--p',Math.max(2,Math.round(100*(r.points||0)/top)));if(r.tag)nm.append(el('span','tag','['+r.tag+']'));nm.append(r.name);
+  tr.append(el('td','rk',r.rank),nm,el('td','n',fmt(r.points)),el('td','n',fmt(r.wins)),el('td','n',fmt(r.played)));t.append(tr)}
+ if(!d.rows.length){const tr=el('tr'),td=el('td','mut',T.noEntries);td.colSpan=5;tr.append(td);t.append(tr)}
+ else if(d.total>d.rows.length){const tr=el('tr'),td=el('td','mut',tr_(T.topOf,{a:d.rows.length,b:d.total}));td.colSpan=5;tr.append(td);t.append(tr)}
+ const tt=$('lbteams');tt.textContent='';const th=el('tr');for(const [l,n] of [[T.team,0],[T.members,1],[T.points,1]])th.append(el('th',n?'n':'',l));tt.append(th);
+ const tmax=d.teams.length?d.teams[0].points||1:1;
+ for(const x of d.teams){const tr=el('tr','rb'),c=el('td');tr.style.setProperty('--p',Math.max(2,Math.round(100*(x.points||0)/tmax)));c.append(el('span','tag','['+x.tag+']'),x.name);tr.append(c,el('td','n',x.members),el('td','n',fmt(x.points)));tt.append(tr)}
+ if(!d.teams.length){const tr=el('tr'),td=el('td','mut',T.noTeamPoints);td.colSpan=3;tr.append(td);tt.append(tr)}}
+$('lbboard').onchange=()=>{LB.board=$('lbboard').value;loadBoard()};
+$('lbmode').onchange=()=>{const b=$('lbboard').value,m=$('lbmode').value;LB.board=m?b+':'+m:b;loadBoard()};
+const LEAGUE={unranked:T.unranked,ranked:T.ranked,both:T.both};
+async function loadTeams(){
+ try{const d=await get('/status/api/teams'),g=$('teamlist');g.textContent='';
+  for(const t of d.teams){const c=el('div','tm'),band=el('div','tmband');band.dataset.tag=t.tag;band.style.setProperty('--h',hue(t.tag));
+   const logo=el('div','tmlogo',t.tag.slice(0,3));
+   if(t.logo){const img=new Image();img.alt='';img.className='tmlogo';img.src='/status/api/logo?tag='+encodeURIComponent(t.tag);img.onload=()=>logo.replaceWith(img)}
+   const head=el('div');head.append(el('h3','',t.name),el('div','mut','['+t.tag+']'+(t.motto?' · '+t.motto:'')));band.append(logo,head);
+   const body=el('div','tmbody'),chips=el('div','chips');
+   chips.append(el('span','chip',t.members.length+' '+(t.members.length==1?T.member:T.members)),el('span','chip',t.open?T.open:T.byRequest));
+   if(t.league)chips.append(el('span','chip',LEAGUE[t.league]||t.league));if(t.category)chips.append(el('span','chip',t.category));
+   body.append(chips);if(t.description)body.append(el('div','mut',t.description));
+   const sc=el('div','score');for(const [k,l] of [['unranked',T.unranked],['ranked',T.ranked]]){const x=el('div');x.append(el('b','',fmt(t.points[k])),el('span','',l+' '+T.pointsLc));sc.append(x)}body.append(sc);
+   const dt=el('details'),ul=el('ul');dt.append(el('summary','',T.members),ul);
+   for(const m of t.members){const li=el('li');li.append(el('span','',m.name+(m.role=='owner'?' ('+T.founder+')':m.role=='leader'?' ('+T.leader+')':'')),el('span','mut',fmt((m.points.unranked||0)+(m.points.ranked||0))));ul.append(li)}
+   body.append(dt);c.append(band,body);g.append(c)}
+  $('tmstat').textContent=d.teams.length?'':T.noTeams}
+ catch(e){$('tmstat').textContent=e.message}}
+try{$('issue').textContent=T.issue+' '+new Date().toLocaleDateString(T.loc,{month:'long',year:'numeric'})}catch(e){}
+loadStatus();loadBoard();loadTeams();
+setInterval(()=>{if(!document.hidden)loadStatus()},30000);
+setInterval(()=>{if(!document.hidden){loadBoard();loadTeams()}},60000);
+</script></body></html>"""
+
+
 LOGIN = """<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>ReSkate Dashboard</title><link rel="icon" type="image/png" href="/favicon.png"><style>
 :root{color-scheme:dark;--bg:#1a1a1a;--fg:#e8e8e8;--line:#333}
@@ -2418,6 +3042,14 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px system-ui,sans-seri
 input,button{font:inherit;padding:9px;border-radius:8px;border:1px solid var(--line);background:transparent;color:inherit}p{color:#f97066;margin:0}
 </style></head><body><form method="post" action="/login"><img src="/logo.svg" alt="Cocojambo" style="width:100%%;height:auto;margin-bottom:6px"><h2>ReSkate Dashboard</h2>%s
 <input type="password" name="password" placeholder="Passwort" autofocus required><button>Anmelden</button></form></body></html>"""
+
+def admin_page(page):
+    """The dashboard page or login form for the /admin mount: its API, login and logout paths move under /admin."""
+    return page.replace("'/api/", "'/admin/api/").replace("'/logout'", "'/admin/logout'").replace('action="/login"', 'action="/admin/login"')
+
+
+ADMIN_PAGE = admin_page(PAGE)
+ADMIN_LOGIN = admin_page(LOGIN)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2436,7 +3068,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+        if not any(k == "Content-Security-Policy" for k, _ in headers):
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
         for k, v in headers:
             self.send_header(k, v)
         self.end_headers()
@@ -2449,26 +3082,81 @@ class Handler(BaseHTTPRequestHandler):
         jar = SimpleCookie(self.headers.get("Cookie", ""))
         return COOKIE in jar and valid(jar[COOKIE].value)
 
-    def cookie(self, value, age):
+    def cookie(self, value, age, path="/admin"):
         secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
-        return ("Set-Cookie", f"{COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}{secure}")
+        return ("Set-Cookie", f"{COOKIE}={value}; Path={path}; HttpOnly; SameSite=Strict; Max-Age={age}{secure}")
+
+    def public(self, url):
+        """The page and data anyone may read: no login, rate limited per address, whitelisted fields only."""
+        if url.path in ("/", "/de"):
+            return self.send(200, public_page("de" if url.path == "/de" else "en"), headers=[("Cache-Control", "public, max-age=60"), ("Content-Security-Policy", PUBLIC_CSP)])
+        if url.path == "/status/font.woff2":
+            return self.send(200, GOTHIC_FONT, "font/woff2", headers=[("Cache-Control", "public, max-age=604800")])
+        if url.path == "/status/grip.svg":
+            return self.send(200, GRIP_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
+        m = re.fullmatch(r"/status/s/([a-z0-9-]+)\.webp", url.path)
+        if m:
+            data = sticker(m.group(1))
+            if data is None:
+                return self.send(404, "not found", "text/plain")
+            return self.send(200, data, "image/webp", headers=[("Cache-Control", "public, max-age=604800")])
+        if url.path == "/status/og.jpg":
+            data = og_image()
+            if data is None:
+                return self.send(404, "not found", "text/plain")
+            return self.send(200, data, "image/jpeg", headers=[("Cache-Control", "public, max-age=3600")])
+        if url.path == "/status/grime.svg":
+            return self.send(200, GRIME_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
+        if not public_allowed(self.address()):
+            return self.json(429, {"error": "too many requests"})
+        q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        try:
+            if url.path == "/status/api/servers":
+                return self.json(200, public_status())
+            if url.path == "/status/api/board":
+                league = q.get("league", "unranked")
+                if league not in LB_FILES:
+                    raise ValueError("unknown league")
+                return self.json(200, public_board(league, q.get("board", "general")))
+            if url.path == "/status/api/teams":
+                return self.json(200, public_teams())
+            if url.path == "/status/api/mapimg":
+                found = public_mapimg(q.get("name", ""))
+                return self.send(200, found[1], found[0], headers=[("Cache-Control", "public, max-age=3600")])
+            if url.path == "/status/api/logo":
+                kind, data = public_logo(q.get("tag", ""))
+                return self.send(200, data, kind, headers=[("Cache-Control", "public, max-age=3600")])
+        except ValueError:
+            return self.json(404 if url.path in ("/status/api/logo", "/status/api/mapimg") else 400, {"error": "not available"})
+        except (urllib.error.URLError, OSError, RuntimeError):
+            return self.json(503, {"error": "temporarily not available"})
+        self.json(404, {"error": "not found"})
 
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/health":
             return self.json(200, {"ok": True})
+        if url.path in ("/status", "/public"):
+            return self.send(301, "", headers=[("Location", "/")])
+        if url.path == "/status/de":
+            return self.send(301, "", headers=[("Location", "/de")])
+        if url.path in ("/", "/de") or url.path.startswith("/status/"):
+            return self.public(url)
         if url.path == "/logo.svg":
             return self.send(200, LOGO_SVG, "image/svg+xml", headers=[("Cache-Control", "public, max-age=86400")])
         if url.path in ("/favicon.png", "/favicon.ico"):
             return self.send(200, FAVICON_PNG, "image/png", headers=[("Cache-Control", "public, max-age=86400")])
+        if url.path != "/admin" and not url.path.startswith("/admin/"):
+            return self.json(404, {"error": "not found"})
+        url = url._replace(path=url.path[len("/admin"):] or "/")
         if not self.logged_in():
             if url.path.startswith("/api/"):
                 return self.json(401, {"error": "login"})
-            return self.send(200, LOGIN % "")
+            return self.send(200, ADMIN_LOGIN % "")
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
             if url.path == "/":
-                return self.send(200, PAGE)
+                return self.send(200, ADMIN_PAGE)
             if url.path == "/api/servers":
                 return self.json(200, servers())
             if url.path == "/api/mapimg":
@@ -2486,6 +3174,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/tsimg":
                 kind, data = ts_image(q.get("u", ""))
                 return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=86400")])
+            if url.path == "/api/teamlogo":
+                kind, data = team_logo(q.get("u", ""))
+                return self.send(200, data, kind, headers=[("Cache-Control", "private, max-age=3600")])
             if url.path == "/api/mapname":
                 return self.json(200, {"names": store_names(q.get("package", ""))})
             if url.path == "/api/maps":
@@ -2713,8 +3404,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path != "/admin" and not path.startswith("/admin/"):
+            return self.json(404, {"error": "not found"})
+        path = path[len("/admin"):] or "/"
         if path == "/logout":
-            return self.send(200, "ok", headers=[self.cookie("", 0)])
+            return self.send(200, "ok", headers=[self.cookie("", 0), self.cookie("", 0, "/")])
         if path == "/api/say":
             return self.say()
         if path == "/api/mod":
@@ -2742,17 +3436,17 @@ class Handler(BaseHTTPRequestHandler):
         who = self.address()
         count, until = fails.get(who, [0, 0])
         if until > time.time():
-            return self.send(429, LOGIN % "<p>Zu viele Versuche, bitte später erneut.</p>")
+            return self.send(429, ADMIN_LOGIN % "<p>Zu viele Versuche, bitte später erneut.</p>")
         form = parse_qs(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)).decode(errors="replace"))
         given = form.get("password", [""])[0]
         if hmac.compare_digest(hashlib.sha256(given.encode()).digest(), hashlib.sha256(PASSWORD.encode()).digest()):
             fails.pop(who, None)
-            return self.send(303, "", headers=[("Location", "/"), self.cookie(sign(int(time.time()) + SESSION), SESSION)])
+            return self.send(303, "", headers=[("Location", "/admin/"), self.cookie(sign(int(time.time()) + SESSION), SESSION)])
         count += 1
         fails[who] = [count, time.time() + 300 if count >= 5 else 0]
         time.sleep(1)
         say(f"dashboard: wrong password from {who}")
-        self.send(401, LOGIN % "<p>Falsches Passwort.</p>")
+        self.send(401, ADMIN_LOGIN % "<p>Falsches Passwort.</p>")
 
 
 def main():
