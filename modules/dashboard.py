@@ -2874,7 +2874,7 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 .gz .lbcols .tablewrap:last-child{border-top-width:3px}
 
 /* adjustments to the newspaper block */
-#pod{filter:drop-shadow(0 10px 14px rgba(0,0,0,.55))}
+
 .gz{transform:none;box-shadow:none;border:0}
 .pd.wp.p2{transform:rotate(.8deg)}.pd.wp.p3{transform:rotate(-.4deg)}.pd.wp.p1{transform:none}
 
@@ -2903,9 +2903,11 @@ h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "G
 .gz .mut,.gzban p,.gz .rk{color:var(--dim)}
 .gz td{border-bottom-color:rgba(232,227,214,.18)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(232,227,214,.07)}
 .gz .tag{background:var(--fg);color:#0e0e0e;border-color:var(--fg)}
-.pd.wp{background:radial-gradient(ellipse at 20% 15%,rgba(0,0,0,.22),transparent 55%),radial-gradient(ellipse at 85% 90%,rgba(0,0,0,.3),transparent 55%),linear-gradient(rgba(207,202,187,.72),rgba(207,202,187,.72)),url(/status/grime.svg),#cfcabb}
-.pd.wp .stamp{filter:none;border-color:var(--red);color:var(--red)!important}
-.pd.wp .tag{color:#cfcabb!important}
+.pd.wp,.pd.wp.p1,.pd.wp.p2,.pd.wp.p3{--pc:var(--fg);background:none;clip-path:none;transform:none;border:1px solid var(--edge)}.pd.wp.p1{border-color:var(--fg)}
+.pd.wp .mug{background-color:transparent}
+.gz #pod{filter:none}
+.pd.wp .stamp{filter:none;mix-blend-mode:normal;opacity:1;border-color:var(--red);color:var(--red)!important}
+.pd.wp .tag{color:#0e0e0e!important}
 .gzart::first-letter{float:none;font:inherit;padding:0}
 .gzart{column-count:1;max-width:78ch;margin-left:auto;margin-right:auto;text-align:center}
 @media(max-width:820px){.scat:not(.wide){max-width:calc(100% - 100px)}}
