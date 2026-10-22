@@ -244,8 +244,13 @@ slim shares `roles.json` like the default image (it did not), and `config` write
    `/shared/roles.json` changes (I); the `announcer` module (J).
 6. Bridge: events with slot, `/v1/servers/<n>/settings` (no secrets), `/v1/status`, module calls audit-only.
 
-Not (yet) done from H/I: `maps reload` after installing a new map (a new `MODS` entry still restarts the
-server when it is empty, as before); `WORDS_FILTERED` / `WORDS_BLOCKED`, `COMMANDS`, `VOTES_CUSTOM`,
+7. New `MODS` entries without a restart (I): the settings module types `mods add <new packages>` first (the
+   server installs, links and runs `maps reload`), waits for "[mods] done", then sends the rest (map pool ...).
+   A package that leaves `MODS` stays linked until the next restart. The rollover accepts the restart digest
+   of older server images too (`settings.restart_digests`), so mixed images do not restart in a loop; roll
+   the tools image (settings module, rollover) out before the server image.
+
+Not (yet) done from H/I: `WORDS_FILTERED` / `WORDS_BLOCKED`, `COMMANDS`, `VOTES_CUSTOM`,
 `PARK_MODS` and the network settings have no console command, so they wait for a restart when empty.
 
 Limits of the modules:

@@ -521,9 +521,10 @@ class Rollover:
         if not started:
             return False                           # an image from before the settings files
         values, _, _ = settings.load(inst.env, folder, report=False)
-        want = settings.restart_digest(values) if kind == "restart-digest" else settings.digest(values)
-        if started[-1] == want:
+        wants = settings.restart_digests(values) if kind == "restart-digest" else {settings.digest(values)}
+        if started[-1] in wants:
             return False
+        want = min(wants)
         if not self.few_enough(server, inst):
             self.once(("settings-wait", inst.name, want),
                       f"Server {number}: its settings changed, restarting {inst.name} once few enough players are on it.")
