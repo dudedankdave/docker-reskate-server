@@ -2942,12 +2942,11 @@ h1{display:inline-block;transform:none;margin:0 0 .1em;font:700 clamp(56px,10.5v
 
 /* print / zine: scanline type, ink bleed, black paper, scanned labels */
 body{background:radial-gradient(ellipse at 50% 35%,transparent 35%,rgba(0,0,0,.7) 100%),url(/status/grime.svg),linear-gradient(var(--gridc) 1px,transparent 1px) 0 0/32px 32px,linear-gradient(90deg,var(--gridc) 1px,transparent 1px) 0 0/32px 32px,#0a0a0a}
-h1{display:block;font:900 clamp(44px,8.6vw,132px)/.9 "Arial Black","Arial Narrow",Impact,sans-serif;text-transform:uppercase;letter-spacing:-.035em;color:transparent;background:repeating-linear-gradient(0deg,#ece6d4 0 4px,transparent 4px 7px);-webkit-background-clip:text;background-clip:text;text-shadow:none;border:0;padding:.04em 0 .1em;margin:0;filter:url(#bleed);text-wrap:balance;overflow-wrap:normal;word-break:normal}
-h2 span{color:transparent;background:repeating-linear-gradient(90deg,#ece6d4 0 2px,transparent 2px 4px);-webkit-background-clip:text;background-clip:text;filter:url(#bleed2);font-size:clamp(34px,5.4vw,70px);letter-spacing:-.02em}
-h2 .no{filter:url(#bleed2)}
+h2 span{color:#ece6d4;font-size:clamp(34px,5.4vw,70px);letter-spacing:-.02em}
+h2 .no{color:transparent;-webkit-text-stroke:2px #ece6d4}
 .scat{margin:6px 0 0;max-width:min(640px,100%);font:11px/1.9 var(--mono);text-transform:uppercase;letter-spacing:.22em;word-spacing:.7em;text-align:left;color:var(--dim)}
 .scat.wide{max-width:none;text-align-last:left;margin:-10px 0 22px;columns:2;column-gap:60px}@media(max-width:700px){.scat.wide{columns:1}}
-.par{display:inline-block;color:transparent;background:repeating-linear-gradient(90deg,#ece6d4 0 1px,transparent 1px 3px);-webkit-background-clip:text;background-clip:text;font:900 22px/1 "Arial Black",Arial,sans-serif;letter-spacing:.02em;word-spacing:0;vertical-align:middle;filter:url(#bleed2)}
+.par{display:inline-block;color:#ece6d4;font:700 14px/1 var(--mono);letter-spacing:.14em;word-spacing:0;vertical-align:middle}
 .scale{position:absolute;right:calc(clamp(340px,36vw,620px) + 70px);top:44%;list-style:none;margin:0;padding:0;display:grid;gap:12px;font:10px/1 var(--mono);color:var(--dim)}.scale li{display:flex;align-items:center;gap:8px}.scale li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--fg)}
 @media(max-width:1100px){.scale{display:none}}
 .promo{position:absolute;right:clamp(40px,7vw,120px);bottom:6%;width:112px;height:112px;border-radius:50%;overflow:hidden;transform:rotate(-9deg);filter:drop-shadow(3px 4px 0 #000) contrast(1.05);display:grid;grid-template-rows:1fr 1fr;text-align:center;z-index:2;border:2px solid #000}
@@ -2957,10 +2956,10 @@ h2 .no{filter:url(#bleed2)}
 .smile{left:auto;right:calc(clamp(40px,7vw,120px) + 140px);top:auto;bottom:10%}
 @media(max-width:820px){.scat:not(.wide){max-width:calc(100% - 112px)}}
 /* scanned price labels */
-.num{--lb:#e6d44a;--lc:#1a1a1a;background-color:var(--lb);background-image:url(/status/grime.svg);color:var(--lc);border-top:0;border-bottom:0;font:700 14px/1 "Courier New",var(--mono);letter-spacing:.06em;padding:7px 12px;box-shadow:inset 0 3px 0 rgba(200,50,30,.75),inset 0 -3px 0 rgba(200,50,30,.75)}
+.num{--lb:#e6d44a;--lc:#1a1a1a;background-color:var(--lb);color:var(--lc);border-top:0;border-bottom:0;font:700 14px/1 "Courier New",var(--mono);letter-spacing:.06em;padding:7px 12px;box-shadow:inset 0 3px 0 rgba(200,50,30,.75),inset 0 -3px 0 rgba(200,50,30,.75)}
 .sv:nth-child(4n+2) .num{--lb:#cfd1cb}.sv:nth-child(4n+3) .num{--lb:#e8561f;--lc:#fff;box-shadow:none}.sv:nth-child(4n) .num{--lb:#3fa070;--lc:#102418;box-shadow:none}
-.sum .chip{background-color:#e6d44a;background-image:url(/status/grime.svg);font:700 15px/1.2 "Courier New",var(--mono);letter-spacing:.04em;color:#1a1a1a}.sum .chip+.chip{background-color:#cfd1cb}
-.disc{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:end;gap:0 10px;background-color:#e6d44a;background-image:url(/status/grime.svg);color:#1a1a1a;padding:8px 14px 8px;font-family:"Courier New",var(--mono);clip-path:polygon(0 0,100% 0,100% 100%,0 100%);box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);transform:rotate(-1deg)}
+.sum .chip{background-color:#e6d44a;font:700 15px/1.2 "Courier New",var(--mono);letter-spacing:.04em;color:#1a1a1a}.sum .chip+.chip{background-color:#cfd1cb}
+.disc{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:end;gap:0 10px;background-color:#e6d44a;color:#1a1a1a;padding:8px 14px 8px;font-family:"Courier New",var(--mono);clip-path:polygon(0 0,100% 0,100% 100%,0 100%);box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);transform:rotate(-1deg)}
 .disc small{font:700 10px/1.2 "Courier New",var(--mono);text-transform:uppercase;letter-spacing:.1em}.disc .o{grid-column:1/-1}.disc .o s{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#b8321a;opacity:.8}
 .disc .d{align-self:end;font-weight:800;letter-spacing:.14em}.disc b{grid-row:2;grid-column:2;font:700 44px/.9 "Courier New",var(--mono);letter-spacing:-.04em}
 /* advisory sticker */
