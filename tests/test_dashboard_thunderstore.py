@@ -1108,6 +1108,11 @@ class PublicPageTest(unittest.TestCase):
         for bad in ("..", "a/b", "..%2Fok"):
             self.assertNotEqual(self.get(f"/status/s/{bad}.webp")[0], 200, bad)
 
+    def test_no_sticker_appears_twice_on_the_page(self):
+        used = re.findall(r"/status/s/([a-z0-9-]+)\.webp", self.d.PUBLIC_PAGE)
+        self.assertGreater(len(used), 10)
+        self.assertEqual(sorted(set(used)), sorted(used))
+
     def test_every_sticker_the_page_uses_is_in_the_repository(self):
         folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "stickers")
         names = set(re.findall(r"/status/s/([a-z0-9-]+)\.webp", self.d.PUBLIC_PAGE))
