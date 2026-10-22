@@ -1072,7 +1072,8 @@ class PublicPageTest(unittest.TestCase):
         con.close()
         self.d.bridge = lambda path, body=None: [
             {"server": 1, "role": "Main", "running": True, "players": 3, "online": 2, "max": 20, "map": "Tampa", "password": "secret", "container": "reskate-server-1", "port": 10001, "slots": {"a": {}}},
-            {"server": 2, "role": "Skate 2", "running": False, "players": None, "max": 20, "map": "Old"}]
+            {"server": 2, "role": "Skate 2", "running": False, "players": None, "max": 20, "map": "Old"},
+            {"server": 9, "role": "Test", "running": True, "players": 1, "online": 1, "max": 16, "map": "Secret"}]
         self.d.server_details = lambda: {}
         self.d.server_players = lambda number, rows=None: [{"name": "x", "steam_id": "1", "slot": "a"}] * 2
         self.web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.d.Handler)
@@ -1103,6 +1104,12 @@ class PublicPageTest(unittest.TestCase):
             {"server": 2, "role": "Skate 2", "online": False, "players": None, "max": 20, "map": ""}])
         for secret in ("secret", "reskate-server-1", "10001"):
             self.assertNotIn(secret, body)
+
+    def test_the_test_server_is_not_on_the_page_unless_listed(self):
+        self.assertNotIn("Secret", self.get("/status/api/servers")[1])
+        self.d.PUBLIC_SERVERS = {"1", "9"}
+        self.d.PUBLIC_CACHE.clear()
+        self.assertEqual([s["server"] for s in json.loads(self.get("/status/api/servers")[1])["servers"]], [1, 9])
 
     def test_leaderboard_has_no_steam_ids_and_checks_the_league(self):
         code, body, _ = self.get("/status/api/board?league=unranked&board=general")
