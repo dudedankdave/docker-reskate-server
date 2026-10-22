@@ -2897,7 +2897,6 @@ footer{color:var(--dim)}footer span{background:var(--panel);color:var(--fg);bord
 .pd.wp .mug{position:relative;width:min(100%,200px);aspect-ratio:1/1;border:3px solid var(--pc);background:radial-gradient(ellipse 19% 19% at 50% 40%,var(--pc) 0 97%,transparent 100%),radial-gradient(ellipse 38% 31% at 50% 100%,var(--pc) 0 97%,transparent 100%),repeating-linear-gradient(0deg,rgba(26,20,12,.4) 0 1px,transparent 1px 12.5%),rgba(26,20,12,.12);overflow:hidden}
 .pd.p1.wp .mug{width:min(100%,240px)}
 .pd.wp .mug::before{content:"";position:absolute;left:0;top:0;bottom:0;width:10px;background:repeating-linear-gradient(0deg,var(--pc) 0 2px,transparent 2px 12.5%)}
-.pd.wp .mug::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 49.4%,rgba(192,50,26,.7) 49.4% 50.6%,transparent 50.6%),linear-gradient(90deg,transparent 49.4%,rgba(192,50,26,.7) 49.4% 50.6%,transparent 50.6%)}
 .pd.wp .who{font:900 clamp(18px,1.8vw,24px)/1.15 var(--mono);text-transform:uppercase;overflow-wrap:anywhere}.pd.wp .tag{background:var(--pc);color:#d4c196!important;border-color:var(--pc)}
 .pd.wp .rw{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;justify-content:center;border-top:3px solid var(--pc);border-bottom:3px solid var(--pc);padding:4px 10px;width:100%}.pd.wp .rw small{font:800 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase}.pd.wp .rw b{font:900 clamp(34px,4vw,56px)/1 Rockwell,"Courier New",Georgia,serif;letter-spacing:.02em}
 .pd.wp .rec{font:700 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.1em;opacity:.8}
