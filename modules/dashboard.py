@@ -2814,7 +2814,7 @@ a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg)
 .scat.wide{max-width:min(720px,100%);margin:0 0 26px}
 .join{position:relative;display:flex;gap:18px;align-items:center;padding:20px 22px;border:3px dashed var(--fg);color:var(--fg);text-decoration:none;transition:background .15s,color .15s}
 .join:hover{background:var(--fg);color:var(--bg)}
-.join svg{flex:none;width:28px;height:28px}.join div{min-width:0}.join b{display:block;font:700 32px/1 "Gothic","UnifrakturCook","Old English Text MT",Georgia,serif}.join span{display:block;font:11px/1.5 var(--mono);letter-spacing:.06em;margin-top:6px;color:var(--dim)}.join:hover span{color:var(--bg)}
+.join svg{flex:none;width:28px;height:28px}.join div{min-width:0}.join b{display:block;font:italic 700 24px/1.1 var(--head)}.join span{display:block;font:11px/1.5 var(--mono);letter-spacing:.06em;margin-top:6px;color:var(--dim)}.join:hover span{color:var(--bg)}
 @media(max-width:480px){.join{flex-wrap:wrap}}
 .tick{position:relative;z-index:1;background:#040704;color:#f7f9ff;overflow-x:clip;overflow-y:visible;white-space:nowrap;border-top:2px solid var(--acid);border-bottom:2px solid var(--acid);box-shadow:0 0 10px rgba(222,236,255,.8),0 0 44px 4px rgba(222,236,255,.4),0 0 120px 20px rgba(222,236,255,.2),inset 0 0 26px rgba(222,236,255,.28);animation:neonbar 9s step-end infinite}
 .tk{display:inline-flex;animation:tickhitch 46s linear infinite;will-change:transform}.tkc{display:inline-block;padding:9px 0;font:700 13px/1 var(--mono);text-transform:uppercase;letter-spacing:.24em;text-shadow:0 0 2px rgba(255,255,255,.7),0 0 10px var(--acid),0 0 30px rgba(222,236,255,.8),0 0 64px rgba(222,236,255,.55),0 0 110px rgba(222,236,255,.35);animation:neontxt 6s step-end infinite}
