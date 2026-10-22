@@ -1916,7 +1916,7 @@ PUBLIC_TEXT = {
         "withPoints": "{n} players with points", "wins": "wins", "games": "games", "player": "Player", "points": "Points", "pointsLc": "points",
         "noEntries": "No entries yet.", "topOf": "Top {a} of {b}", "team": "Team", "member": "member", "members": "members",
         "noTeamPoints": "No team points on this board yet.", "open": "open", "byRequest": "by request", "founder": "founder", "leader": "leader", "noTeams": "No teams yet.",
-        "playerOne": "player", "scat1": "A live record of every server, score and crew in the yard. Cut from scan lines, soft ink and bad habits. Reprinted every thirty seconds.", "par_live": "live", "scat2": "Online or offline, who is playing and on which map. Leaderboards for both leagues, every crew on file. No login, nothing private, nothing for sale.", "nowPlaying": "now playing", "slotsOrig": "slots", "gz_vol": "Vol. 1 · Free", "gz_name": "The Yard Gazette", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "gzA1": "{n} skaters are on the board. {first} leads with {p1} points.", "gzA2": " {second} follows with {p2}.", "gzA3": " {third} completes the podium with {p3}.", "gzA4": " In the crew standings, [{tag}] {tname} are ahead with {tp} points.", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
+        "playerOne": "player", "promo_a": "Live copy", "promo_b": "Strictly not for sale", "adv_a": "Skater", "adv_b": "Advisory", "adv_c": "Explicit grinding", "scat1": "A live record of every server, score and crew in the yard. Cut from scan lines, soft ink and bad habits. Reprinted every thirty seconds.", "par_live": "live", "scat2": "Online or offline, who is playing and on which map. Leaderboards for both leagues, every crew on file. No login, nothing private, nothing for sale.", "nowPlaying": "now playing", "slotsOrig": "slots", "gz_vol": "Vol. 1 · Free", "gz_name": "The Yard Gazette", "gzNone": "No scores on the board yet", "gzH": "{name} takes the top spot", "gzD": "{pts} points from {games} games, {wins} of them won", "gzA1": "{n} skaters are on the board. {first} leads with {p1} points.", "gzA2": " {second} follows with {p2}.", "gzA3": " {third} completes the podium with {p3}.", "gzA4": " In the crew standings, [{tag}] {tname} are ahead with {tp} points.", "wanted": "Wanted", "wsub": "For crimes against gravity", "reward": "Reward", "no": "No.", "mast_a": "The Yard Report", "mast_b": "Live scores · Live servers", "issue": "Issue", "quote": "Skate. Compete. Repeat.", "tick_idle": "Skate · Compete · Repeat  /  ", "tickIdle": "Skate · Compete · Repeat",
         "k_servers": "Live status", "k_board": "Most wanted", "k_teams": "The crews", "k_soon": "Next issue",
         "soon_title": "Coming soon",
         "soon_chip": "in the works",
@@ -1945,7 +1945,7 @@ PUBLIC_TEXT = {
         "withPoints": "{n} Spieler mit Punkten", "wins": "Siege", "games": "Spiele", "player": "Spieler", "points": "Punkte", "pointsLc": "Punkte",
         "noEntries": "Noch keine Einträge.", "topOf": "Top {a} von {b}", "team": "Team", "member": "Mitglied", "members": "Mitglieder",
         "noTeamPoints": "Noch keine Team-Punkte auf diesem Board.", "open": "offen", "byRequest": "auf Anfrage", "founder": "Gründer", "leader": "Leader", "noTeams": "Noch keine Teams.",
-        "playerOne": "Spieler", "scat1": "Ein Live-Protokoll jedes Servers, jedes Scores und jeder Crew im Yard. Gebaut aus Scanlinien, weicher Tinte und schlechten Angewohnheiten. Alle dreißig Sekunden neu gedruckt.", "par_live": "live", "scat2": "Online oder offline, wer spielt und auf welcher Map. Ranglisten beider Ligen, jede Crew in der Kartei. Kein Login, nichts Privates, nichts zu verkaufen.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gz_vol": "Jg. 1 · Gratis", "gz_name": "The Yard Gazette", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "gzA1": "{n} Skater stehen auf dem Board. {first} führt mit {p1} Punkten.", "gzA2": " {second} folgt mit {p2}.", "gzA3": " {third} komplettiert das Podium mit {p3}.", "gzA4": " In der Team-Wertung liegt [{tag}] {tname} mit {tp} Punkten vorn.", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
+        "playerOne": "Spieler", "promo_a": "Live-Exemplar", "promo_b": "Nicht verkäuflich", "adv_a": "Skater", "adv_b": "Hinweis", "adv_c": "Explizites Grinden", "scat1": "Ein Live-Protokoll jedes Servers, jedes Scores und jeder Crew im Yard. Gebaut aus Scanlinien, weicher Tinte und schlechten Angewohnheiten. Alle dreißig Sekunden neu gedruckt.", "par_live": "live", "scat2": "Online oder offline, wer spielt und auf welcher Map. Ranglisten beider Ligen, jede Crew in der Kartei. Kein Login, nichts Privates, nichts zu verkaufen.",  "nowPlaying": "spielen gerade", "slotsOrig": "Plätze", "gz_vol": "Jg. 1 · Gratis", "gz_name": "The Yard Gazette", "gzNone": "Noch keine Punkte auf dem Board", "gzH": "{name} holt sich Platz eins", "gzD": "{pts} Punkte aus {games} Spielen, {wins} davon gewonnen", "gzA1": "{n} Skater stehen auf dem Board. {first} führt mit {p1} Punkten.", "gzA2": " {second} folgt mit {p2}.", "gzA3": " {third} komplettiert das Podium mit {p3}.", "gzA4": " In der Team-Wertung liegt [{tag}] {tname} mit {tp} Punkten vorn.", "wanted": "Gesucht", "wsub": "Wegen Verbrechen gegen die Schwerkraft", "reward": "Belohnung", "no": "Nr.", "mast_a": "Der Yard-Report", "mast_b": "Live-Scores · Live-Server", "issue": "Ausgabe", "quote": "Skaten. Messen. Wiederholen.", "tick_idle": "Skaten · Messen · Wiederholen  /  ", "tickIdle": "Skaten · Messen · Wiederholen",
         "k_servers": "Live-Status", "k_board": "Meistgesucht", "k_teams": "Die Crews", "k_soon": "Nächste Ausgabe",
         "soon_title": "Demnächst",
         "soon_chip": "in Arbeit",
@@ -2750,7 +2750,7 @@ FAVICON_PNG = base64.b64decode(
 
 PUBLIC_PAGE = """<!doctype html><html lang="{{lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="darkreader-lock">
 <title>{{title}}</title><link rel="icon" type="image/png" href="/favicon.png"><style>
-:root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#0a0a0a;--panel:#0e0e0e;--fg:#e8e3d6;--dim:#a29d8e;--edge:#34332f;--acid:#66ff00;--bad:#d4553a;--head:Georgia,"Iowan Old Style","Times New Roman",serif;--mono:ui-monospace,"SF Mono","Courier New",monospace}
+:root{color-scheme:dark;--gut:clamp(16px,3vw,48px);--bg:#0a0a0a;--panel:#0e0e0e;--fg:#e8e3d6;--dim:#a29d8e;--edge:#34332f;--acid:#66ff00;--red:#d8391d;--bad:#d4553a;--head:Georgia,"Iowan Old Style","Times New Roman",serif;--mono:ui-monospace,"SF Mono","Courier New",monospace}
 *{box-sizing:border-box}html{scroll-behavior:smooth;overflow-x:clip;background:var(--bg)}
 body{margin:0;overflow-x:clip;color:var(--fg);font:16px/1.55 Georgia,"Iowan Old Style","Times New Roman",serif;background:radial-gradient(ellipse at 50% 0,transparent 40%,rgba(0,0,0,.6) 100%),linear-gradient(rgba(10,10,10,.62),rgba(10,10,10,.62)),url(/status/grime.svg),var(--bg)}
 .wrap{width:100%;margin:0;padding-left:max(var(--gut),env(safe-area-inset-left,0px));padding-right:max(var(--gut),env(safe-area-inset-right,0px))}
@@ -2761,15 +2761,15 @@ body{margin:0;overflow-x:clip;color:var(--fg);font:16px/1.55 Georgia,"Iowan Old 
 .logo{display:block}.logo img{display:block;height:26px;width:auto;max-width:100%;filter:grayscale(1) brightness(1.5)}
 .top nav{display:flex;gap:6px 22px;flex-wrap:wrap;margin-left:auto;align-items:center}
 a.nb{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--dim);text-decoration:none;padding:8px 0;border-bottom:1px solid transparent;transition:color .15s,border-color .15s}
-a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg);border-bottom-color:var(--acid)}
+a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg);border-bottom-color:var(--red)}
 .lang{display:inline-flex;gap:16px;margin-left:8px;padding-left:22px;border-left:1px solid var(--edge)}
 .intro{position:relative;padding-top:clamp(40px,7vw,96px);padding-bottom:clamp(40px,6vw,80px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,clamp(300px,30vw,460px));gap:36px clamp(24px,5vw,80px);align-items:end}@media(max-width:820px){.intro{grid-template-columns:minmax(0,1fr)}}
 .intro .l{display:grid;gap:26px;justify-items:start;min-width:0}
 .sum{display:flex;gap:8px 26px;flex-wrap:wrap;font:12px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--dim)}.sum b{color:var(--fg);font-weight:700}
 .chip{display:inline-flex;align-items:center;gap:9px}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);flex:none}.dot.up{background:var(--acid);box-shadow:0 0 10px var(--acid)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--dim);flex:none}.dot.up{background:var(--fg);border-color:var(--fg);box-shadow:0 0 8px rgba(232,227,214,.55)}
 .scat{margin:0;max-width:min(560px,100%);font:11px/2 var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--dim)}
-.scat.wide{max-width:none;margin:0 0 26px;columns:2;column-gap:60px}@media(max-width:700px){.scat.wide{columns:1}}
+.scat.wide{max-width:min(720px,100%);margin:0 0 26px}
 .par{color:var(--fg)}
 .join{position:relative;display:flex;gap:18px;align-items:center;padding:20px 22px;border:1px solid var(--fg);color:var(--fg);text-decoration:none;transition:background .15s,color .15s}
 .join:hover{background:var(--fg);color:var(--bg)}
@@ -2781,9 +2781,9 @@ a.nb:hover{color:var(--fg);border-bottom-color:var(--fg)}a.nb.on{color:var(--fg)
 @keyframes tick{to{transform:translateX(-50%)}}@media(prefers-reduced-motion:reduce){.tk,.qt{animation:none}html{scroll-behavior:auto}}
 main{padding-top:clamp(44px,6vw,80px);padding-bottom:clamp(40px,6vw,80px);display:grid;gap:clamp(64px,9vw,120px)}
 h2{margin:0 0 10px;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--fg);padding-bottom:14px;font:700 clamp(34px,5vw,64px)/1 var(--head);letter-spacing:-.02em;text-transform:uppercase;color:var(--fg)}
-h2 .no{font:normal 12px/1 var(--mono);letter-spacing:.2em;color:var(--acid)}
+h2 .no{font:normal 12px/1 var(--mono);letter-spacing:.2em;color:var(--red)}
 h2 small{font:11px/1 var(--mono);letter-spacing:.2em;color:var(--dim);border:1px solid var(--edge);padding:5px 8px;text-transform:uppercase}
-h2 .soonchip{color:var(--acid);border-color:var(--acid)}
+h2 .soonchip{color:var(--red);border-color:var(--red)}
 h3{margin:0;font:700 20px/1.1 var(--head);color:var(--fg)}
 .kick{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.22em;color:var(--dim);margin:0 0 22px}
 .mut{color:var(--dim);font:12px/1.5 var(--mono);letter-spacing:.04em}.bad{color:var(--bad)}
@@ -2824,7 +2824,7 @@ details summary{cursor:pointer;font:11px/1.3 var(--mono);text-transform:uppercas
 .soongrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr))}.soonlead{margin:0 0 22px;max-width:60ch}
 .sc{display:flex;gap:14px;align-items:flex-start;padding:22px 18px}.sc svg{flex:none;width:28px;height:28px;color:var(--fg);stroke-width:1.2}.sc h3{font:italic 700 18px/1.2 var(--head)}.sc p{margin:6px 0 0;color:var(--dim);font:12px/1.5 var(--mono)}
 .quote{overflow:hidden;white-space:nowrap;border-top:1px solid var(--edge);border-bottom:1px solid var(--edge);padding:16px 0}
-.qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:italic 700 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:1px var(--fg);letter-spacing:.02em}.qt span::after{content:"/";margin-left:34px;color:var(--acid);-webkit-text-stroke:0}
+.qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:italic 700 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:1px var(--fg);letter-spacing:.02em}.qt span::after{content:"/";margin-left:34px;color:var(--red);-webkit-text-stroke:0}
 footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-transform:uppercase;letter-spacing:.14em;text-align:center}footer span{display:block;border-top:1px solid var(--edge);padding-top:20px}
 
 /* most wanted */
@@ -2881,6 +2881,34 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 /* masthead */
 @font-face{font-family:"Gothic";src:url(/status/font.woff2) format("woff2");font-weight:700;font-display:swap}
 h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "Gothic","UnifrakturCook","Old English Text MT","Goudy Text MT",Georgia,serif;letter-spacing:0;text-transform:none;color:var(--fg);filter:url(#bleed2);text-wrap:balance}
+/* printed labels: bone paper, red rules, slight tilt */
+.jw{position:relative;min-width:0}
+.promo{position:absolute;right:18px;top:-64px;width:92px;height:92px;border-radius:50%;overflow:hidden;transform:rotate(-8deg);display:grid;grid-template-rows:1fr 1fr;text-align:center;z-index:2;border:1px solid var(--fg);box-shadow:0 6px 14px rgba(0,0,0,.6)}
+.promo b{display:grid;place-items:center;background:var(--fg);color:#111;font:900 13px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase;padding-top:5px}
+.promo i{display:grid;place-items:center;background:#0b0b0b;color:var(--fg);font:600 11px/1.05 Arial,sans-serif;font-style:normal;padding:0 12px 6px}
+.num,.sum .chip,.disc{background:var(--fg);color:#111;border-top:3px solid var(--red);border-bottom:3px solid var(--red);clip-path:polygon(0 0,100% 0,100% 38%,calc(100% - 5px) 50%,100% 62%,100% 100%,0 100%,0 62%,5px 50%,0 38%)}
+.num{padding:5px 12px;font:700 13px/1 "Courier New",var(--mono);letter-spacing:.1em;transform:rotate(2deg)}
+.sum .chip{padding:7px 16px;font:700 13px/1.2 "Courier New",var(--mono);letter-spacing:.04em;text-transform:none;transform:rotate(-.8deg)}.sum .chip+.chip{background:#cfcabb;transform:rotate(.7deg)}
+.sum .chip b,.sum .chip .dot{color:#111}.sum .dot{border-color:#111}.sum .dot.up{background:#111;box-shadow:none}
+.disc{padding:10px 14px;transform:rotate(-.7deg);border-top-width:3px}
+.disc small,.disc .o s{color:#111;font:700 10px/1.2 "Courier New",var(--mono)}.disc b{color:#111;font:700 44px/.9 "Courier New",var(--mono);letter-spacing:-.04em}
+.adv{width:min(240px,70%);margin:0 auto 22px;background:var(--fg);color:#0b0b0b;border:3px solid #0b0b0b;outline:1px solid var(--fg);text-align:center;transform:rotate(-1deg);text-transform:none;letter-spacing:0}
+.adv small{display:block;font:700 12px/1 Arial,sans-serif;letter-spacing:.5em;text-transform:uppercase;padding:6px 0 0}.adv b{display:block;font:900 32px/1 "Arial Black",Arial,sans-serif;text-transform:uppercase;padding:2px 0 4px;border-bottom:2px solid #0b0b0b}.adv i{display:block;font:700 12px/1 Arial,sans-serif;font-style:normal;letter-spacing:.2em;text-transform:uppercase;background:#0b0b0b;color:var(--fg);padding:5px 0}
+.bc{margin:22px auto 0;width:180px;height:40px;background:repeating-linear-gradient(90deg,var(--fg) 0 2px,transparent 2px 4px,var(--fg) 4px 5px,transparent 5px 9px,var(--fg) 9px 12px,transparent 12px 14px,var(--fg) 14px 15px,transparent 15px 19px)}
+/* newspaper on dark newsprint */
+.gz{--nk:var(--fg);background:linear-gradient(rgba(14,14,14,.84),rgba(14,14,14,.84)),url(/status/grime.svg),#0e0e0e;color:var(--fg);border:1px solid var(--fg)}
+.gz::before{background:radial-gradient(circle,rgba(232,227,214,.5) .8px,transparent 1.1px) 0 0/4px 4px;mix-blend-mode:screen;opacity:.12}
+.gzhead b{filter:url(#bleed2)}
+.gz button,.gz select{background:transparent;color:var(--fg);border-color:var(--fg)}.gz button:hover{background:rgba(232,227,214,.14)}.gz button.on{background:var(--fg);color:#0e0e0e}.gz select option{background:#0e0e0e;color:var(--fg)}
+.gz .mut,.gzban p,.gz .rk{color:var(--dim)}
+.gz td{border-bottom-color:rgba(232,227,214,.18)}.gz tr:hover td,.gz tbody tr:hover td{background:rgba(232,227,214,.07)}
+.gz .tag{background:var(--fg);color:#0e0e0e;border-color:var(--fg)}
+.pd.wp{background:radial-gradient(ellipse at 20% 15%,rgba(0,0,0,.22),transparent 55%),radial-gradient(ellipse at 85% 90%,rgba(0,0,0,.3),transparent 55%),linear-gradient(rgba(207,202,187,.72),rgba(207,202,187,.72)),url(/status/grime.svg),#cfcabb}
+.pd.wp .stamp{filter:none;border-color:var(--red);color:var(--red)!important}
+.pd.wp .tag{color:#cfcabb!important}
+.gzart::first-letter{float:none;font:inherit;padding:0}
+.gzart{column-count:1;max-width:78ch;margin-left:auto;margin-right:auto;text-align:center}
+@media(max-width:820px){.scat:not(.wide){max-width:calc(100% - 100px)}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 <filter id="bleed" x="-4%" y="-8%" width="108%" height="116%"><feTurbulence type="fractalNoise" baseFrequency=".04 .07" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="6" result="d"/><feGaussianBlur in="d" stdDeviation="1.1" result="b"/><feComponentTransfer in="b"><feFuncA type="discrete" tableValues="0 0 0 1 1 1"/></feComponentTransfer></filter>
@@ -2890,7 +2918,7 @@ h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "G
 <div class="hero"><div class="wrap">
 <div class="top"><span class="logo"><img src="/logo.svg" alt="Cocojambo" width="230" height="32"></span><nav><a class="nb" href="#server">{{nav_servers}}</a><a class="nb" href="#leaderboard">{{nav_board}}</a><a class="nb" href="#teams">{{nav_teams}}</a><a class="nb" href="__DISCORD__" target="_blank" rel="noopener noreferrer">Discord</a><span class="lang"><a class="nb{{on_en}}" href="/status" hreflang="en" lang="en">EN</a><a class="nb{{on_de}}" href="/status/de" hreflang="de" lang="de">DE</a></span></nav></div>
 <div class="intro"><div class="l"><h1>Cocojambo's Yard</h1><div class="sum" id="sum"></div><p class="scat">{{scat1}} <span class="par">({{par_live}})</span></p></div>
-<a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div>
+<div class="jw"><div class="promo" aria-hidden="true"><b>{{promo_a}}</b><i>{{promo_b}}</i></div><a class="join" href="__DISCORD__" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><circle cx="8.5" cy="11" r="1.2" fill="currentColor"/><circle cx="15.5" cy="11" r="1.2" fill="currentColor"/></svg><div><b>{{join_title}}</b><span>{{join_text}}</span></div><i>{{join_button}}</i></a></div></div>
 </div></div>
 <div class="tick" aria-hidden="true"><div class="tk" id="tk"><span class="tkc">{{tick_idle}}</span></div></div>
 <main class="wrap">
@@ -2908,7 +2936,7 @@ h1{display:inline-block;margin:0 0 .12em;font:700 clamp(56px,10.5vw,138px)/.9 "G
 <section id="teams"><h2><i class="no">03</i><span>{{nav_teams}}</span></h2><div class="kick">{{k_teams}}</div><div class="grid" id="teamlist"></div><div class="mut" id="tmstat"></div></section>
 <section id="soon"><h2><i class="no">04</i><span>{{soon_title}}</span> <small class="soonchip">{{soon_chip}}</small></h2><div class="kick">{{k_soon}}</div><p class="mut soonlead">{{soon_lead}}</p><div class="grid soongrid"><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg><div><h3>{{soon_login_t}}</h3><p>{{soon_login_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><div><h3>{{soon_dash_t}}</h3><p>{{soon_dash_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><div><h3>{{soon_stats_t}}</h3><p>{{soon_stats_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><div><h3>{{soon_profile_t}}</h3><p>{{soon_profile_d}}</p></div></div><div class="sc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-5.8 6.5-5.8s6.5 2.2 6.5 5.8"/><circle cx="17" cy="9" r="2.6"/><path d="M17 14.4c2.6 0 4.5 1.7 4.5 4.6"/></svg><div><h3>{{soon_teams_t}}</h3><p>{{soon_teams_d}}</p></div></div></div></section>
 </main>
-<footer class="wrap"><span>{{footer}}</span></footer>
+<footer class="wrap"><div class="adv" aria-hidden="true"><small>{{adv_a}}</small><b>{{adv_b}}</b><i>{{adv_c}}</i></div><span>{{footer}}</span><div class="bc" aria-hidden="true"></div></footer>
 <script>
 const T=__T__;
 const $=id=>document.getElementById(id);
