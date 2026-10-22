@@ -1090,14 +1090,14 @@ class PublicPageTest(unittest.TestCase):
             return e.code, e.read().decode(), e.headers
 
     def test_page_and_data_need_no_login_and_the_rest_still_does(self):
-        self.assertEqual(self.get("/public")[0], 200)
-        for path in ("/public/status", "/public/board?league=unranked&board=general", "/public/teams"):
+        self.assertEqual(self.get("/status")[0], 200)
+        for path in ("/status/api/servers", "/status/api/board?league=unranked&board=general", "/status/api/teams"):
             self.assertEqual(self.get(path)[0], 200, path)
         for path in ("/api/leaderboard", "/api/teams", "/api/servers"):
             self.assertEqual(self.get(path)[0], 401, path)
 
     def test_status_shows_only_what_a_player_needs(self):
-        code, body, _ = self.get("/public/status")
+        code, body, _ = self.get("/status/api/servers")
         self.assertEqual(json.loads(body)["servers"], [
             {"server": 1, "role": "Main", "online": True, "players": 2, "max": 20, "map": "Tampa"},
             {"server": 2, "role": "Skate 2", "online": False, "players": None, "max": 20, "map": ""}])
@@ -1105,18 +1105,18 @@ class PublicPageTest(unittest.TestCase):
             self.assertNotIn(secret, body)
 
     def test_leaderboard_has_no_steam_ids_and_checks_the_league(self):
-        code, body, _ = self.get("/public/board?league=unranked&board=general")
+        code, body, _ = self.get("/status/api/board?league=unranked&board=general")
         data = json.loads(body)
         self.assertEqual([(r["rank"], r["name"], r["tag"], r["points"]) for r in data["rows"]], [(1, "Bo", "CRW", 80), (2, "Ann", "CRW", 50)])
         self.assertEqual([b["open"] for b in data["boards"]], [True, False])
         self.assertNotIn("7656119", body)
         self.assertNotIn("steam_id", body)
-        self.assertEqual(self.get("/public/board?league=../x")[0], 400)
-        self.assertEqual(json.loads(self.get("/public/board?league=unranked&board=nope")[1])["board"], "general")
-        self.assertEqual(json.loads(self.get("/public/board?league=ranked")[1])["rows"], [])
+        self.assertEqual(self.get("/status/api/board?league=../x")[0], 400)
+        self.assertEqual(json.loads(self.get("/status/api/board?league=unranked&board=nope")[1])["board"], "general")
+        self.assertEqual(json.loads(self.get("/status/api/board?league=ranked")[1])["rows"], [])
 
     def test_teams_show_names_not_steam_ids(self):
-        code, body, _ = self.get("/public/teams")
+        code, body, _ = self.get("/status/api/teams")
         team = json.loads(body)["teams"][0]
         self.assertEqual((team["tag"], team["logo"], team["points"]), ("CRW", True, {"unranked": 130, "ranked": 0}))
         self.assertEqual([m["name"] for m in team["members"]], ["Ann", "Bo", "Unbekannt"])
@@ -1130,14 +1130,21 @@ class PublicPageTest(unittest.TestCase):
             calls.append(url)
             raise ValueError("broken")
         self.d.team_logo = logo
-        self.assertEqual(self.get("/public/logo?tag=NOPE")[0], 404)
-        self.assertEqual(self.get("/public/logo?tag=crw")[0], 404)
-        self.assertEqual(self.get("/public/logo?tag=CRW")[0], 404)
+        self.assertEqual(self.get("/status/api/logo?tag=NOPE")[0], 404)
+        self.assertEqual(self.get("/status/api/logo?tag=crw")[0], 404)
+        self.assertEqual(self.get("/status/api/logo?tag=CRW")[0], 404)
         self.assertEqual(calls, ["https://example.com/a.png"])
         self.d.PUBLIC_BAD_LOGOS.clear()
         self.d.team_logo = lambda url: ("image/png", b"\x89PNG")
-        code, body, headers = self.get("/public/logo?tag=CRW")
+        code, body, headers = self.get("/status/api/logo?tag=CRW")
         self.assertEqual((code, headers["Content-Type"]), (200, "image/png"))
+
+    def test_map_picture_by_name_only_when_there_is_one(self):
+        self.d.map_image = lambda name: ("image/png", b"\x89PNG") if name == "Tampa" else None
+        code, _, headers = self.get("/status/api/mapimg?name=Tampa")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/png"))
+        self.assertEqual(self.get("/status/api/mapimg?name=Nope")[0], 404)
+        self.assertEqual(self.get("/public")[0], 200)
 
     def test_answers_are_cached_and_the_last_good_one_survives_a_failure(self):
         calls = []
@@ -1147,18 +1154,29 @@ class PublicPageTest(unittest.TestCase):
             calls.append(path)
             return real(path, body)
         self.d.bridge = bridge
-        self.get("/public/status")
-        self.get("/public/status")
+        self.get("/status/api/servers")
+        self.get("/status/api/servers")
         self.assertEqual(len(calls), 1)
         self.d.PUBLIC_CACHE["status"] = (0, self.d.PUBLIC_CACHE["status"][1])
         self.d.bridge = lambda path, body=None: (_ for _ in ()).throw(OSError("down"))
-        self.assertEqual(self.get("/public/status")[0], 200)
+        self.assertEqual(self.get("/status/api/servers")[0], 200)
         self.d.PUBLIC_CACHE.clear()
-        self.assertEqual(self.get("/public/status")[0], 503)
+        self.assertEqual(self.get("/status/api/servers")[0], 503)
 
     def test_rate_limit_per_address(self):
         self.d.PUBLIC_RATE = 3
-        self.assertEqual([self.get("/public/teams")[0] for _ in range(5)], [200, 200, 200, 429, 429])
+        self.assertEqual([self.get("/status/api/teams")[0] for _ in range(5)], [200, 200, 200, 429, 429])
+
+    def test_discord_card_uses_only_a_discord_invite_link(self):
+        page = self.d.public_page()
+        self.assertIn('href="https://discord.gg/Vz2CSREqjB"', page)
+        self.assertNotIn("__DISCORD__", page)
+        for bad in ('https://evil.example/x', 'javascript:alert(1)', 'https://discord.gg/x"><script>', ""):
+            self.d.DISCORD = bad
+            page = self.d.public_page()
+            self.assertNotIn("__DISCORD__", page)
+            self.assertNotIn("discord.gg", page)
+            self.assertNotIn('class="join"', page)
 
     def test_page_renders_text_only(self):
         page = self.d.PUBLIC_PAGE
