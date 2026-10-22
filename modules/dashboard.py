@@ -2865,7 +2865,7 @@ details summary{cursor:pointer;font:11px/1.3 var(--mono);text-transform:uppercas
 .sc{display:flex;gap:14px;align-items:flex-start;padding:22px 18px}.sc svg{flex:none;width:28px;height:28px;color:var(--fg);stroke-width:1.2}.sc h3{font:italic 700 18px/1.2 var(--head)}.sc p{margin:6px 0 0;color:var(--dim);font:12px/1.5 var(--mono)}
 .quote{overflow:hidden;white-space:nowrap;border-top:1px solid var(--edge);border-bottom:1px solid var(--edge);padding:16px 0}
 .qt{display:inline-flex;gap:34px;animation:tick 60s linear infinite}.qt span{font:italic 700 clamp(34px,6vw,72px)/1 var(--head);text-transform:uppercase;color:transparent;-webkit-text-stroke:1px var(--fg);letter-spacing:.02em}.qt span::after{content:"/";margin-left:34px;color:var(--red);-webkit-text-stroke:0}
-footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-transform:uppercase;letter-spacing:.14em;text-align:center}footer span{display:block;border-top:1px solid var(--edge);padding-top:20px}
+footer{background:#040404;border-top:1px solid var(--fg);box-shadow:0 -24px 60px rgba(0,0,0,.6);padding-top:clamp(40px,6vw,72px);padding-bottom:36px;color:var(--dim);font:11px/1.7 var(--mono);text-transform:uppercase;letter-spacing:.14em;text-align:center}footer span{display:block;border-top:1px solid var(--edge);padding-top:20px}
 
 /* leaderboard */
 .lb{display:grid;gap:clamp(22px,3vw,40px)}
@@ -2891,7 +2891,7 @@ footer{padding-bottom:44px;color:var(--dim);font:11px/1.7 var(--mono);text-trans
 .lb td:not(.n):not(.rk):not(.mut){font:600 18px/1.2 var(--head)}.lb .rk{font:12px/1 var(--mono)}
 .lb .tag{background:var(--fg);color:#0b0b0b;border:0;padding:0 5px;margin-right:8px;vertical-align:2px}
 /* footer */
-.fgrid{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:clamp(24px,5vw,72px);border-top:1px solid var(--edge);padding-top:34px;margin-bottom:38px}
+.fgrid{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:clamp(24px,5vw,72px);margin-bottom:clamp(32px,5vw,56px)}
 .dw{display:block;width:640px;max-width:100%;height:300px;border:1px solid var(--edge);background:var(--panel)}
 .fr{display:grid;place-items:center;min-width:0}.fr img{width:min(100%,170px);height:auto;transform:rotate(-7deg);filter:drop-shadow(0 14px 20px rgba(0,0,0,.7))}
 .cp{display:block;color:var(--fg);letter-spacing:.2em}
