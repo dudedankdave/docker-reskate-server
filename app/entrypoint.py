@@ -196,6 +196,7 @@ def clearable(_name, value):
 
 
 os.makedirs(MODS_DIR, exist_ok=True)
+os.makedirs(os.path.join(DATA, "Plugins"), exist_ok=True)   # server plugins (ReSkate 2.1.2), survive updates
 cfg = {}
 if os.path.exists(CONFIG):
     with open(CONFIG, encoding="utf-8") as f:
@@ -484,6 +485,17 @@ if (value := env("LAYERS")) is not None:
 # Pins the list (in-game map-pool changes are replaced on restart); "off" empties it = all maps.
 if (value := env("MAP_POOL")) is not None:
     setting("maps", "pool", [] if value.lower() in ("off", "none") else as_list(value))
+
+# PLUGINS_REQUIRED=Owner-Name,Owner-Name-1.2.3: Thunderstore plugins every player needs to join (ReSkate 2.1.2,
+# at most 16). Players without them get one card with GET ALL. Pins the list; "off" empties it.
+if (value := env("PLUGINS_REQUIRED")) is not None:
+    required = [] if value.lower() in ("off", "none") else as_list(value)
+    if len(required) > 16 or len(set(required)) != len(required):
+        sys.exit("PLUGINS_REQUIRED: at most 16 plugins, each listed once")
+    for item in required:
+        if not re.fullmatch(r"[A-Za-z0-9_]+-[A-Za-z0-9_]+(?:-\d+\.\d+\.\d+)?", item):
+            sys.exit(f"PLUGINS_REQUIRED: expected Owner-Name or Owner-Name-1.2.3, got {item!r}")
+    setting("plugins", "required", required)
 
 # Lists are merged so in-game additions (admin add, ban) are kept.
 def merge_list(section, key, value, lower=False):

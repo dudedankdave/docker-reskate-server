@@ -43,11 +43,12 @@ COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py rollover/br
 COPY --chown=reskate:reskate rollover/rollover.py rollover/status.py app/leaderboard.py app/teams.py app/settings.py app/handover.py bot/console.py bot/feeds.py bot/coach.py bot/posts.py bot/team_cmds.py bot/backend.py modules/bridgeclient.py /app/tools/lib/
 COPY --chown=reskate:reskate rollover/servers.example.json /config/servers.json
 RUN ln -s /data/Mods /app/Mods \
+ && ln -s /data/Plugins /app/Plugins \
  && ln -s /data/world-layers.json /app/world-layers.json \
  && ln -s /data/ReSkateServer.log /app/ReSkateServer.log \
  && ln -s /app/steamclient.so /home/reskate/.steam/sdk64/steamclient.so \
  && echo 3354750 > /app/steam_appid.txt \
- && chown -h reskate:reskate /app/Mods /app/world-layers.json /app/ReSkateServer.log /app/steam_appid.txt \
+ && chown -h reskate:reskate /app/Mods /app/Plugins /app/world-layers.json /app/ReSkateServer.log /app/steam_appid.txt \
     /home/reskate/.steam/sdk64/steamclient.so
 ENV LD_LIBRARY_PATH=/app SteamAppId=3354750 HOME=/home/reskate RESKATE_IMAGE_VERSION=$VERSION \
     RESKATE_IMAGE_REVISION=$REVISION
