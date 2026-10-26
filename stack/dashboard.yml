@@ -2,27 +2,43 @@
 #   DASHBOARD_PASSWORD=... BRIDGE_TOKEN=... docker compose -p tools -f docker-compose.yml -f dashboard.yml up -d dashboard
 # It listens on 127.0.0.1:8790 (plain HTTP); the reverse proxy for the subdomain terminates HTTPS and passes
 # X-Forwarded-Proto / X-Forwarded-For. Docs: modules/dashboard.py.
+# The dashboard never gets the real Docker socket (that is root on the host, `:ro` or not): it talks to the
+# dockerproxy service, which passes on only its reads, restarts and file writes into game servers.
 services:
+  dockerproxy:
+    image: dudedankdave/reskate-tools:${TOOLS_TAG:-latest}
+    container_name: reskate-dockerproxy
+    restart: unless-stopped
+    network_mode: none
+    user: root               # the real Docker socket is root's; the filtered one belongs to uid 1000
+    environment:
+      RESKATE_MODE: dockerproxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockerproxy:/run/dockerproxy
+
   dashboard:
     image: dudedankdave/reskate-tools:${TOOLS_TAG:-latest}
     container_name: reskate-dashboard
     restart: unless-stopped
     network_mode: host
-    user: root               # reads the Docker socket (GET only) for container state and tool logs
+    user: "1000:1000"        # like the servers; Docker only through the dockerproxy socket
+    depends_on: [dockerproxy]
     environment:
       RESKATE_MODE: dashboard
       BRIDGE_URL: http://127.0.0.1:8780
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD (8+ characters)}
-      DASHBOARD_DOCKER: /var/run/docker.sock
+      DASHBOARD_DOCKER: /run/dockerproxy/docker.sock
       DASHBOARD_SHARED: /shared  # settings files: "Neue Map hinzufügen" writes MODS+= / MAP_POOL+= there
       DASHBOARD_MODS: /mods      # the shared map store, read-only: map preview pictures
       DASHBOARD_CUTOFF: "3"      # at most this many players: restart allowed, else rollover only
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dockerproxy:/run/dockerproxy
       - reskate-mods:/mods:ro
       - reskate-shared:/shared      # writable: only /shared/settings/*.env is written, and only by "Neue Map hinzufügen"
 volumes:
+  dockerproxy:
   reskate-shared:
     external: true
   reskate-mods:

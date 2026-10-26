@@ -4,6 +4,7 @@ The game containers keep stdin open (OpenStdin, with or without a TTY) and the i
 it, so what the Docker attach API writes lands in the console exactly like `docker attach`. The bot runs on the host, so
 the plain unix socket is enough (a WebSocket upgrade is not needed). Only the write side is used;
 the output is read with the log API (rollover.logs)."""
+import re
 import socket
 
 import rollover
@@ -11,6 +12,14 @@ import rollover
 # These stop or restart the server (or install an update). Restarts are only allowed on an empty
 # server, so the bot's own restart command, not the console, is the way to do them (phase 3).
 BLOCKED = {"quit", "exit", "stop", "restart", "shutdown", "update", "reload"}
+# Control characters (all but tab): with a TTY, Ctrl-C (\x03) typed through attach stops the server.
+CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+SECRET_LINE = re.compile(r"^(\s*/?password\s+)(?!off\s*$)\S.*$", re.I)
+
+
+def masked(line):
+    """The line as audits show it: a join password becomes ***."""
+    return SECRET_LINE.sub(r"\1***", line)
 
 
 def refused(line):
@@ -18,6 +27,8 @@ def refused(line):
     word = (line.strip().split(None, 1) or [""])[0].lower().lstrip("/")
     if not line.strip() or "\n" in line or "\r" in line:
         return "one non-empty line only"
+    if CONTROL.search(line):
+        return "no control characters"
     if word in BLOCKED:
         return f"`{word}` stops or restarts the server; restarts are only done on an empty server"
     return None
@@ -64,6 +75,6 @@ def send(info, line, timeout=10):
         status = head.split(b"\r\n", 1)[0].decode("latin-1")
         if " 101 " not in status and " 200 " not in status:
             raise RuntimeError(f"docker attach: {status or 'no answer'}")
-        sock.sendall(line.encode("utf-8") + b"\n")
+        sock.sendall(CONTROL.sub("", line).encode("utf-8") + b"\n")
     finally:
         sock.close()

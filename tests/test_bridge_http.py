@@ -53,6 +53,23 @@ class TypeIntoTest(unittest.TestCase):
                 bridge.type_into(info, "players")
 
 
+class ControlCharacterTest(unittest.TestCase):
+    """The servers have a TTY: Ctrl-C typed through attach would stop them past BLOCKED."""
+
+    def test_inputs_with_control_characters_are_refused(self):
+        for bad in ("hi\x03", "a\x1cb", "a\x04b", "x\x1a", "x\x7f"):
+            with self.assertRaises(ValueError):
+                bridge.clean(bad, 200)
+        self.assertEqual(bridge.clean("hi\tthere", 200), "hi\tthere")
+        self.assertEqual(bridge.clean("Grüße 🛹", 200), "Grüße 🛹")
+
+    def test_password_is_masked(self):
+        self.assertEqual(bridge.masked("password hunter2"), "password ***")
+        self.assertEqual(bridge.masked("/Password two words"), "/Password ***")
+        self.assertEqual(bridge.masked("password off"), "password off")
+        self.assertEqual(bridge.masked("say password hunter2"), "say password hunter2")
+
+
 class BridgeHTTPTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
