@@ -1,11 +1,13 @@
-"""The Cocojambo Races plugin (plugins/cocojambo-races): its package checks, and its Lua run against
-a stand-in for ReSkate's plugin API: a server copy and players in one session, through an admin
+"""The COJA tools plugin (plugins/tools, COCOJAMBO-TOOLS): its package checks, and its Lua run against
+a stand-in for ReSkate's plugin API: a server copy and players in one session. The races: an admin
 building a track in the editor, the server keeping it, hosting it, joining the flag, the start
-lights, the gates and the results.
+lights, the gates and the results. The HUD: the handshake, what the server's tools hand in on the
+console (stats, the board, the server's info, notes), the time played, the panel and the settings page.
 
 The Lua is Luau; the stand-in runs it on Lua 5.4 (lupa) after turning `x += y` into `x = x + y`.
 Without lupa (pip install lupa) only the package checks run.
 """
+import base64
 import importlib.util
 import json
 import math
@@ -16,7 +18,7 @@ import unittest
 import zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
-PLUGIN = HERE / "plugins" / "cocojambo-races"
+PLUGIN = HERE / "plugins" / "tools"
 
 try:
     import lupa.lua54 as lupa
@@ -40,9 +42,15 @@ class PackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             target = build.build(PLUGIN, pathlib.Path(out))
             names = set(zipfile.ZipFile(target).namelist())
-        self.assertEqual(target.name, "Cocojambo_Races-1.0.0.zip")
+        self.assertEqual(target.name, "TOOLS-1.0.0.zip")
         self.assertTrue({"manifest.json", "icon.png", "README.md", "CHANGELOG.md", "reskate-plugin.json",
-                         "plugin/main.lua"} <= names, names)
+                         "plugin/main.lua", "plugin/version.lua", "plugin/hud/client.lua", "plugin/hud/server.lua",
+                         "plugin/lib/base64.lua"} <= names, names)
+
+    def test_version_lua_matches_the_manifest(self):
+        manifest = json.loads((PLUGIN / "manifest.json").read_text(encoding="utf-8"))
+        source = (PLUGIN / "plugin" / "version.lua").read_text(encoding="utf-8")
+        self.assertIn('return "%s"' % manifest["version_number"], source)
 
     def test_a_bad_permission_is_caught(self):
         build = load_build()
@@ -81,13 +89,39 @@ function fire(name, ...)
 end
 function run_timers(t)
     for id, timer in pairs(timers) do
-        if t >= timer.at then timers[id] = nil timer.f() end
+        if t >= timer.at then
+            if timer.every then timer.at = timer.at + timer.every else timers[id] = nil end
+            timer.f()
+        end
     end
 end
+-- The plugin's own modules (require("hud/client") is plugin/hud/client.lua), each run once.
+local loaded = {}
+function require(name)
+    if loaded[name] == nil then
+        local chunk = assert(load(py.source(name), "=" .. name))
+        local value = chunk()
+        if value == nil then value = true end
+        loaded[name] = value
+    end
+    return loaded[name]
+end
+-- Console commands: console_line("coco status") runs one as the server's console does.
+local commands = {}
+function console_line(line)
+    local words = {}
+    for w in line:gmatch("%S+") do table.insert(words, w) end
+    local f = commands[table.remove(words, 1)]
+    if f then f(words) end
+end
+menu_page = nil
 local function v(x, y, z) return vector.create(x, y, z) end
 -- The draw handler's d: d:size() and a counted shape for anything else.
 canvas = setmetatable({}, {__index = function(_, name)
     if name == "size" then return function() return v(1920, 1080, 0) end end
+    if name == "measure" then
+        return function(_, text, style) local size = (style and style.size) or 20 return v(#text * size * 0.5, size, 0) end
+    end
     return function() py.shape() end
 end})
 local storage = {}
@@ -98,16 +132,31 @@ reskate = {
     time = {
         now = function() return py.now() end,
         after = function(ms, f) local id = next_timer next_timer = id + 1 timers[id] = {at = py.now() + ms, f = f} return id end,
+        every = function(ms, f) local id = next_timer next_timer = id + 1 timers[id] = {at = py.now() + ms, every = ms, f = f} return id end,
+        cancel = function(id) timers[id] = nil end,
+    },
+    console = {
+        command = function(name, help, f) commands[name] = f py.call("command " .. name) end,
+        print = function(text) py.call("print " .. text) end,
+    },
+    menu = {page = function(title, build) menu_page = build py.call("page " .. title) end},
+    server = {
+        say = function(text) py.call("say " .. text) end,
+        tell = function(id, text) py.call("tell " .. id .. " " .. text) end,
     },
     json = {encode = function(value) return py.encode(value) end, decode = function(text) return py.decode(text) end},
     net = {send = function(to, payload) return py.send(to, payload) end},
     storage = {
         get = function(key) return storage[key] end,
+        keys = function() local out = {} for k in pairs(storage) do table.insert(out, k) end return out end,
         set = function(key, value) py.call("storage " .. key) storage[key] = py.decode(py.encode(value)) end,
     },
     session = {
         me = function() return {id = py.id, name = py.name, me = true} end,
         world = function() return {world = "1", map = py.map(), barred = false} end,
+        active = function() return true end,
+        is_dedicated = function() return true end,
+        players = function() return py.players() end,
     },
     skater = {
         position = function() local p = py.pos() return v(p[1], p[2], p[3]) end,
@@ -129,7 +178,7 @@ reskate = {
         close_dialog = function(id) end,
     },
     audio = {play_ui = function(name) return true end},
-    log = function(text) py.call("log " .. text) end,
+    log = function(text, level) py.call("log " .. text) end,
     input = {bind = function(action, key) py.call("bind " .. action .. " " .. key) return true end},
 }
 """
@@ -153,6 +202,7 @@ class Session:
         self.bus = []
         self.clients = []
         self.staff = set()
+        self.bare = []   # players without the plugin: on the server, but nothing runs for them
         self.server = Client(self, "0", "Server", side="server")
 
     def add(self, steam_id, name, staff=False):
@@ -203,6 +253,8 @@ class Client:
             "pos": lambda: self.lua.table_from(self.position), "teleport": self.teleport,
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
+            "source": lambda name: luau_to_lua((PLUGIN / "plugin" / (name + ".lua")).read_text(encoding="utf-8")),
+            "players": self.players,
         })
         self.lua.execute(PRELUDE, py)
         self.lua.execute(SOURCE if side == "server" else SOURCE + STATE)
@@ -257,6 +309,24 @@ class Client:
 
     def count_shape(self):
         self.shapes += 1
+
+    def players(self):
+        """The session's players, as reskate.session.players() gives them (staff with their role)."""
+        rows = []
+        for c in self.session.clients + self.session.bare:
+            row = {"id": c.id, "name": c.name}
+            if c.id in self.session.staff:
+                row["role"] = self.lua.table_from({"name": "admin", "rank": 100, "staff": True})
+            else:
+                row["role"] = self.lua.table_from({"name": "player", "rank": 0, "staff": False})
+            rows.append(self.lua.table_from(row))
+        return self.lua.table_from(rows)
+
+    def console(self, line):
+        self.lua.globals().console_line(line)
+
+    def hud(self):
+        return self.to_py(self.lua.globals().require("hud/client").state())
 
     def publish(self, doc):
         self.doc = self.to_py(doc)
@@ -360,7 +430,8 @@ class RaceTest(unittest.TestCase):
         self.assertIn("mode race", self.a.calls)
         self.assertIn("bind race_editor F7", self.a.calls)
         self.assertIn("bind adjust_right Alt+D", self.a.calls)
-        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 13, "at most 16 actions")
+        self.assertIn("bind hud_panel F4", self.a.calls)
+        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 14, "at most 16 actions")
 
     def test_the_server_tells_players_whether_they_are_staff(self):
         self.session.settle()
@@ -592,3 +663,121 @@ class RaceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def b64(value):
+    return base64.b64encode(json.dumps(value).encode()).decode()
+
+
+@unittest.skipUnless(lupa, "pip install lupa")
+class HudTest(unittest.TestCase):
+    def setUp(self):
+        self.session = Session()
+        self.a = self.session.add("76561198000000001", "Coco", staff=True)
+        self.b = self.session.add("76561198000000002", "Jambo")
+        self.server = self.session.server
+        self.session.settle()
+
+    def tearDown(self):
+        for client in [self.server] + self.session.clients:
+            self.assertEqual(client.oversize, [], client.name + " sent a message over 4 KB")
+            self.assertFalse([c for c in client.calls if c.startswith("log ")], client.name)
+
+    def prints(self):
+        return [c[len("print "):] for c in self.server.calls if c.startswith("print ")]
+
+    def test_loading_registers_the_console_command_and_the_settings_page(self):
+        self.assertIn("command coco", self.server.calls)
+        self.assertIn("page COJA tools", self.a.calls)
+
+    def test_the_hud_says_hello_and_shows_the_role(self):
+        hud = self.a.hud()
+        self.assertIsNotNone(hud.get("info"), "the server's copy answered the hello")
+        self.assertEqual(hud["me"]["role"], "admin")
+        self.assertEqual(self.b.hud()["me"]["role"], "player")
+        self.server.console("coco status")
+        self.assertTrue(any("2 player(s) with the HUD" in p for p in self.prints()), self.prints())
+
+    def test_stats_reach_only_that_player(self):
+        self.server.console("coco player 76561198000000002 " + b64({"points": 1234, "rank": 3, "of": 40, "board": "Week 43"}))
+        self.session.settle()
+        self.assertEqual(self.b.hud()["me"]["stats"]["points"], 1234)
+        self.assertIsNone(self.a.hud()["me"].get("stats"))
+
+    def test_the_board_and_the_server_info_go_to_everyone_and_are_kept(self):
+        self.server.console("coco top " + b64({"board": "Week 43", "rows": [{"n": "Jambo", "p": 50}, {"n": "Coco", "p": 20}]}))
+        self.server.console("coco info " + b64({"name": "COCOJAMBOS YARD", "links": [{"label": "Discord", "url": "discord.gg/x"}],
+                                                "rules": ["Be nice"]}))
+        self.session.settle()
+        for c in (self.a, self.b):
+            self.assertEqual(c.hud()["top"]["rows"][0]["n"], "Jambo")
+            self.assertEqual(c.hud()["info"]["name"], "COCOJAMBOS YARD")
+        # a new player gets both on their hello
+        c = self.session.add("76561198000000003", "Late")
+        self.session.settle()
+        self.assertEqual(c.hud()["info"]["name"], "COCOJAMBOS YARD")
+        self.assertEqual(c.hud()["top"]["board"], "Week 43")
+
+    def test_a_note_goes_on_the_hud_or_to_chat_without_it(self):
+        self.session.bare.append(Bare("76561198000000009", "NoMod"))
+        self.server.console("coco toast all " + b64({"text": "Event in 5 minutes!", "kind": "warn"}))
+        self.session.settle(20)
+        self.assertEqual(self.a.hud()["toasts"][0]["text"], "Event in 5 minutes!")
+        self.assertIn("tell 76561198000000009 Event in 5 minutes!", self.server.calls)
+        self.assertNotIn("tell 76561198000000001 Event in 5 minutes!", self.server.calls)
+
+    def test_a_note_for_one_player(self):
+        self.server.console("coco toast 76561198000000001 " + b64({"text": "Rank up!", "kind": "good"}))
+        self.session.settle()
+        self.assertEqual(self.a.hud()["toasts"][0]["kind"], "good")
+        self.assertFalse(self.b.hud()["toasts"])
+
+    def test_what_is_not_base64_json_is_refused(self):
+        self.server.console("coco player 76561198000000002 not-base64!")
+        self.server.console("coco player 123 " + b64({"points": 1}))
+        self.server.console("coco toast someone " + b64({"text": "x"}))
+        self.assertEqual(len([p for p in self.prints() if p.startswith("error: coco")]), 3, self.prints())
+
+    def test_time_played_counts_and_is_saved_when_they_leave(self):
+        self.session.now += 125_000
+        self.session.step()
+        self.server.lua.globals().fire("player_left", self.server.lua.table_from({"id": "76561198000000002", "name": "Jambo"}))
+        line = [p for p in self.prints() if p.startswith("[coco] left 76561198000000002")][0]
+        self.assertGreaterEqual(int(line.split()[-1]), 125)
+        self.assertGreaterEqual(self.server.lua.eval('reskate.storage.get("hud:t:76561198000000002")'), 125)
+
+    def test_f4_opens_and_closes_the_panel(self):
+        self.a.key("hud_panel")
+        self.assertTrue(self.a.hud()["panel"])
+        before = self.a.shapes
+        self.session.step()
+        self.assertGreater(self.a.shapes, before)
+        self.a.key("hud_panel")
+        self.assertFalse(self.a.hud()["panel"])
+
+    def test_the_settings_page_builds_and_keeps_a_change(self):
+        lua = self.a.lua
+        ui = lua.eval("""{
+            card = function() end, info = function() end, note = function() end, separator = function() end,
+            toggle = function(_, id, text, on) if id == "corner" then return false end return on end,
+            dropdown = function(_, id, text, choices, chosen) return 2 end,
+            slider = function(_, id, text, value) return value end,
+            button = function() return false end,
+        }""")
+        lua.globals().menu_page(ui)
+        saved = self.a.to_py(lua.eval('reskate.storage.get("hud:settings")'))
+        self.assertEqual((saved["corner"], saved["side"]), (False, "right"))
+        self.session.step()   # the HUD draws with the tag off and on the right
+
+    def test_base64_decodes_what_python_encodes(self):
+        decode = self.server.lua.globals().require("lib/base64")
+        for text in ("", "a", "ab", "abc", "abcd", '{"name": "Café ✓"}'):
+            encoded = base64.b64encode(text.encode()).decode()
+            self.assertEqual(decode(encoded), text)   # lupa hands Lua's bytes back as UTF-8 text
+        self.assertIsNone(decode("no*base64"))
+
+
+class Bare:
+    """A player on the server without the plugin."""
+    def __init__(self, steam_id, name):
+        self.id, self.name = steam_id, name

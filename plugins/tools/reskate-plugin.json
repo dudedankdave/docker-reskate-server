@@ -14,6 +14,8 @@
         "ui.screen",
         "audio.ui",
         "storage",
-        "server"
+        "server",
+        "console",
+        "menu"
     ]
 }

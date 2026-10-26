@@ -1,7 +1,7 @@
 """Checks a ReSkate plugin folder and packs it as a Thunderstore upload.
 
-    python plugins/build.py plugins/cocojambo-races          # writes plugins/dist/Cocojambo_Races-1.0.0.zip
-    python plugins/build.py plugins/cocojambo-races --check  # only the checks
+    python plugins/build.py plugins/tools          # writes plugins/dist/TOOLS-1.0.0.zip
+    python plugins/build.py plugins/tools --check  # only the checks
 
 The zip holds manifest.json, icon.png, README.md (and CHANGELOG.md) at its root beside the plugin's
 reskate-plugin.json and its files, which is what Thunderstore and ReSkate's plugin loader expect.

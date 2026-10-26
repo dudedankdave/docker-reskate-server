@@ -182,10 +182,10 @@ Hand-copied maps are not shared through the store: copy the folder into every se
 
 ### Required plugins and throwdown modes
 
-ReSkate 2.1.2 and later. Plugins are mods that add to the game, such as new throwdown modes. Deathrace, 1-UP, Spot Jam and the rest come in SmokeyDawg58's Throwdown plugin; neon gate races in [Cocojambo Races](plugins/cocojambo-races), this repository's own. The server makes sure every player has the plugin, and a plugin with a server side (Cocojambo Races keeps its tracks there) is also installed into the server's `/data/Plugins` as the container starts:
+ReSkate 2.1.2 and later. Plugins are mods that add to the game, such as new throwdown modes. Deathrace, 1-UP, Spot Jam and the rest come in SmokeyDawg58's Throwdown plugin; this repository's own [COJA tools](plugins/tools) (`COCOJAMBO-TOOLS`) has the COCOJAMBO HUD and neon gate races. The server makes sure every player has the plugin, and a plugin with a server side (COJA tools keeps its race tracks and the HUD's server copy there) is also installed into the server's `/data/Plugins` as the container starts:
 
 ```env
-PLUGINS_REQUIRED=Cocojambo-Cocojambo_Races   # Owner-Name, or Owner-Name-1.2.3 for at least that version; up to 16
+PLUGINS_REQUIRED=COCOJAMBO-TOOLS                  # Owner-Name, or Owner-Name-1.2.3 for at least that version; up to 16
 THROWDOWN_LOCKS=nobail,boosts,tuning              # fair races: these tools are locked while a throwdown runs
 ```
 

@@ -1,4 +1,8 @@
--- Cocojambo Races: gate races as a ReSkate throwdown mode (contrib/throwdown-kit.md in ReSkate).
+-- COJA tools (COCOJAMBO-TOOLS): the COCOJAMBO servers' plugin. The HUD (corner tag, panel, notes from the server)
+-- is in hud/ and loads first; the rest of this file is the races.
+if reskate.side == "server" then require("hud/server") else require("hud/client") end
+
+-- Races: gate races as a ReSkate throwdown mode (contrib/throwdown-kit.md in ReSkate).
 --
 -- A track is a row of gates: glowing neon frames the racers skate through, in order. Gate 1 is
 -- the start; the last is the finish, or in a circuit gate 1 is the start/finish line of every
