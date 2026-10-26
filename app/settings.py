@@ -142,6 +142,15 @@ def _list(clear, add, sep=","):
                                    [f"{add} {x.strip()}" for x in v.split(sep) if x.strip()])
 
 
+def _throwdown_locks(v, e):
+    v = v.strip().lower()
+    if v in ("", "off", "none", "0", "false", "no"):
+        return ["throwdown-locks off"]
+    if v in ("1", "true", "yes", "on"):
+        v = "noclip,nobail,boosts,tuning"
+    return [f"throwdown-locks {','.join(x.strip() for x in v.split(',') if x.strip())}"]
+
+
 def _kick_time(cmd):
     return lambda v, e: [f"{cmd} {'restart' if v.strip().lower() in ('0', 'restart') else v.strip()}"]
 
@@ -181,7 +190,7 @@ LIVE = {
     "VOTE_STARTER_YES": _onoff("votes starter-yes"),
     "ANNOUNCEMENTS": _list("announcements clear", "announcements add", "|"),
     "ANNOUNCEMENT_INTERVAL_MINUTES": _plain("announcements interval", True),
-    "ANNOUNCE_THROWDOWNS": _onoff("announce-throwdowns"), "THROWDOWN_LOCKS": _onoff("throwdown-locks"), "ACTIVITY_LOG": _onoff("activity-log"),
+    "ANNOUNCE_THROWDOWNS": _onoff("announce-throwdowns"), "THROWDOWN_LOCKS": _throwdown_locks, "ACTIVITY_LOG": _onoff("activity-log"),
     "PARTIES": _onoff("parties"), "PARTY_SIZE": _plain("party-size"), "AFK_KICK_MINUTES": _plain("afk-kick", True),
     "KICK_MINUTES": _kick_time("kick-time"), "VOTE_KICK_MINUTES": _kick_time("votes kick-minutes"),
     "SPEED_CHECK": _plain("speed-check"), "BOARD_CHECK": _plain("board-check"), "SCORE_CHECK": _plain("score-check"),

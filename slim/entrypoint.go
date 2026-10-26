@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -179,6 +180,31 @@ func reach(name, v string) any {
 
 func boolConv(name, v string) any { return asBool(name, v) }
 func intConv(name, v string) any  { return asInt(name, v) }
+
+var lockTools = []string{"noclip", "teleport", "nobail", "boosts", "tuning", "ollies", "objects", "all"}
+
+// lockToolsConv: THROWDOWN_LOCKS=nobail,boosts,tuning, the tools a throwdown locks. off/false = none,
+// true = what it meant before it took a list (noclip, nobail, boosts, tuning).
+func lockToolsConv(name, v string) any {
+	tools := []any{}
+	switch strings.ToLower(v) {
+	case "off", "none", "0", "false", "no":
+		return tools
+	case "1", "true", "yes", "on":
+		return []any{"noclip", "nobail", "boosts", "tuning"}
+	}
+	seen := map[string]bool{}
+	for _, tool := range asList(strings.ToLower(v)) {
+		if !slices.Contains(lockTools, tool) {
+			die("%s: %q is not a tool, expected some of %s or off", name, tool, strings.Join(lockTools, ", "))
+		}
+		if !seen[tool] {
+			seen[tool] = true
+			tools = append(tools, tool)
+		}
+	}
+	return tools
+}
 
 // sub returns cfg[key] as an object, creating it when missing.
 func sub(cfg map[string]any, key string) map[string]any {
@@ -449,7 +475,7 @@ func entrypointMain(serverArgs []string) {
 		{"OBJECT_PLACEMENT", "players", "object_placement", choice("everyone", "admins", "nobody")},
 		{"OBJECT_LIMIT", "players", "object_limit", intRange(0, 1024)},
 		{"ANNOUNCE_THROWDOWNS", "players", "announce_throwdowns", boolConv},
-		{"THROWDOWN_LOCKS", "players", "throwdown_locks", boolConv},
+		{"THROWDOWN_LOCKS", "players", "throwdown_locks", lockToolsConv},
 		{"AFK_KICK_MINUTES", "players", "afk_kick_minutes", intRange(0, 1440)},
 		{"KICK_MINUTES", "players", "kick_minutes", kickTime},
 		{"WORD_WARNINGS", "players", "word_warnings", intRange(0, 10)},
@@ -696,6 +722,21 @@ func entrypointMain(serverArgs []string) {
 			}
 		}
 		sub(cfg, "maps")["pool"] = pool
+	}
+
+	// PLUGINS_REQUIRED=Owner-Name,Owner-Name-1.0.0: Thunderstore plugins every player must have (ReSkate 2.1.2+),
+	// offered to them on joining. Pins the list (restart only, there is no console command); "off" empties it.
+	if v, ok := env("PLUGINS_REQUIRED"); ok {
+		plugins := []any{}
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			for _, p := range asList(v) {
+				plugins = append(plugins, p)
+			}
+		}
+		if len(plugins) > 16 {
+			die("PLUGINS_REQUIRED: at most 16 plugins, got %d", len(plugins))
+		}
+		sub(cfg, "plugins")["required"] = plugins
 	}
 
 	// Lists are merged so in-game additions (admin add, ban) are kept.

@@ -190,6 +190,26 @@ def color(name, value):
     return value.upper()
 
 
+LOCK_TOOLS = ("noclip", "teleport", "nobail", "boosts", "tuning", "ollies", "objects", "all")
+LOCKS_TRUE = ["noclip", "nobail", "boosts", "tuning"]   # what THROWDOWN_LOCKS=true meant before it took a list
+
+
+# THROWDOWN_LOCKS=nobail,boosts,tuning: the tools a throwdown locks. off/false = none, true = LOCKS_TRUE.
+def lock_tools(name, value):
+    v = value.lower()
+    if v in ("off", "none", "0", "false", "no"):
+        return []
+    if v in ("1", "true", "yes", "on"):
+        return list(LOCKS_TRUE)
+    tools = []
+    for tool in as_list(v):
+        if tool not in LOCK_TOOLS:
+            sys.exit(f"{name}: {tool!r} is not a tool, expected some of {', '.join(LOCK_TOOLS)} or off")
+        if tool not in tools:
+            tools.append(tool)
+    return tools
+
+
 # PASSWORD / WELCOME: "off" (or "none") clears them, since empty means "leave alone".
 def clearable(_name, value):
     return "" if value.lower() in ("off", "none") else value
@@ -314,7 +334,7 @@ SIMPLE = {
     "OBJECT_PLACEMENT": ("players", "object_placement", choice("everyone", "admins", "nobody")),
     "OBJECT_LIMIT": ("players", "object_limit", int_range(0, 1024)),
     "ANNOUNCE_THROWDOWNS": ("players", "announce_throwdowns", as_bool),
-    "THROWDOWN_LOCKS": ("players", "throwdown_locks", as_bool),
+    "THROWDOWN_LOCKS": ("players", "throwdown_locks", lock_tools),
     "AFK_KICK_MINUTES": ("players", "afk_kick_minutes", int_range(0, 1440)),
     "KICK_MINUTES": ("players", "kick_minutes", kick_time),
     "WORD_WARNINGS": ("players", "word_warnings", int_range(0, 10)),
@@ -484,6 +504,14 @@ if (value := env("LAYERS")) is not None:
 # Pins the list (in-game map-pool changes are replaced on restart); "off" empties it = all maps.
 if (value := env("MAP_POOL")) is not None:
     setting("maps", "pool", [] if value.lower() in ("off", "none") else as_list(value))
+
+# PLUGINS_REQUIRED=Owner-Name,Owner-Name-1.0.0: Thunderstore plugins every player must have (ReSkate 2.1.2+),
+# offered to them on joining. Pins the list (restart only, there is no console command); "off" empties it.
+if (value := env("PLUGINS_REQUIRED")) is not None:
+    plugins = [] if value.lower() in ("off", "none") else as_list(value)
+    if len(plugins) > 16:
+        sys.exit(f"PLUGINS_REQUIRED: at most 16 plugins, got {len(plugins)}")
+    setting("plugins", "required", plugins)
 
 # Lists are merged so in-game additions (admin add, ban) are kept.
 def merge_list(section, key, value, lower=False):
