@@ -6,3 +6,4 @@
 - The server's tools fill the HUD through the `coco` console command.
 - The Cocojambo Race throwdown mode: neon gates passed in order, start lights, live standings and a results page.
 - Tracks kept on the server per map; staff build them in game (F7).
+- Challenges: staff mark a track as one; its start has a marker, F8 there runs it alone and timed, and the server keeps its top 10 and announces new records.

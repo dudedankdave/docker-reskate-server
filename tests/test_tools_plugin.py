@@ -585,6 +585,61 @@ class RaceTest(unittest.TestCase):
             self.session.step()
         self.assertIsNone(self.b.race(), "the results go after 25 s")
 
+    def test_a_challenge_is_run_alone_and_its_record_kept(self):
+        build_track(self.session, self.a)
+        track_id = self.a.tracks()[0]["id"]
+        self.b.ui("dialog", "tracks", "challenge", "", 1)          # not staff: refused
+        self.session.settle()
+        self.assertIn("Only admins set challenges.", self.b.toasts)
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "challenge", "", 1)
+        self.session.settle()
+        for client in (self.a, self.b):
+            self.assertTrue(client.tracks()[0]["challenge"], client.name)
+        # far from the start, F8 does nothing; by it, it starts a run with only this player
+        self.b.position = [100.0, 0.0, 100.0]
+        self.b.key("gate_add")
+        self.assertIsNone(self.b.race())
+        self.b.position = [16.0, 0.0, 2.0]
+        self.b.key("gate_add")
+        race = self.b.race()
+        self.assertTrue(race.challenge)
+        self.assertEqual(list(race.racers.keys()), [self.b.id])
+        self.assertIsNone(self.a.race(), "nobody else is in it")
+        lights_out(self.session)
+        for corner in CORNERS + [CORNERS[0]]:
+            skate(self.session, self.b, corner)
+        self.session.settle()
+        mine = self.b.race().racers[self.b.id]
+        self.assertIsNotNone(mine.ms)
+        self.assertEqual(self.b.race().phase, "done")
+        prints = [c for c in self.session.server.calls if c.startswith("print [coco race] challenge ")]
+        self.assertEqual(len(prints), 1, self.session.server.calls)
+        self.assertIn(f" {track_id} {int(mine.ms)} {self.b.id} Jambo", prints[0])
+        self.assertTrue(any(t.startswith("New record on Harbour Loop: Jambo") for t in self.a.toasts), self.a.toasts)
+        self.assertTrue(any(t.startswith("Harbour Loop: ") and "#1" in t for t in self.b.toasts), self.b.toasts)
+        self.assertEqual(self.a.tracks()[0]["best"]["n"], "Jambo", "the record shows on the marker")
+        # a slower run is not kept, and is no record
+        self.b.key("race_leave")
+        self.b.position = [16.0, 0.0, 2.0]
+        self.b.key("gate_add")
+        lights_out(self.session)
+        for corner in CORNERS + [CORNERS[0]]:
+            skate(self.session, self.b, corner, speed=6.0)
+        self.session.settle()
+        self.assertTrue(any("(not your best)" in t for t in self.b.toasts), self.b.toasts)
+        self.assertEqual(sum(t.startswith("New record") for t in self.a.toasts), 1)
+        # moving the course's gates starts its times over
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "edit", "", 1)
+        self.a.key("gate_next")
+        self.a.key("adjust_up")
+        self.a.key("race_editor")
+        self.a.ui("dialog", "save_track", "save", "Harbour Loop", 0)
+        self.session.settle()
+        self.assertIsNone(self.b.tracks()[0].get("best"))
+        self.assertTrue(self.b.tracks()[0]["challenge"], "it stays a challenge")
+
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)
         host_and_join(self.session, self.a, self.b)

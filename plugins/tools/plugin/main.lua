@@ -142,8 +142,12 @@ local function clean_track(t)
     end
     local circuit = t.circuit == true
     if #gates < (circuit and 3 or 2) or #gates > MAX_GATES then return nil end
+    local best = nil
+    if type(t.best) == "table" and finite(t.best.ms) and t.best.ms > 0 then
+        best = {n = tostring(t.best.n or "?"):sub(1, 32), ms = t.best.ms}
+    end
     return {id = type(t.id) == "string" and t.id:sub(1, 40) or nil, name = name, author = tostring(t.author or ""):sub(1, 40),
-            circuit = circuit, gates = gates}
+            circuit = circuit, gates = gates, challenge = t.challenge == true, best = best}
 end
 
 -- On the wire a gate is a list, {x, y, z, nx, nz, w, h, heading}: a race of 40 gates and 10
@@ -151,7 +155,7 @@ end
 local function pack(t)
     local gates = {}
     for i, g in ipairs(t.gates) do gates[i] = {g.p[1], g.p[2], g.p[3], g.n[1], g.n[2], g.w, g.h, g.heading} end
-    return {id = t.id, name = t.name, author = t.author, circuit = t.circuit, g = gates}
+    return {id = t.id, name = t.name, author = t.author, circuit = t.circuit, challenge = t.challenge or nil, best = t.best, g = gates}
 end
 
 local function unpack_track(t)
@@ -161,7 +165,7 @@ local function unpack_track(t)
         if type(g) ~= "table" then return nil end
         gates[i] = {p = {g[1], g[2], g[3]}, n = {g[4], g[5]}, w = g[6], h = g[7], heading = g[8]}
     end
-    return clean_track({id = t.id, name = t.name, author = t.author, circuit = t.circuit, gates = gates})
+    return clean_track({id = t.id, name = t.name, author = t.author, circuit = t.circuit, challenge = t.challenge, best = t.best, gates = gates})
 end
 
 -- Whether moving from `a` to `b` went through gate `g` the right way: `b` is past the gate's plane,
@@ -198,11 +202,22 @@ local function server_main()
         local ok, role = pcall(function() return player.role end)
         return ok and type(role) == "table" and role.staff == true
     end
+    -- A challenge's times: its top 10, each player once with their best ({id, n, ms}), per map and track.
+    local function best_key(map, id) return "best:" .. key(map):sub(8) .. ":" .. tostring(id):sub(1, 40) end
+    local function times_of(map, id)
+        local ok, list = pcall(R.storage.get, best_key(map, id))
+        return ok and type(list) == "table" and list or {}
+    end
     local function send_tracks(to, map)
         local list, ids = tracks_of(map), {}
         for i, t in ipairs(list) do ids[i] = t.id end
         send(to, {t = "list", map = map, ids = ids})
-        for _, t in ipairs(list) do send(to, {t = "track", map = map, track = pack(t)}) end
+        for _, t in ipairs(list) do
+            local shown = copy(t)
+            local first = t.challenge and times_of(map, t.id)[1]
+            shown.best = first and {n = first.n, ms = first.ms} or nil
+            send(to, {t = "track", map = map, track = pack(shown)})
+        end
     end
     local next_id = 0
 
@@ -237,6 +252,9 @@ local function server_main()
             track.id = string.format("%d-%d", math.floor(now()), next_id)
         end
         track.author = from.name
+        track.best = nil
+        -- moved gates make it another course: its challenge times start over
+        if at and R.json.encode(list[at].gates) ~= R.json.encode(track.gates) then R.storage.set(best_key(m.map, track.id), nil) end
         if at then list[at] = track else table.insert(list, track) end
         R.storage.set(key(m.map), list)
         send(from.id, {t = "saved", id = track.id, name = track.name})
@@ -252,10 +270,65 @@ local function server_main()
             if t.id == m.id then
                 table.remove(list, i)
                 R.storage.set(key(m.map), list)
+                R.storage.set(best_key(m.map, t.id), nil)
                 send(from.id, {t = "deleted", name = t.name})
                 send_tracks("all", m.map)
                 return
             end
+        end
+    end
+
+    -- Staff mark a track as a challenge: its start shows a marker to everyone, and F8 there runs it alone, timed.
+    function handlers.challenge(from, m)
+        if not staff(from) then
+            send(from.id, {t = "refused", why = "Only admins set challenges."})
+            return
+        end
+        local list = tracks_of(m.map)
+        for _, t in ipairs(list) do
+            if t.id == m.id then
+                t.challenge = not t.challenge
+                R.storage.set(key(m.map), list)
+                send(from.id, {t = "challenge_set", name = t.name, on = t.challenge})
+                send_tracks("all", m.map)
+                return
+            end
+        end
+    end
+    -- A challenge run's time, from the player's game (which checks the gates, as in every race): kept when it
+    -- is their best, logged for the server's tools, a new record told to everyone.
+    function handlers.challenge_time(from, m)
+        local ms = tonumber(m.ms)
+        if not ms or ms < 1000 or ms > MAX_RACE_MS then return end
+        local track = nil
+        for _, t in ipairs(tracks_of(m.map)) do
+            if t.id == m.id and t.challenge then track = t end
+        end
+        if not track then return end
+        local times = times_of(m.map, track.id)
+        local record = not times[1] or ms < times[1].ms
+        local mine = nil
+        for i, e in ipairs(times) do
+            if e.id == from.id then mine = i end
+        end
+        local improved = not mine or ms < times[mine].ms
+        if improved then
+            if mine then table.remove(times, mine) end
+            table.insert(times, {id = from.id, n = tostring(from.name):sub(1, 32), ms = ms})
+            table.sort(times, function(a, b) return a.ms < b.ms end)
+            while #times > 10 do table.remove(times) end
+            pcall(R.storage.set, best_key(m.map, track.id), times)
+        end
+        local rank = nil
+        for i, e in ipairs(times) do
+            if e.id == from.id then rank = i end
+        end
+        pcall(R.console.print, string.format("[coco race] challenge %s %s %d %s %s", key(m.map):sub(8), track.id, math.floor(ms), from.id, tostring(from.name)))
+        send(from.id, {t = "challenge_result", name = track.name, ms = ms, rank = rank, improved = improved,
+                       best = times[1] and {n = times[1].n, ms = times[1].ms} or nil})
+        if record then
+            send("all", {t = "challenge_record", map = m.map, name = track.name, who = tostring(from.name), ms = ms})
+            send_tracks("all", m.map)
         end
     end
 
@@ -483,9 +556,14 @@ local function out(id, why)
     if r and not done(r) then r.dnf = why or "out" end
 end
 
+-- What a racer's game tells the others about its run; a challenge is run alone, so nobody.
+local function tell_racers(message)
+    if not race.challenge then send("all", message) end
+end
+
 local function disqualify(why)
     out(race.me, why)
-    send("all", {t = "dnf", race = race.id, why = why})
+    tell_racers({t = "dnf", race = race.id, why = why})
     toast("Out of the race: " .. why, "warn")
     sound("cancel")
 end
@@ -505,11 +583,12 @@ local function passed(t)
     end
     if race.next > #race.seq then
         finished(race.me, elapsed, race.best_lap)
-        send("all", {t = "fin", race = race.id, ms = elapsed, best = race.best_lap})
+        tell_racers({t = "fin", race = race.id, ms = elapsed, best = race.best_lap})
+        if race.challenge then send("server", {t = "challenge_time", map = map_key(), id = race.track.id, ms = elapsed}) end
         sound("go")
     else
         sound("navigate")
-        send("all", {t = "cp", race = race.id, n = mine.n, ms = elapsed})
+        tell_racers({t = "cp", race = race.id, n = mine.n, ms = elapsed})
     end
 end
 
@@ -556,7 +635,7 @@ end
 
 local function leave_race()
     if not race then return end
-    if race.phase ~= "done" then send("all", {t = "dnf", race = race.id, why = "left"}) end
+    if race.phase ~= "done" then tell_racers({t = "dnf", race = race.id, why = "left"}) end
     pcall(R.physics.competition, false)
     race = nil
 end
@@ -592,6 +671,22 @@ function from_server.track(m)
 end
 
 function from_server.saved(m) toast("Track \"" .. tostring(m.name) .. "\" saved for everyone.") end
+function from_server.challenge_set(m)
+    toast(m.on and ("\"" .. tostring(m.name) .. "\" is a challenge: its start has a marker, F8 there runs it.")
+          or ("\"" .. tostring(m.name) .. "\" is no challenge any more."))
+end
+function from_server.challenge_result(m)
+    local text = string.format("%s: %s", tostring(m.name), clock_text(tonumber(m.ms)))
+    if m.rank then text = text .. string.format("  -  #%d", m.rank) end
+    if not m.improved then text = text .. "  (not your best)" end
+    if type(m.best) == "table" then text = text .. string.format("  -  record %s by %s", clock_text(tonumber(m.best.ms)), tostring(m.best.n)) end
+    toast(text)
+end
+function from_server.challenge_record(m)
+    if m.map ~= map_key() then return end
+    toast(string.format("New record on %s: %s %s!", tostring(m.name), tostring(m.who), clock_text(tonumber(m.ms))))
+    sound("go")
+end
 function from_server.deleted(m) toast("Track \"" .. tostring(m.name) .. "\" deleted.") end
 function from_server.refused(m) toast(tostring(m.why), "warn") end
 
@@ -758,8 +853,9 @@ end
 local function list_dialog()
     local rows = {}
     for _, t in ipairs(tracks) do
-        table.insert(rows, {text = t.name, sub = string.format("%d gates, %s%s", #t.gates, t.circuit and "circuit" or "sprint",
-            t.author and t.author ~= "" and (", by " .. t.author) or ""), buttons = {"edit", "delete"}})
+        table.insert(rows, {text = t.name, sub = string.format("%d gates, %s%s%s", #t.gates, t.circuit and "circuit" or "sprint",
+            t.author and t.author ~= "" and (", by " .. t.author) or "", t.challenge and ", CHALLENGE" or ""),
+            buttons = {"edit", "challenge", "delete"}})
     end
     open_dialog("tracks", {
         title = "Race tracks on this map",
@@ -778,6 +874,35 @@ local function save_dialog()
     })
 end
 
+-- ---- challenges: a track's start with a marker, run alone and timed (F8 there) -----------------------
+
+local CHALLENGE_REACH = 10      -- metres from the start gate where F8 runs it
+local CHALLENGE_SHOWN = 150     -- metres within which its marker shows
+
+-- The challenge whose start is nearest, within `reach` metres: the track and how far.
+local function challenge_near(reach)
+    local ok, pos = pcall(R.skater.position)
+    if not ok or not pos then return nil end
+    local best, far = nil, reach
+    for _, t in ipairs(tracks) do
+        if t.challenge and not t.loading and t.gates[1] then
+            local d = distance(pos, v3(t.gates[1].p))
+            if d <= far then best, far = t, d end
+        end
+    end
+    return best, far
+end
+
+local function challenge_key()
+    if race or host or joined then return end
+    local t = challenge_near(CHALLENGE_REACH)
+    if not t then return end
+    local my_id, my_name = me()
+    begin_race({race = "challenge:" .. my_id .. ":" .. math.floor(now()), laps = 1, racers = {{my_id, my_name}}, track = t}, my_id)
+    race.challenge = true
+    toast("Challenge: " .. t.name .. (t.best and ("  -  record " .. clock_text(t.best.ms) .. " by " .. t.best.n) or "") .. ". F10 stops.")
+end
+
 local function edit_key(name)
     if name == "race_editor" then
         if race or host or joined then return toast("Not during a race.", "warn") end
@@ -790,7 +915,10 @@ local function edit_key(name)
         end
         return
     end
-    if not editor then return end
+    if not editor then
+        if name == "gate_add" then challenge_key() end
+        return
+    end
     local gates, sel = editor.track.gates, editor.sel
     local g = gates[sel]
     if name == "gate_add" then
@@ -862,6 +990,8 @@ local function on_dialog(args)
         elseif button == "edit" and t and not t.loading then
             editor = {track = copy(t), sel = 1, mode = 1, changed = false}
             toast("Editing \"" .. t.name .. "\". F5/F6 pick a gate.")
+        elseif button == "challenge" and t and not t.loading then
+            send("server", {t = "challenge", map = map_key(), id = t.id})
         elseif button == "delete" and t then
             open_dialog("delete_track", {
                 title = "Delete track", message = "Delete \"" .. t.name .. "\" for everyone?",
@@ -1144,14 +1274,41 @@ local function draw_race(d, w, h, k, t)
     end
 end
 
+-- The challenges' markers, while not racing: a sun-yellow beacon on each start within 150 m, its start gate, the
+-- name and the record over it; by the nearest, within reach, what F8 does.
+local CHALLENGE_GATE = {"#FFD97218", "#FFD97240", "#FFD97290", "#FFF4D6D0"}
+local function draw_challenges(d, w, h, k)
+    local ok, pos = pcall(R.skater.position)
+    if not ok or not pos then return end
+    for _, t in ipairs(tracks) do
+        local g = t.challenge and not t.loading and t.gates[1]
+        if g and distance(pos, v3(g.p)) <= CHALLENGE_SHOWN then
+            local base = v3(g.p)
+            d:world_line(base, base + vector.create(0, 40, 0), {colour = theme.a(theme.sun, 0.55), thickness = 3})
+            draw_gate(d, g, nil, CHALLENGE_GATE, true)
+            d:world_text(base + vector.create(0, g.h + 1.6, 0), "CHALLENGE  " .. string.upper(t.name),
+                {colour = theme.sun, size = 26, align = "centre", shadow = true, font = "bold"})
+            d:world_text(base + vector.create(0, g.h + 0.8, 0), t.best and ("record " .. clock_text(t.best.ms) .. "  " .. t.best.n) or "no record yet",
+                {colour = theme.ink, size = 20, align = "centre", shadow = true, font = "body"})
+        end
+    end
+    local near = challenge_near(CHALLENGE_REACH)
+    if near then
+        panel(d, w / 2 - 300 * k, h * 0.74, 600 * k, 64 * k)
+        text(d, w / 2, h * 0.74 + 10 * k, "F8  start the challenge: " .. near.name, {colour = theme.sun, size = 24, align = "centre", font = "bold"})
+        text(d, w / 2, h * 0.74 + 38 * k, near.best and ("record " .. clock_text(near.best.ms) .. " by " .. near.best.n) or "no record yet - set one",
+            {colour = theme.muted, size = 17, align = "centre", font = "body"})
+    end
+end
+
 R.on("draw", function(d)
-    if not editor and not race and not joined and not host then return end
     local size = d:size()
     local w, h = size.x, size.y
     local k = h / 1080
     local t = now()
     if race then return draw_race(d, w, h, k, t) end
     if editor then return draw_editor(d, w, h, k) end
+    if not joined and not host then return draw_challenges(d, w, h, k) end
     local preview = (host and host.track) or (joined and joined.track)
     if preview then draw_track(d, preview, false) end
     if joined then

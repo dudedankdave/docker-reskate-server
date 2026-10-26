@@ -35,6 +35,13 @@ them in order, and a gate only counts when you go through its frame the right wa
 
 **F10** leaves the race, a flag you joined, or closes the results.
 
+### Challenges
+
+A track an admin marks as a **challenge** is there all the time, no host needed: its start has a sun-yellow
+beacon with the track's name and record over it. Skate to it and press **F8**: the start lights run and you race
+it alone, timed. The server keeps each challenge's top 10 (every player's best), tells you your time and place,
+and tells everyone when the record falls. **F10** stops a run.
+
 ### Make tracks (admins)
 
 Tracks are kept on the server for each map, and only its staff (admins, and roles marked staff)
@@ -42,7 +49,7 @@ can make, change or delete them. Everyone gets them when they join.
 
 | Key | |
 |---|---|
-| **F7** | Track list (new, edit, delete); while editing: save |
+| **F7** | Track list (new, edit, challenge on/off, delete); while editing: save |
 | **F8** | New gate where you stand, facing the way you skate, after the selected one |
 | **F9** | Delete the selected gate |
 | **F5 / F6** | Select the previous / next gate |
@@ -52,7 +59,7 @@ can make, change or delete them. Everyone gets them when they join.
 | **F10** | Close the editor |
 
 Gate 1 is the start. Place it facing the way the race goes: the grid faces where you faced. A gate stands on the
-ground under you, also when you place it mid-air. The selected gate is yellow; the arrows show the way through each
+ground under you, also when you place it mid-air. Moving a challenge's gates starts its times over. The selected gate is yellow; the arrows show the way through each
 gate.
 
 All keys can be changed on ReSkate's Binds page.
