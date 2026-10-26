@@ -782,6 +782,18 @@ func entrypointMain(serverArgs []string) {
 		installMods(v, update)
 	}
 
+	// The server side of required plugins: /data/Plugins, loaded from /app/Plugins. "off" removes them.
+	if v, ok := env("PLUGINS_REQUIRED"); ok {
+		update := true
+		if u, ok := env("MODS_UPDATE"); ok {
+			update = asBool("MODS_UPDATE", u)
+		}
+		if l := strings.ToLower(strings.TrimSpace(v)); l == "off" || l == "none" {
+			v = ""
+		}
+		installPlugins(v, update)
+	}
+
 	warnUnknownMaps(cfg)
 
 	// Updates: UPDATE_MODE=pinned runs the server in the image (/app); auto runs it from /data/server,

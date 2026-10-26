@@ -1,0 +1,7 @@
+{
+    "name": "Cocojambo_Races",
+    "version_number": "1.0.0",
+    "website_url": "https://github.com/dudedankdave/docker-reskate-server/tree/main/plugins/cocojambo-races",
+    "description": "Neon gate races as a throwdown mode for ReSkate 2.1.2: admins build tracks in game, players race through the glowing gates in order. Start lights, live standings, results page.",
+    "dependencies": []
+}

@@ -1,0 +1,1202 @@
+-- Cocojambo Races: gate races as a ReSkate throwdown mode (contrib/throwdown-kit.md in ReSkate).
+--
+-- A track is a row of gates: glowing neon frames the racers skate through, in order. Gate 1 is
+-- the start; the last is the finish, or in a circuit gate 1 is the start/finish line of every
+-- lap. Tracks are the server's: its copy of this plugin keeps them per map and only its staff
+-- (admins and roles marked staff) may make, change or delete them, in game with the track editor
+-- (F7). Everyone gets the map's tracks when they join.
+--
+-- A race is hosted from its card on the Throwdowns page: the setup page picks the track and laps,
+-- the native flag gathers the racers (it is on the map like every throwdown flag), and the host's
+-- Start sends everyone the track. Each racer's game lines its skater up on the grid behind the
+-- start gate, runs the start lights, checks its own gates and tells the others its progress; the
+-- results page follows the finish.
+
+local R = reskate
+
+local MODE = "race"
+local TITLE = "COCOJAMBO RACE"
+local MAX_GATES = 40             -- a "go" message carries the track and stays under 4 KB
+local MAX_TRACKS = 20            -- per map
+local LAPS = {1, 2, 3, 5}
+local GRID_MS = 2500             -- lining up on the grid
+local LIGHT_MS = 1000            -- five start lights, one a second
+local HOLD_MS = 600              -- all five lit, then out: GO
+local START_MS = GRID_MS + 5 * LIGHT_MS + HOLD_MS
+local GRACE_MS = 60000           -- the rest's time once the first racer finished
+local MAX_RACE_MS = 15 * 60 * 1000
+local RESULTS_MS = 25000         -- the results page stays this long (F10 closes it)
+local OFFER_EVERY_MS = 2000      -- a host repeats its flag for players who arrive later
+local OFFER_TTL_MS = 7000
+local HELLO_EVERY_MS = 10000     -- asking the server for the tracks until it answers
+local JUMP_SPEED = 80            -- m/s between two ticks: faster is a teleport
+local SEND_BUDGET = 12000        -- bytes a second (the plugin limit is 16 KB)
+
+local NEON = {"#00B4FF22", "#00B4FF55", "#00C8FFAA", "#BFF4FFFF"}
+local NEON_DIM = {nil, "#00B4FF18", "#00C8FF40", "#BFF4FF60"}
+local SELECTED = {"#FFD20022", "#FFD20055", "#FFD200AA", "#FFF6C0FF"}
+local THICK = {18, 10, 5, 2}
+
+-- ---- helpers ------------------------------------------------------------------------------------
+
+local function now() return R.time.now() end
+local function toast(text, level) pcall(R.ui.toast, text, level or "info") end
+local function sound(name) pcall(R.audio.play_ui, name) end
+
+-- Messages leave through a queue that keeps under the plugin's bytes a second.
+local outbox, sent_second, sent_bytes = {}, 0, 0
+local function flush()
+    local t = now()
+    if t - sent_second >= 1000 then sent_second, sent_bytes = t, 0 end
+    while #outbox > 0 and sent_bytes + #outbox[1].text <= SEND_BUDGET do
+        local m = table.remove(outbox, 1)
+        sent_bytes += #m.text + 14
+        local ok, why = pcall(R.net.send, m.to, m.text)
+        if not ok then R.log("a message was not sent: " .. tostring(why)) end
+    end
+end
+local function send(to, message)
+    table.insert(outbox, {to = to, text = R.json.encode(message)})
+    flush()
+end
+
+local function v3(p) return vector.create(p[1], p[2], p[3]) end
+local function round(n, step) return math.floor(n / step + 0.5) * step end
+local function dot(a, b) return a.x * b.x + a.y * b.y + a.z * b.z end
+local function distance(a, b)
+    local dx, dy, dz = a.x - b.x, a.y - b.y, a.z - b.z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+local function finite(n, most) return type(n) == "number" and n == n and math.abs(n) <= (most or 1e6) end
+
+local function me()
+    local ok, player = pcall(R.session.me)
+    if ok and player then return player.id, player.name end
+    return "local", "You"
+end
+
+local function clock_text(ms)
+    if not ms then return "--:--.--" end
+    local cs = math.floor(ms / 10)
+    return string.format("%d:%02d.%02d", math.floor(cs / 6000), math.floor(cs / 100) % 60, cs % 100)
+end
+
+local function trim(text) return (tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+
+local function remove_value(list, value)
+    local at = table.find(list, value)
+    if at then table.remove(list, at) end
+end
+
+local function copy(value)
+    if type(value) ~= "table" then return value end
+    local out = {}
+    for k, v in pairs(value) do out[k] = copy(v) end
+    return out
+end
+
+local function map_key()
+    local ok, world = pcall(R.session.world)
+    local map = ok and world and world.map or ""
+    map = map:gsub("[^%w_%-]", "_")
+    if map == "" then map = "unknown" end
+    return map:sub(1, 64)
+end
+
+-- ---- gates ----------------------------------------------------------------------------------------
+-- A gate: {p = {x, y, z} (the middle of its bottom edge), n = {x, z} (the way through it, level),
+-- w = width, h = height (metres), heading = the skater's heading when it was placed (gate 1: where
+-- the grid faces)}.
+
+local function normal(g) return vector.create(g.n[1], 0, g.n[2]) end
+local function across(g) return vector.create(g.n[2], 0, -g.n[1]) end
+
+local function clean_gate(g)
+    if type(g) ~= "table" or type(g.p) ~= "table" or type(g.n) ~= "table" then return nil end
+    local x, y, z, nx, nz = g.p[1], g.p[2], g.p[3], g.n[1], g.n[2]
+    if not (finite(x) and finite(y) and finite(z) and finite(nx, 2) and finite(nz, 2)) then return nil end
+    local len = math.sqrt(nx * nx + nz * nz)
+    if len < 0.01 then return nil end
+    return {
+        p = {round(x, 0.01), round(y, 0.01), round(z, 0.01)}, n = {round(nx / len, 0.001), round(nz / len, 0.001)},
+        w = math.clamp(round(tonumber(g.w) or 8, 0.1), 2, 30), h = math.clamp(round(tonumber(g.h) or 5, 0.1), 1.5, 12),
+        heading = finite(g.heading, 100) and round(g.heading, 0.001) or 0,
+    }
+end
+
+local function clean_track(t)
+    if type(t) ~= "table" or type(t.gates) ~= "table" then return nil end
+    local name = trim(t.name):sub(1, 32)
+    if name == "" then return nil end
+    local gates = {}
+    for _, g in ipairs(t.gates) do
+        local clean = clean_gate(g)
+        if not clean then return nil end
+        table.insert(gates, clean)
+    end
+    local circuit = t.circuit == true
+    if #gates < (circuit and 3 or 2) or #gates > MAX_GATES then return nil end
+    return {id = type(t.id) == "string" and t.id:sub(1, 40) or nil, name = name, author = tostring(t.author or ""):sub(1, 40),
+            circuit = circuit, gates = gates}
+end
+
+-- On the wire a gate is a list, {x, y, z, nx, nz, w, h, heading}: a race of 40 gates and 10
+-- racers stays under a message's 4 KB.
+local function pack(t)
+    local gates = {}
+    for i, g in ipairs(t.gates) do gates[i] = {g.p[1], g.p[2], g.p[3], g.n[1], g.n[2], g.w, g.h, g.heading} end
+    return {id = t.id, name = t.name, author = t.author, circuit = t.circuit, g = gates}
+end
+
+local function unpack_track(t)
+    if type(t) ~= "table" or type(t.g) ~= "table" then return nil end
+    local gates = {}
+    for i, g in ipairs(t.g) do
+        if type(g) ~= "table" then return nil end
+        gates[i] = {p = {g[1], g[2], g[3]}, n = {g[4], g[5]}, w = g[6], h = g[7], heading = g[8]}
+    end
+    return clean_track({id = t.id, name = t.name, author = t.author, circuit = t.circuit, gates = gates})
+end
+
+-- Whether moving from `a` to `b` went through gate `g` the right way: `b` is past the gate's plane,
+-- `a` was not, and where it crossed is inside the frame.
+local function crossed(g, a, b)
+    local p, n = v3(g.p), normal(g)
+    local da, db = dot(a - p, n), dot(b - p, n)
+    if not (da < 0 and db >= 0) then return false, false end
+    local at = a + (b - a) * (da / (da - db))
+    local side, up = dot(at - p, across(g)), at.y - p.y
+    return math.abs(side) <= g.w / 2 + 0.5 and up >= -1.5 and up <= g.h + 0.5, true
+end
+
+-- The gates in the order they are passed: the start, then 2..n; a circuit then goes back through
+-- gate 1 at the end of every lap.
+local function course(track, laps)
+    local seq = {1}
+    for _ = 1, track.circuit and laps or 1 do
+        for i = 2, #track.gates do table.insert(seq, i) end
+        if track.circuit then table.insert(seq, 1) end
+    end
+    return seq
+end
+
+-- ---- the server's copy: the tracks ----------------------------------------------------------------
+
+local function server_main()
+    local function key(map) return "tracks:" .. tostring(map):gsub("[^%w_%-]", "_"):sub(1, 64) end
+    local function tracks_of(map)
+        local ok, list = pcall(R.storage.get, key(map))
+        return ok and type(list) == "table" and list or {}
+    end
+    local function staff(player)
+        local ok, role = pcall(function() return player.role end)
+        return ok and type(role) == "table" and role.staff == true
+    end
+    local function send_tracks(to, map)
+        local list, ids = tracks_of(map), {}
+        for i, t in ipairs(list) do ids[i] = t.id end
+        send(to, {t = "list", map = map, ids = ids})
+        for _, t in ipairs(list) do send(to, {t = "track", map = map, track = pack(t)}) end
+    end
+    local next_id = 0
+
+    local handlers = {}
+    function handlers.hello(from, m)
+        send(from.id, {t = "staff", staff = staff(from)})
+        send_tracks(from.id, m.map)
+    end
+    function handlers.save(from, m)
+        if not staff(from) then
+            send(from.id, {t = "refused", why = "Only admins make tracks."})
+            return
+        end
+        local track = unpack_track(m.track)
+        if not track then
+            send(from.id, {t = "refused", why = "That track is not valid."})
+            return
+        end
+        local list = tracks_of(m.map)
+        local at = nil
+        for i, t in ipairs(list) do
+            if t.id == track.id or t.name == track.name then at = i end
+        end
+        if not at and #list >= MAX_TRACKS then
+            send(from.id, {t = "refused", why = "This map has " .. MAX_TRACKS .. " tracks: delete one first."})
+            return
+        end
+        if at then
+            track.id = list[at].id
+        else
+            next_id += 1
+            track.id = string.format("%d-%d", math.floor(now()), next_id)
+        end
+        track.author = from.name
+        if at then list[at] = track else table.insert(list, track) end
+        R.storage.set(key(m.map), list)
+        send(from.id, {t = "saved", id = track.id, name = track.name})
+        send_tracks("all", m.map)
+    end
+    function handlers.delete(from, m)
+        if not staff(from) then
+            send(from.id, {t = "refused", why = "Only admins delete tracks."})
+            return
+        end
+        local list = tracks_of(m.map)
+        for i, t in ipairs(list) do
+            if t.id == m.id then
+                table.remove(list, i)
+                R.storage.set(key(m.map), list)
+                send(from.id, {t = "deleted", name = t.name})
+                send_tracks("all", m.map)
+                return
+            end
+        end
+    end
+
+    R.on("message", function(from, payload)
+        local ok, m = pcall(R.json.decode, payload)
+        if not ok or type(m) ~= "table" or type(m.map) ~= "string" then return end
+        local handler = handlers[m.t]
+        if handler then handler(from, m) end
+    end)
+    R.on("tick", flush)
+end
+
+if R.side == "server" then
+    server_main()
+    return
+end
+
+-- ---- the player's copy: state ---------------------------------------------------------------------
+
+local tracks = {}        -- the map's tracks, from the server
+local tracks_map = nil   -- the map they are for
+local staff = false
+local answered = false   -- the server's copy answered
+local last_hello = -HELLO_EVERY_MS
+
+local editor = nil       -- {track, sel, mode, changed}
+local setup = {track = 1, laps = 1, players = 6}
+local setup_open = false
+local host = nil         -- this player's flag
+local offers = {}        -- others' flags by race id
+local joined = nil       -- {race, leader, name, track}: enrolled on someone else's flag
+local race = nil         -- the race this player is in
+local trail = {}         -- the skater's last positions, {at, pos}: which way they skate
+
+local function hello()
+    last_hello = now()
+    send("server", {t = "hello", map = map_key()})
+end
+
+local function track_by_id(id)
+    for i, t in ipairs(tracks) do
+        if t.id == id then return t, i end
+    end
+end
+
+-- ---- documents ------------------------------------------------------------------------------------
+
+local function lap_index()
+    for i, laps in ipairs(LAPS) do
+        if laps == setup.laps then return i end
+    end
+    return 1
+end
+
+local function setup_document()
+    local rows
+    if #tracks > 0 then
+        setup.track = math.clamp(setup.track, 1, #tracks)
+        local t = tracks[setup.track]
+        local names = {}
+        for i, one in ipairs(tracks) do names[i] = one.name end
+        rows = {
+            {id = "track", kind = "choice", caption = "Track", options = names, value = setup.track},
+            {id = "gates", kind = "info", caption = "Gates", label = string.format("%d  (%s)", #t.gates, t.circuit and "circuit" or "sprint")},
+        }
+        if t.circuit then
+            local laps = {}
+            for i, n in ipairs(LAPS) do laps[i] = tostring(n) end
+            table.insert(rows, {id = "laps", kind = "choice", caption = "Laps", options = laps, value = lap_index()})
+        end
+        if t.author and t.author ~= "" then table.insert(rows, {id = "by", kind = "info", caption = "Made by", label = t.author}) end
+    else
+        rows = {{id = "none", kind = "info", caption = "Track", label = answered and "None on this map yet" or "Waiting for the server..."}}
+    end
+    return {
+        mode = MODE, title = TITLE, back = "BACK",
+        description = "Skate through the neon gates in order. Fastest time wins.",
+        players = {caption = "Racers", min = 1, max = 10, step = 1, value = setup.players},
+        rows = rows,
+    }
+end
+
+local function host_racers()
+    local list = {}
+    for _, id in ipairs(host.order) do table.insert(list, {id, host.racers[id]}) end
+    return list
+end
+
+local function laps_of(t, laps) return t.circuit and laps or 1 end
+
+local function publish()
+    local doc = {}
+    if setup_open then doc.setup = setup_document() end
+    if host then
+        doc.waiting = {
+            mode = MODE, title = TITLE,
+            status = string.format("%s  |  %d lap%s  |  Host starts", host.track.name, host.laps, host.laps == 1 and "" or "s"),
+            enrolled = #host.order, capacity = host.capacity, can_start = true,
+        }
+    end
+    local flags = {}
+    for id, o in pairs(offers) do
+        table.insert(flags, {
+            id = id, mode = MODE, leader = o.host, game = o.game, at = v3(o.at), yaw = o.yaw,
+            players = #o.racers, capacity = o.cap, open = #o.racers < o.cap,
+            stats = {{title = "TRACK", value = o.track.name}, {title = "LAPS", value = tostring(o.laps)},
+                     {title = "GATES", value = tostring(o.track.gates)}},
+        })
+    end
+    if #flags > 0 then doc.flags = flags end
+    if race and race.phase ~= "done" then
+        doc.match = {markers = true, teleports = true, in_activity = true, input_lock = race.phase == "start" and race.placed}
+    end
+    pcall(R.throwdowns.ui, doc)
+end
+
+-- ---- hosting --------------------------------------------------------------------------------------
+
+local function broadcast_offer()
+    if not host then return end
+    host.last_offer = now()
+    local _, my_name = me()
+    local t = host.track
+    send("all", {t = "offer", race = host.id, name = my_name, game = host.game, at = host.at, yaw = host.yaw,
+                 track = {id = t.id, name = t.name, gates = #t.gates}, laps = host.laps, cap = host.capacity, racers = host_racers()})
+end
+
+local function cancel_host(tell)
+    if not host then return end
+    if tell then send("all", {t = "cancel", race = host.id}) end
+    host = nil
+    pcall(R.throwdowns.flag.leave)
+end
+
+local function leave_flag(tell_host)
+    if not joined then return end
+    if tell_host then send(joined.leader, {t = "unjoin", race = joined.race}) end
+    joined = nil
+end
+
+-- ---- the race -------------------------------------------------------------------------------------
+
+local function done(r) return r.ms ~= nil or r.dnf ~= nil end
+
+local function end_race()
+    if not race or race.phase == "done" then return end
+    for _, r in pairs(race.racers) do
+        if not done(r) then r.dnf = "time" end
+    end
+    race.phase = "done"
+    race.ended_at = now()
+    pcall(R.physics.competition, false)
+    local mine = race.racers[race.me]
+    sound(mine and mine.ms and "go" or "cancel")
+end
+
+-- The grid: two by two behind the start gate, the host in front.
+local function grid_slot(track, index)
+    local g = track.gates[1]
+    local row, column = math.floor((index - 1) / 2), (index - 1) % 2
+    local spread = math.min(g.w / 4, 2.5)
+    local at = v3(g.p) - normal(g) * (4 + row * 4) + across(g) * (column == 0 and -spread or spread)
+    return at + vector.create(0, 0.3, 0)
+end
+
+local function begin_race(message, from_id)
+    leave_flag(false)
+    local track = message.track
+    local my_id = me()
+    race = {
+        id = message.race, host = from_id, me = my_id, track = track, laps = message.laps,
+        racers = {}, order = {}, phase = "start", go_at = now() + START_MS, beeped = 0,
+        next = 1, seq = course(track, message.laps), placed = false, tp_until = now() + 5000,
+        last_pos = nil, last_at = nil, lap_start = nil, best_lap = nil, missed_at = nil, first_finish = nil,
+    }
+    local slot = 1
+    for i, entry in ipairs(message.racers) do
+        race.racers[entry[1]] = {name = entry[2], n = 0, at_ms = 0}
+        table.insert(race.order, entry[1])
+        if entry[1] == my_id then slot = i end
+    end
+    pcall(R.physics.prepare)
+    pcall(R.physics.competition, true)
+    publish()
+    local id = race.id
+    R.time.after(250, function()
+        if not race or race.id ~= id then return end
+        local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot), track.gates[1].heading)
+        race.placed = ok and moved == true
+        race.tp_until = now() + 5000
+        if not race.placed then toast("Skate to the start gate: " .. tostring(why or moved), "warn") end
+    end)
+end
+
+local function start_race()
+    local message = {t = "go", race = host.id, laps = host.laps, racers = host_racers(), track = pack(host.track)}
+    local my_id = me()
+    local track = host.track
+    host = nil
+    pcall(R.throwdowns.flag.leave)
+    send("all", message)
+    message.track = track
+    begin_race(message, my_id)
+end
+
+local function check_end()
+    if not race or race.phase ~= "running" then return end
+    local all = true
+    for _, r in pairs(race.racers) do
+        if not done(r) then all = false end
+    end
+    local t = now()
+    if all or (race.first_finish and t - race.first_finish > GRACE_MS) or t - race.go_at > MAX_RACE_MS then end_race() end
+end
+
+local function finished(id, ms, best)
+    local r = race.racers[id]
+    if not r or done(r) then return end
+    r.ms, r.best, r.n = ms, best, #race.seq
+    if not race.first_finish then race.first_finish = now() end
+end
+
+local function out(id, why)
+    local r = race.racers[id]
+    if r and not done(r) then r.dnf = why or "out" end
+end
+
+local function disqualify(why)
+    out(race.me, why)
+    send("all", {t = "dnf", race = race.id, why = why})
+    toast("Out of the race: " .. why, "warn")
+    sound("cancel")
+end
+
+local function passed(t)
+    local mine = race.racers[race.me]
+    local elapsed = t - race.go_at
+    local gate = race.seq[race.next]
+    race.next += 1
+    mine.n, mine.at_ms = race.next - 1, elapsed
+    if race.track.circuit and gate == 1 then
+        if race.lap_start then
+            local lap = elapsed - race.lap_start
+            if not race.best_lap or lap < race.best_lap then race.best_lap = lap end
+        end
+        race.lap_start = elapsed
+    end
+    if race.next > #race.seq then
+        finished(race.me, elapsed, race.best_lap)
+        send("all", {t = "fin", race = race.id, ms = elapsed, best = race.best_lap})
+        sound("go")
+    else
+        sound("navigate")
+        send("all", {t = "cp", race = race.id, n = mine.n, ms = elapsed})
+    end
+end
+
+local function race_tick(t)
+    if race.phase == "start" then
+        local lit = math.floor((t - race.go_at + 5 * LIGHT_MS + HOLD_MS) / LIGHT_MS) + 1
+        if lit >= 1 and lit <= 5 and lit > race.beeped then
+            race.beeped = lit
+            sound("countdown")
+        end
+        if t >= race.go_at then
+            race.phase = "running"
+            sound("go")
+        end
+        return
+    end
+    if race.phase == "done" then
+        if t - race.ended_at > RESULTS_MS then race = nil end
+        return
+    end
+    local mine = race.racers[race.me]
+    if mine and not done(mine) then
+        local ok, pos = pcall(R.skater.position)
+        if ok and pos then
+            if race.last_pos then
+                local moved = distance(pos, race.last_pos)
+                local dt = math.max((t - race.last_at) / 1000, 1 / 120)
+                if t > race.tp_until and moved > 25 and moved / dt > JUMP_SPEED then
+                    disqualify("teleported")
+                else
+                    local through, plane = crossed(race.track.gates[race.seq[race.next]], race.last_pos, pos)
+                    if through then passed(t)
+                    elseif plane then
+                        race.missed_at = t
+                        sound("cancel")
+                    end
+                end
+            end
+            race.last_pos, race.last_at = pos, t
+        end
+    end
+    check_end()
+end
+
+local function leave_race()
+    if not race then return end
+    if race.phase ~= "done" then send("all", {t = "dnf", race = race.id, why = "left"}) end
+    pcall(R.physics.competition, false)
+    race = nil
+end
+
+-- ---- messages -------------------------------------------------------------------------------------
+
+local from_server, from_players = {}, {}
+
+function from_server.staff(m)
+    answered, staff = true, m.staff == true
+end
+
+function from_server.list(m)
+    if m.map ~= map_key() or type(m.ids) ~= "table" then return end
+    answered = true
+    local kept = {}
+    for _, id in ipairs(m.ids) do
+        local t = track_by_id(id)
+        if t then table.insert(kept, t) end
+    end
+    tracks, tracks_map = kept, m.map
+    for _, id in ipairs(m.ids) do
+        if not track_by_id(id) then table.insert(tracks, {id = id, name = "...", gates = {}, loading = true}) end
+    end
+end
+
+function from_server.track(m)
+    if m.map ~= map_key() then return end
+    local t = unpack_track(m.track)
+    if not t or not t.id then return end
+    local _, at = track_by_id(t.id)
+    if at then tracks[at] = t else table.insert(tracks, t) end
+end
+
+function from_server.saved(m) toast("Track \"" .. tostring(m.name) .. "\" saved for everyone.") end
+function from_server.deleted(m) toast("Track \"" .. tostring(m.name) .. "\" deleted.") end
+function from_server.refused(m) toast(tostring(m.why), "warn") end
+
+function from_players.offer(from, m)
+    if from.id == me() or type(m.at) ~= "table" or type(m.racers) ~= "table" or type(m.track) ~= "table" then return end
+    -- The track itself comes with "go"; the flag names it, and the server's copy is shown meanwhile.
+    local track = {id = tostring(m.track.id), name = tostring(m.track.name):sub(1, 32), gates = tonumber(m.track.gates) or 0}
+    offers[m.race] = {
+        host = from.id, name = m.name or from.name, game = tonumber(m.game) or 1, at = m.at, yaw = tonumber(m.yaw) or 0,
+        track = track, laps = tonumber(m.laps) or 1, cap = tonumber(m.cap) or 10, racers = m.racers, until_ms = now() + OFFER_TTL_MS,
+    }
+    if joined and joined.race == m.race then joined.track = track_by_id(track.id) end
+end
+
+function from_players.cancel(from, m)
+    local o = offers[m.race]
+    if o and o.host == from.id then offers[m.race] = nil end
+    if joined and joined.race == m.race then
+        joined = nil
+        toast("The host called the race off.", "warn")
+    end
+end
+
+function from_players.join(from, m)
+    if not host or m.race ~= host.id then
+        send(from.id, {t = "joined", race = m.race, ok = false, why = "That race is not open any more."})
+        return
+    end
+    if not host.racers[from.id] then
+        if #host.order >= host.capacity then
+            send(from.id, {t = "joined", race = m.race, ok = false, why = "That race is full."})
+            return
+        end
+        host.racers[from.id] = from.name
+        table.insert(host.order, from.id)
+        sound("select")
+    end
+    send(from.id, {t = "joined", race = m.race, ok = true})
+    host.last_offer = math.min(host.last_offer, now() - OFFER_EVERY_MS + 500)
+end
+
+function from_players.unjoin(from, m)
+    if not host or m.race ~= host.id or not host.racers[from.id] then return end
+    host.racers[from.id] = nil
+    remove_value(host.order, from.id)
+    host.last_offer = math.min(host.last_offer, now() - OFFER_EVERY_MS + 500)
+end
+
+function from_players.joined(from, m)
+    if not joined or joined.race ~= m.race or joined.leader ~= from.id then return end
+    if m.ok then
+        toast("You are in " .. tostring(joined.name) .. "'s race. F10 leaves it.")
+    else
+        toast(tostring(m.why or "Could not join."), "warn")
+        joined = nil
+    end
+end
+
+function from_players.go(from, m)
+    local track = unpack_track(m.track)
+    if not track or type(m.racers) ~= "table" then return end
+    m.track = track
+    m.laps = laps_of(track, tonumber(m.laps) or 1)
+    offers[m.race] = nil
+    local my_id = me()
+    for _, entry in ipairs(m.racers) do
+        if entry[1] == my_id and not race then begin_race(m, from.id) end
+    end
+    if joined and joined.race == m.race then joined = nil end
+end
+
+function from_players.cp(from, m)
+    if not race or m.race ~= race.id then return end
+    local r = race.racers[from.id]
+    if r and not done(r) and tonumber(m.n) then r.n, r.at_ms = tonumber(m.n), tonumber(m.ms) or 0 end
+end
+
+function from_players.fin(from, m)
+    if race and m.race == race.id and tonumber(m.ms) then finished(from.id, tonumber(m.ms), tonumber(m.best)) end
+end
+
+function from_players.dnf(from, m)
+    if race and m.race == race.id then out(from.id, tostring(m.why or "out")) end
+end
+
+R.on("message", function(from, payload)
+    local ok, m = pcall(R.json.decode, payload)
+    if not ok or type(m) ~= "table" or type(m.t) ~= "string" then return end
+    if from.server then
+        local handler = from_server[m.t]
+        if handler then handler(m) end
+    elseif type(m.race) == "string" then
+        local handler = from_players[m.t]
+        if handler then handler(from, m) end
+    end
+end)
+
+R.on("player_left", function(p)
+    for id, o in pairs(offers) do
+        if o.host == p.id then offers[id] = nil end
+    end
+    if joined and joined.leader == p.id then
+        joined = nil
+        toast("The race's host left.", "warn")
+    end
+    if host and host.racers[p.id] and p.id ~= host.order[1] then
+        host.racers[p.id] = nil
+        remove_value(host.order, p.id)
+    end
+    if race then out(p.id, "left") end
+end)
+
+-- ---- the track editor (staff) ---------------------------------------------------------------------
+
+local MODES = {
+    {name = "MOVE", help = "Alt+W/S forward/back, Alt+A/D left/right"},
+    {name = "HEIGHT & TURN", help = "Alt+W/S up/down, Alt+A/D turn"},
+    {name = "SIZE", help = "Alt+W/S taller/lower, Alt+A/D narrower/wider"},
+}
+
+local function open_dialog(id, spec)
+    local ok, opened, why = pcall(R.ui.dialog, id, spec)
+    if not ok or not opened then toast("Could not open the dialog: " .. tostring(why or opened), "error") end
+end
+
+-- Which way the skater is going: the last half second of movement, else the heading of the
+-- track so far, else north.
+local function facing(pos)
+    local t, oldest = now(), nil
+    for _, s in ipairs(trail) do
+        if t - s.at <= 800 then oldest = s end
+    end
+    if oldest then
+        local dx, dz = pos.x - oldest.pos.x, pos.z - oldest.pos.z
+        local len = math.sqrt(dx * dx + dz * dz)
+        if len > 1 then return {dx / len, dz / len} end
+    end
+    local gates = editor and editor.track.gates or {}
+    local last = gates[editor and editor.sel or 0]
+    if last then
+        local dx, dz = pos.x - last.p[1], pos.z - last.p[3]
+        local len = math.sqrt(dx * dx + dz * dz)
+        if len > 1 then return {dx / len, dz / len} end
+        return {last.n[1], last.n[2]}
+    end
+    return {0, 1}
+end
+
+local function gate_here()
+    local ok, s = pcall(R.skater.get)
+    if not ok or not s then return nil end
+    return clean_gate({p = {s.position.x, s.position.y, s.position.z}, n = facing(s.position), w = 8, h = 5, heading = s.heading})
+end
+
+local function list_dialog()
+    local rows = {}
+    for _, t in ipairs(tracks) do
+        table.insert(rows, {text = t.name, sub = string.format("%d gates, %s%s", #t.gates, t.circuit and "circuit" or "sprint",
+            t.author and t.author ~= "" and (", by " .. t.author) or ""), buttons = {"edit", "delete"}})
+    end
+    open_dialog("tracks", {
+        title = "Race tracks on this map",
+        list = {rows = rows, empty = "No tracks yet."},
+        buttons = {{id = "new", label = "New track"}, {id = "close", label = "Close"}},
+    })
+end
+
+local function save_dialog()
+    local t = editor.track
+    open_dialog("save_track", {
+        title = "Save track",
+        message = string.format("%d gates, %s. It is saved on the server for everyone.", #t.gates, t.circuit and "a circuit" or "a sprint"),
+        field = {text = t.name ~= "" and t.name or ("Track " .. (#tracks + 1)), max = 32},
+        buttons = {{id = "save", label = "Save"}, {id = "discard", label = "Discard"}, {id = "cancel", label = "Keep editing"}},
+    })
+end
+
+local function edit_key(name)
+    if name == "race_editor" then
+        if race or host or joined then return toast("Not during a race.", "warn") end
+        if not staff then return toast(answered and "Only admins make race tracks." or "The server has not answered yet.", "warn") end
+        if not editor then list_dialog()
+        elseif editor.changed then save_dialog()
+        else
+            editor = nil
+            toast("Track editor closed.")
+        end
+        return
+    end
+    if not editor then return end
+    local gates, sel = editor.track.gates, editor.sel
+    local g = gates[sel]
+    if name == "gate_add" then
+        if #gates >= MAX_GATES then return toast("A track has at most " .. MAX_GATES .. " gates.", "warn") end
+        local new = gate_here()
+        if not new then return end
+        table.insert(gates, sel + 1, new)
+        editor.sel = sel + 1
+        sound("select")
+    elseif name == "gate_delete" and g then
+        table.remove(gates, sel)
+        editor.sel = math.clamp(sel, #gates > 0 and 1 or 0, #gates)
+        sound("cancel")
+    elseif name == "gate_prev" and #gates > 0 then
+        editor.sel = sel <= 1 and #gates or sel - 1
+        sound("navigate")
+        return
+    elseif name == "gate_next" and #gates > 0 then
+        editor.sel = sel >= #gates and 1 or sel + 1
+        sound("navigate")
+        return
+    elseif name == "gate_here" and g then
+        local new = gate_here()
+        if not new then return end
+        new.w, new.h = g.w, g.h
+        gates[sel] = new
+    elseif name == "adjust_mode" then
+        editor.mode = editor.mode % #MODES + 1
+        sound("tab")
+        return
+    elseif name == "gate_circuit" then
+        editor.track.circuit = not editor.track.circuit
+        toast(editor.track.circuit and "Circuit: gate 1 is start and finish." or "Sprint: the last gate is the finish.")
+    elseif g and (name == "adjust_up" or name == "adjust_down" or name == "adjust_left" or name == "adjust_right") then
+        local sign = (name == "adjust_up" or name == "adjust_right") and 1 or -1
+        local vertical = name == "adjust_up" or name == "adjust_down"
+        local mode = MODES[editor.mode].name
+        if mode == "MOVE" then
+            local step = (vertical and normal(g) or across(g)) * (0.5 * sign)
+            g.p = {g.p[1] + step.x, g.p[2], g.p[3] + step.z}
+        elseif mode == "HEIGHT & TURN" then
+            if vertical then
+                g.p[2] += 0.25 * sign
+            else
+                local a = math.rad(15) * sign
+                local nx, nz = g.n[1], g.n[2]
+                g.n = {nx * math.cos(a) + nz * math.sin(a), -nx * math.sin(a) + nz * math.cos(a)}
+            end
+        elseif vertical then
+            g.h += 0.5 * sign
+        else
+            g.w += 0.5 * sign
+        end
+        gates[sel] = clean_gate(g)
+    else
+        return
+    end
+    editor.changed = true
+end
+
+local function on_dialog(args)
+    local id, button, text, row = args[1], args[2], args[3], tonumber(args[4])
+    pcall(R.ui.close_dialog, id)
+    if id == "tracks" then
+        local t = row and tracks[row]
+        if button == "new" then
+            editor = {track = {name = "", circuit = false, gates = {}}, sel = 0, mode = 1, changed = false}
+            toast("New track: skate to the start, F8 places a gate where you are, facing the way you skate.")
+        elseif button == "edit" and t and not t.loading then
+            editor = {track = copy(t), sel = 1, mode = 1, changed = false}
+            toast("Editing \"" .. t.name .. "\". F5/F6 pick a gate.")
+        elseif button == "delete" and t then
+            open_dialog("delete_track", {
+                title = "Delete track", message = "Delete \"" .. t.name .. "\" for everyone?",
+                buttons = {{id = "delete:" .. tostring(t.id), label = "Delete"}, {id = "cancel", label = "Cancel"}},
+            })
+        end
+    elseif id == "delete_track" and type(button) == "string" and button:sub(1, 7) == "delete:" then
+        send("server", {t = "delete", map = map_key(), id = button:sub(8)})
+    elseif id == "save_track" and editor then
+        if button == "save" then
+            local t = editor.track
+            t.name = trim(text):sub(1, 32)
+            if t.name == "" then t.name = "Track " .. (#tracks + 1) end
+            if not clean_track(t) then
+                return toast(t.circuit and "A circuit needs 3 gates or more." or "A track needs 2 gates or more.", "warn")
+            end
+            send("server", {t = "save", map = map_key(), track = pack(t)})
+            editor = nil
+        elseif button == "discard" then
+            editor = nil
+            toast("Changes discarded.")
+        end
+    end
+end
+
+-- ---- the throwdown kit's events -------------------------------------------------------------------
+
+R.on("throwdown_ui", function(e)
+    local a, args = e.action, e.args or {}
+    if a == "dialog" then
+        on_dialog(args)
+    elseif a == "open" then
+        if race or joined or editor then
+            pcall(R.throwdowns.flag.leave)
+            toast(editor and "Close the track editor first (F7)." or "Leave your race first (F10).", "warn")
+            return
+        end
+        if not answered then hello() end
+        setup_open = true
+    elseif a == "setup_row" then
+        local value = tonumber(args[2]) or 0
+        if args[1] == "track" then setup.track = value + 1
+        elseif args[1] == "laps" then setup.laps = LAPS[value + 1] or 1
+        elseif args[1] == "players" then setup.players = math.clamp(value, 1, 10) end
+    elseif a == "setup_back" then
+        setup_open = false
+        pcall(R.throwdowns.flag.leave)
+    elseif a == "setup_confirm" then
+        setup_open = false
+        setup.players = math.clamp(tonumber(args[1]) or setup.players, 1, 10)
+        local t = tracks[setup.track]
+        if not t or t.loading then
+            pcall(R.throwdowns.flag.leave)
+            toast("No race track on this map yet: an admin makes them with F7.", "warn")
+        end
+    elseif a == "flag_placed" then
+        local t = tracks[math.clamp(setup.track, 1, math.max(#tracks, 1))]
+        if not t or t.loading then return pcall(R.throwdowns.flag.leave) end
+        local my_id, my_name = me()
+        host = {
+            id = my_id .. ":" .. math.floor(now()), game = tonumber(args[1]) or 1,
+            at = {round(tonumber(args[2]) or 0, 0.1), round(tonumber(args[3]) or 0, 0.1), round(tonumber(args[4]) or 0, 0.1)},
+            yaw = tonumber(args[5]) or 0, track = t, laps = laps_of(t, setup.laps), capacity = setup.players,
+            racers = {[my_id] = my_name}, order = {my_id}, last_offer = 0,
+        }
+        broadcast_offer()
+    elseif a == "start" then
+        if host then start_race() end
+    elseif a == "leave" or a == "flag_left" then
+        cancel_host(true)
+    elseif a == "quit" then
+        leave_race()
+    elseif a == "join" then
+        local id, leader = args[1], args[2]
+        local o = offers[id]
+        if race or host then
+            toast("You are in a race already.", "warn")
+        elseif o then
+            leave_flag(true)
+            joined = {race = id, leader = leader, name = o.name, track = track_by_id(o.track.id)}
+            send(leader, {t = "join", race = id})
+        end
+    end
+end)
+
+local function leave_key()
+    if race then
+        leave_race()
+    elseif joined then
+        leave_flag(true)
+        toast("You left the race.")
+    elseif host then
+        cancel_host(true)
+    elseif editor then
+        if editor.changed then save_dialog() else editor = nil end
+    end
+end
+
+R.on("action", function(name)
+    if name == "race_leave" then leave_key() else edit_key(name) end
+end)
+
+-- ---- drawing --------------------------------------------------------------------------------------
+
+local function panel(d, x, y, w, h, colour)
+    d:rect(vector.create(x, y, 0), vector.create(x + w, y + h, 0), {colour = colour or "#000000B8", fill = true, rounding = 10})
+end
+
+local function text(d, x, y, words, style)
+    d:text(vector.create(x, y, 0), words, style)
+end
+
+-- A gate as a glowing frame with an arrow through it.
+local function draw_gate(d, g, label, colours, arrow)
+    local p, u, n = v3(g.p), across(g), normal(g)
+    local up = vector.create(0, g.h, 0)
+    local bl, br = p - u * (g.w / 2), p + u * (g.w / 2)
+    local tl, tr = bl + up, br + up
+    for layer = 1, 4 do
+        local colour = colours[layer]
+        if colour then
+            local style = {colour = colour, thickness = THICK[layer]}
+            d:world_line(bl, tl, style)
+            d:world_line(tl, tr, style)
+            d:world_line(tr, br, style)
+            d:world_line(br, bl, style)
+        end
+    end
+    if arrow then
+        local c = p + vector.create(0, g.h / 2, 0)
+        local style = {colour = colours[4], thickness = 4}
+        d:world_line(c - n * 0.6 + u * 0.9, c + n * 0.6, style)
+        d:world_line(c - n * 0.6 - u * 0.9, c + n * 0.6, style)
+    end
+    if label then
+        d:world_text(p + up + vector.create(0, 0.8, 0), label, {colour = colours[4], size = 26, align = "centre", shadow = true, font = "bold"})
+    end
+end
+
+local function gate_label(track, i)
+    if i == 1 then return track.circuit and "START / FINISH" or "START" end
+    if i == #track.gates and not track.circuit then return "FINISH" end
+    return tostring(i)
+end
+
+local function draw_track(d, track, dim)
+    for i, g in ipairs(track.gates) do
+        draw_gate(d, g, (i == 1 or i == #track.gates) and gate_label(track, i) or nil, dim and NEON_DIM or NEON, false)
+    end
+end
+
+local function draw_editor(d, w, h, k)
+    local t = editor.track
+    for i, g in ipairs(t.gates) do
+        draw_gate(d, g, gate_label(t, i), i == editor.sel and SELECTED or NEON, true)
+        if i > 1 then
+            d:world_line(v3(t.gates[i - 1].p) + vector.create(0, 0.2, 0), v3(g.p) + vector.create(0, 0.2, 0), {colour = "#00B4FF50", thickness = 2})
+        end
+    end
+    local mode = MODES[editor.mode]
+    panel(d, w / 2 - 420 * k, 16 * k, 840 * k, 118 * k)
+    text(d, w / 2, 26 * k, string.format("TRACK EDITOR  -  %s  -  %s  -  gate %d of %d", t.name ~= "" and t.name or "new track",
+        t.circuit and "circuit" or "sprint", editor.sel, #t.gates), {colour = "#00C8FF", size = 26, align = "centre", font = "bold"})
+    text(d, w / 2, 62 * k, "Alt+M mode: " .. mode.name .. "   " .. mode.help, {colour = "#FFD200", size = 22, align = "centre"})
+    text(d, w / 2, 92 * k, "F8 add here  F9 delete  F5/F6 pick  Alt+H move here  Alt+C circuit  F7 save  F10 close",
+        {colour = "#FFFFFF", size = 20, align = "centre"})
+end
+
+local function standings()
+    local list = {}
+    for _, id in ipairs(race.order) do table.insert(list, {id = id, r = race.racers[id]}) end
+    table.sort(list, function(a, b)
+        local ra, rb = a.r, b.r
+        if (ra.dnf ~= nil) ~= (rb.dnf ~= nil) then return rb.dnf ~= nil end
+        if ra.ms and rb.ms then return ra.ms < rb.ms end
+        if (ra.ms ~= nil) ~= (rb.ms ~= nil) then return ra.ms ~= nil end
+        if ra.n ~= rb.n then return ra.n > rb.n end
+        return ra.at_ms < rb.at_ms
+    end)
+    return list
+end
+
+local function draw_lights(d, w, h, k, t)
+    local into = t - (race.go_at - 5 * LIGHT_MS - HOLD_MS)
+    local lit = math.clamp(math.floor(into / LIGHT_MS) + 1, 0, 5)
+    local cx, cy, r = w / 2, h * 0.24, 34 * k
+    panel(d, cx - 230 * k, cy - 60 * k, 460 * k, 120 * k, "#101010E0")
+    for i = 1, 5 do
+        local x = cx + (i - 3) * 86 * k
+        d:circle(vector.create(x, cy, 0), r, {colour = i <= lit and "#FF2020" or "#3A0A0A", fill = true})
+    end
+    if into < 0 then
+        text(d, cx, cy + 74 * k, "LINE UP", {colour = "#FFFFFF", size = 40, align = "centre", font = "title", shadow = true})
+    end
+end
+
+local function draw_results(d, w, h, k, list)
+    local bw, row = 900 * k, 46 * k
+    local x, y = (w - bw) / 2, h * 0.16
+    panel(d, x, y, bw, row * (#list + 3) + 30 * k, "#000000D8")
+    d:rect(vector.create(x, y, 0), vector.create(x + bw, y + 6 * k, 0), {colour = "#00C8FF", fill = true})
+    text(d, x + bw / 2, y + 22 * k, "RESULTS  -  " .. race.track.name, {colour = "#00C8FF", size = 40, align = "centre", font = "title"})
+    local cols = {x + 30 * k, x + 110 * k, x + 560 * k, x + 730 * k}
+    local hy = y + 22 * k + row * 1.3
+    for i, head in ipairs({"POS", "SKATER", "TIME", race.track.circuit and "BEST LAP" or "GAP"}) do
+        text(d, cols[i], hy, head, {colour = "#9AA0A6", size = 22, font = "bold"})
+    end
+    local winner = list[1] and list[1].r.ms
+    for i, item in ipairs(list) do
+        local r = item.r
+        local ry = hy + row * i
+        local colour = item.id == race.me and "#FFD200" or (i == 1 and r.ms and "#40FF60" or "#FFFFFF")
+        local last = r.dnf and "" or (race.track.circuit and clock_text(r.best)) or (winner and r.ms and i > 1 and ("+" .. clock_text(r.ms - winner)) or "")
+        text(d, cols[1], ry, r.dnf and "-" or tostring(i), {colour = colour, size = 28, font = "bold"})
+        text(d, cols[2], ry, r.name or "?", {colour = colour, size = 28})
+        text(d, cols[3], ry, r.ms and clock_text(r.ms) or ("DNF (" .. tostring(r.dnf) .. ")"), {colour = colour, size = 28})
+        text(d, cols[4], ry, last, {colour = colour, size = 28})
+    end
+    text(d, x + bw / 2, hy + row * (#list + 1), "F10 closes", {colour = "#9AA0A6", size = 20, align = "centre"})
+end
+
+local function draw_race(d, w, h, k, t)
+    local mine = race.racers[race.me]
+    local list = standings()
+    if race.phase == "done" then return draw_results(d, w, h, k, list) end
+    -- the gates: the next bright with its arrow, the one after dimmer, the rest faint
+    if mine and not done(mine) then
+        for i = race.next + 2, #race.seq do
+            local gi = race.seq[i]
+            if gi ~= race.seq[race.next] and gi ~= race.seq[race.next + 1] then draw_gate(d, race.track.gates[gi], nil, {nil, nil, "#00B4FF25", nil}, false) end
+        end
+        local after = race.seq[race.next + 1]
+        if after then draw_gate(d, race.track.gates[after], nil, NEON_DIM, false) end
+        local gi = race.seq[race.next]
+        local ok, pos = pcall(R.skater.position)
+        local g = race.track.gates[gi]
+        local far = ok and pos and string.format("  %dm", math.floor(distance(pos, v3(g.p)))) or ""
+        local label = race.next == #race.seq and "FINISH" or (race.next == 1 and "START" or ("GATE " .. race.next - 1))
+        draw_gate(d, g, label .. far, NEON, true)
+    end
+    -- the bar
+    local elapsed = race.phase == "start" and 0 or (mine and mine.ms) or (t - race.go_at)
+    local position = 1
+    for i, item in ipairs(list) do
+        if item.id == race.me then position = i end
+    end
+    local gates_total = #race.seq - 1
+    local lap_len = #race.track.gates - (race.track.circuit and 0 or 1)
+    local lap = race.track.circuit and math.clamp(math.floor(math.max(race.next - 2, 0) / lap_len) + 1, 1, race.laps) or 1
+    panel(d, w / 2 - 330 * k, 16 * k, 660 * k, 70 * k)
+    text(d, w / 2, 26 * k, string.format("P%d/%d   LAP %d/%d   GATE %d/%d   %s", position, #list, lap, race.laps,
+        math.clamp(race.next - 2, 0, gates_total), gates_total, clock_text(elapsed)), {colour = "#FFFFFF", size = 30, align = "centre", font = "bold"})
+    if race.phase == "start" then draw_lights(d, w, h, k, t)
+    elseif t - race.go_at < 1500 then
+        text(d, w / 2, h * 0.2, "GO!", {colour = "#40FF60", size = 150, align = "centre", font = "title_large", shadow = true})
+    end
+    if race.missed_at and t - race.missed_at < 1500 then
+        text(d, w / 2, h * 0.32, "MISSED THE GATE - GO BACK THROUGH IT", {colour = "#FF4040", size = 40, align = "centre", font = "title", shadow = true})
+    end
+    if mine and mine.ms then
+        text(d, w / 2, h * 0.3, string.format("FINISHED  P%d  %s", position, clock_text(mine.ms)), {colour = "#40FF60", size = 54, align = "centre", font = "title", shadow = true})
+    elseif mine and mine.dnf then
+        text(d, w / 2, h * 0.3, "OUT: " .. string.upper(mine.dnf), {colour = "#FF4040", size = 54, align = "centre", font = "title", shadow = true})
+    end
+    -- the standings
+    local bw, row = 380 * k, 34 * k
+    local x, y = w - bw - 24 * k, 120 * k
+    panel(d, x, y, bw, row * (#list + 1) + 14 * k)
+    text(d, x + 16 * k, y + 8 * k, "STANDINGS", {colour = "#00C8FF", size = 24, font = "bold"})
+    for i, item in ipairs(list) do
+        local r = item.r
+        local value = r.ms and clock_text(r.ms) or r.dnf and "OUT" or ("G" .. math.max(r.n - 1, 0))
+        local colour = item.id == race.me and "#FFD200" or "#FFFFFF"
+        text(d, x + 16 * k, y + 8 * k + row * i, string.format("%d. %s", i, r.name or "?"), {colour = colour, size = 22})
+        text(d, x + bw - 16 * k, y + 8 * k + row * i, value, {colour = colour, size = 22, align = "right"})
+    end
+end
+
+R.on("draw", function(d)
+    if not editor and not race and not joined and not host then return end
+    local size = d:size()
+    local w, h = size.x, size.y
+    local k = h / 1080
+    local t = now()
+    if race then return draw_race(d, w, h, k, t) end
+    if editor then return draw_editor(d, w, h, k) end
+    local preview = (host and host.track) or (joined and joined.track)
+    if preview then draw_track(d, preview, false) end
+    if joined then
+        panel(d, w / 2 - 330 * k, 16 * k, 660 * k, 56 * k)
+        text(d, w / 2, 30 * k, "In " .. tostring(joined.name) .. "'s race: waiting for the start  (F10 leaves)",
+            {colour = "#FFFFFF", size = 24, align = "centre", font = "bold"})
+    end
+end)
+
+-- ---- tick and lifetime ----------------------------------------------------------------------------
+
+R.on("tick", function()
+    local t = now()
+    flush()
+    if not answered and t - last_hello >= HELLO_EVERY_MS then hello() end
+    if tracks_map and tracks_map ~= map_key() then
+        tracks, tracks_map = {}, nil
+        hello()
+    end
+    local ok, pos = pcall(R.skater.position)
+    if ok and pos then
+        table.insert(trail, 1, {at = t, pos = pos})
+        if #trail > 90 then table.remove(trail) end
+    end
+    for id, o in pairs(offers) do
+        if t > o.until_ms then offers[id] = nil end
+    end
+    if joined and not offers[joined.race] then
+        joined = nil
+        toast("The race's host is gone.", "warn")
+    end
+    if host and t - host.last_offer >= OFFER_EVERY_MS then broadcast_offer() end
+    if race then race_tick(t) end
+    publish()
+end)
+
+local function reset()
+    if race then leave_race() end
+    leave_flag(true)
+    cancel_host(true)
+    editor = nil
+    setup_open = false
+    offers = {}
+    tracks, tracks_map, answered = {}, nil, false
+    hello()
+end
+
+R.on("level_loaded", reset)
+R.on("level_unloading", reset)
+R.on("unload", function()
+    pcall(R.physics.competition, false)
+    pcall(R.throwdowns.flag.leave)
+end)
+
+R.throwdowns.mode{
+    id = MODE, name = "Cocojambo Race",
+    description = "Skate through the neon gates in order. Fastest time wins.",
+    color = 0xffffb400, card = "spot", order = 10,
+    players = {min = 1, max = 10, default = 6},
+}
+for action, key in pairs({
+    race_editor = "F7", gate_add = "F8", gate_delete = "F9", race_leave = "F10", gate_prev = "F5", gate_next = "F6",
+    gate_here = "Alt+H", adjust_mode = "Alt+M", gate_circuit = "Alt+C",
+    adjust_up = "Alt+W", adjust_down = "Alt+S", adjust_left = "Alt+A", adjust_right = "Alt+D",
+}) do
+    R.input.bind(action, key)
+end
