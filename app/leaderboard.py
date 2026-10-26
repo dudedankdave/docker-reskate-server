@@ -35,11 +35,19 @@ server that mounts the same folder at /shared (/shared/leaderboard.db); without 
 falls back to "server", this server's own database in /data/leaderboard.db. LEADERBOARD_FILE
 overrides the file in either scope.
 
+The COJA tools HUD (the COCOJAMBO-TOOLS plugin, plugins/tools): with TOOLS_HUD on (by default whenever
+PLUGINS_REQUIRED lists COCOJAMBO-TOOLS) every online player's HUD gets their points and rank on the board
+TOOLS_HUD_BOARD (default general: All Time), their week, and their team tag, and the panel gets that board's top 10
+(`coco player` / `coco top` on the console, as base64 JSON): shortly after joining, after points are awarded and every
+5 minutes. Once the server is up the panel also gets the server's name (SERVER_NAME), links (TOOLS_LINKS,
+"Discord=https://...|Website=https://...") and rules (TOOLS_RULES, "Be nice|No hacks") with `coco info`.
+
 LEADERBOARD_LEAGUE keeps two kinds of servers apart. "ranked" (default) is for a server that forces the
 ranked requirements: only ranked players score (see above), in leaderboard.db. "unranked" is for every
 other server: everybody scores, in a database of its own (leaderboard-unranked.db next to it), so
 results from the two never end up on the same boards. Every answer and post names its league.
 """
+import base64
 import json
 import os
 import re
@@ -83,6 +91,11 @@ MODE_WORDS = {"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate
               "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot",
               "props": "props", "prop": "props"}
 
+HUD_PACKAGE = re.compile(r"^cocojambo-tools(-\d+\.\d+\.\d+)?$", re.I)   # the plugin in PLUGINS_REQUIRED turns the HUD feed on
+HUD_EVERY = 300       # seconds between two refreshes of every online player's HUD and the board
+HUD_AFTER_JOIN = 3    # seconds after the join line before a player's stats go out
+HUD_AFTER_UP = 5      # seconds after the server is up before the server's info goes out
+
 RANKED = "You are RANKED: your throwdown results count for the leaderboard."
 UNRANKED_MODS = ("You are NOT ranked: your mods change scoring or physics ({mods}). "
                  "Restart Skate without them to earn leaderboard points.")
@@ -116,6 +129,32 @@ def env(name, default="", environ=None):
 
 def truthy(value):
     return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def hud_on(environ=None):
+    """TOOLS_HUD, else on when PLUGINS_REQUIRED lists COCOJAMBO-TOOLS."""
+    value = env("TOOLS_HUD", "", environ)
+    if value:
+        return truthy(value)
+    return any(HUD_PACKAGE.match(p) for p in re.split(r"[,\s]+", env("PLUGINS_REQUIRED", "", environ)) if p)
+
+
+def hud_info(environ=None):
+    """The panel's server part: {name, links: [{label, url}], rules: [...]} from SERVER_NAME, TOOLS_LINKS, TOOLS_RULES."""
+    links = []
+    for part in env("TOOLS_LINKS", "", environ).split("|"):
+        label, _, url = part.partition("=")
+        if label.strip() and url.strip():
+            links.append({"label": label.strip(), "url": url.strip()})
+    rules = [r.strip() for r in env("TOOLS_RULES", "", environ).split("|") if r.strip()]
+    return {"name": env("SERVER_NAME", "", environ), "links": links[:6], "rules": rules[:6]}
+
+
+def hud_line(verb, *args):
+    """A `coco` console line for the HUD's server copy; its last argument goes as base64 JSON."""
+    *head, value = args
+    data = base64.b64encode(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).decode("ascii")
+    return " ".join(["coco", verb, *head, data])
 
 
 def free_tuning(environ=None):
@@ -420,6 +459,12 @@ class Leaderboard:
         self.discord_at = time.time()
         self.started = time.time()
         self.tags_at, self.tag_cache = 0.0, {}
+        self.hud = hud_on(environ)                      # the COJA tools HUD: what it shows comes from here
+        self.hud_board = env("TOOLS_HUD_BOARD", "general")
+        self.hud_info = hud_info(environ)
+        self.hud_due = {}      # SteamID64 -> time their HUD's stats are due
+        self.hud_info_at = None  # time the server's info is due (once it is up)
+        self.hud_at = time.time()
 
     # ---- log lines ------------------------------------------------------------------
     def feed(self, line):
@@ -427,6 +472,8 @@ class Leaderboard:
         text = m.group(2) if m else line
         with self.lock:
             if UP.match(text):
+                self.hud_due.clear()
+                self.hud_info_at = time.time() + HUD_AFTER_UP
                 self.online.clear(), self.waiting.clear(), self.modded.clear()
                 self.speeding.clear(), self.told.clear(), self.admins.clear()
                 self.free_tuning = free_tuning(self.environ)
@@ -435,9 +482,11 @@ class Leaderboard:
                 self.online[name] = j.group(2)
                 (self.admins.add if j.group(3) == "admin" else self.admins.discard)(j.group(2))
                 self.waiting[name] = time.time() + CHECK_AFTER
+                self.hud_due[j.group(2)] = time.time() + HUD_AFTER_JOIN
                 self.modded.pop(name, None), self.speeding.discard(name), self.told.pop(name, None)
             elif left := LEFT.match(text):
                 name = left.group(1)
+                self.hud_due.pop(self.online.get(name, ""), None)
                 self.admins.discard(self.online.pop(name, ""))
                 self.waiting.pop(name, None)
                 self.modded.pop(name, None), self.speeding.discard(name), self.told.pop(name, None)
@@ -522,6 +571,10 @@ class Leaderboard:
         boards = self.store.run(apply)
         if boards is not None:
             print("[leaderboard] " + ", ".join(f"{a[1]} +{a[2]}" for a in awards) + f" ({', '.join(boards)})", flush=True)
+            for steam_id, *_ in awards:
+                if steam_id in self.online.values():
+                    self.hud_due[steam_id] = now
+            self.hud_at = 0                          # the board on the panel changed too
 
     # ---- chat commands --------------------------------------------------------------
     def command(self, rest):
@@ -823,6 +876,67 @@ class Leaderboard:
         if self.post:
             self.post(f"**Event finished: {board['name']}**\n```\n{self.table(rows)}\n```")
 
+    # ---- the COJA tools HUD -------------------------------------------------------------
+    def hud_stats(self, cur, board, steam_id, now):
+        """What a player's HUD shows: their points and rank on the HUD's board, their week, their team tag."""
+        stats = {"points": 0, "board": f"{board['name']} ({self.league})"}
+        found = Store.rank(cur, board["id"], steam_id)
+        if found:
+            rank, total, row = found
+            stats.update(points=row["points"], rank=rank, of=total)
+        lines = []
+        if board["kind"] != "week" and "week" in self.kinds:
+            week = Store.find(cur, "week", now)
+            mine = week and Store.rank(cur, week["id"], steam_id)
+            lines.append({"l": week["name"] if week else "This week",
+                          "v": f"#{mine[0]}, {mine[2]['points']} pts" if mine else "no points yet"})
+        if lines:
+            stats["lines"] = lines
+        tag = self.tag_map().get(steam_id)
+        if tag:
+            stats["team"] = tag
+        return stats
+
+    def hud_push(self, steam_ids, top):
+        """`coco player` for each of steam_ids, and the board's `coco top` when top."""
+        now = time.time()
+
+        def get(cur):
+            self.store.active(cur, self.kinds, now)      # this week's board exists before anyone scores on it
+            board = Store.find(cur, self.hud_board, now) or Store.find(cur, "general", now)
+            if not board:
+                return None
+            stats = [(i, self.hud_stats(cur, board, i, now)) for i in steam_ids]
+            rows = Store.top(cur, board["id"], 10) if top else None
+            return board, stats, rows
+        res = self.store.run(get)
+        if not res:
+            return
+        board, stats, rows = res
+        for steam_id, value in stats:
+            self.send(hud_line("player", steam_id, value))
+        if rows is not None:
+            self.send(hud_line("top", {"board": f"{board['name']} ({self.league})",
+                                       "rows": [{"n": self.shown(r), "p": r["points"]} for r in rows]}))
+
+    def hud_tick(self, now):
+        with self.lock:
+            due = [i for i, at in self.hud_due.items() if now >= at]
+            for i in due:
+                del self.hud_due[i]
+            info = self.hud_info_at is not None and now >= self.hud_info_at
+            if info:
+                self.hud_info_at = None
+            everyone = sorted(set(self.online.values()))
+        if info:
+            self.send(hud_line("info", self.hud_info))
+        top = now - self.hud_at >= HUD_EVERY or info
+        if top:
+            self.hud_at = now
+            due = everyone
+        if due or top:
+            self.hud_push(due, top)
+
     # ---- timers ---------------------------------------------------------------------
     def tick(self):
         now = time.time()
@@ -832,6 +946,8 @@ class Leaderboard:
                     del self.waiting[name]
                     self.tell(name)
             players_on = bool(self.online)
+        if self.hud:
+            self.hud_tick(now)
         for kind in self.kinds:
             every = self.chat_every[kind]
             if every and now - self.chat_at.get(kind, self.started) >= every:

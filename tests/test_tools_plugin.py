@@ -13,12 +13,15 @@ import json
 import math
 import pathlib
 import re
+import sys
 import tempfile
 import unittest
 import zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = HERE / "plugins" / "tools"
+sys.path.insert(0, str(HERE / "app"))
+import leaderboard  # noqa: E402   (its hud_line is what the server's tools type)
 
 try:
     import lupa.lua54 as lupa
@@ -725,6 +728,19 @@ class HudTest(unittest.TestCase):
         self.assertEqual(self.a.hud()["toasts"][0]["text"], "Event in 5 minutes!")
         self.assertIn("tell 76561198000000009 Event in 5 minutes!", self.server.calls)
         self.assertNotIn("tell 76561198000000001 Event in 5 minutes!", self.server.calls)
+
+    def test_what_the_leaderboard_types_reaches_the_hud(self):
+        self.server.console(leaderboard.hud_line("player", self.b.id, {"points": 1234, "rank": 2, "of": 9, "board": "All Time (Ranked)",
+                                                                         "team": "Café", "lines": [{"l": "Week 44", "v": "#1, 40 pts"}]}))
+        self.server.console(leaderboard.hud_line("top", {"board": "All Time (Ranked)", "rows": [{"n": "Jambo", "p": 1234}]}))
+        self.server.console(leaderboard.hud_line("info", leaderboard.hud_info({"SERVER_NAME": "Yard", "TOOLS_LINKS": "Discord=d.gg/x"})))
+        self.session.settle()
+        hud = self.b.hud()
+        self.assertEqual((hud["me"]["stats"]["points"], hud["me"]["stats"]["team"]), (1234, "Café"))
+        self.assertEqual(hud["top"]["rows"][0]["n"], "Jambo")
+        self.assertEqual(hud["info"]["links"][0]["label"], "Discord")
+        self.b.key("hud_panel")
+        self.session.step()   # the panel draws all of it
 
     def test_a_note_for_one_player(self):
         self.server.console("coco toast 76561198000000001 " + b64({"text": "Rank up!", "kind": "good"}))
