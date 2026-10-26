@@ -2,6 +2,7 @@
 -- and rank, time played), the panel (F4: your stats, the board, the server's links and rules) and the notes the
 -- server sends, at the top of the screen.
 local util = require("lib/util")
+local theme = require("lib/theme")
 local draw = require("hud/draw")
 local settings = require("hud/settings")
 
@@ -14,12 +15,14 @@ local me = nil          -- {stats, played, role, at}
 local top = nil         -- {board, rows = [{n, p}]}
 local toasts = {}       -- {text, kind, until_ms, at}
 local panel_open, panel_at = false, 0
+local hidden = false    -- a menu or another screen is open: the HUD steps aside
 
-local KIND = {info = draw.teal, good = draw.green, warn = draw.sun, error = draw.red, race = draw.coral}
+local KIND = {info = theme.sky, good = theme.mint, warn = theme.sun, error = theme.danger, race = theme.rose}
+local TOP_Y = 150       -- the chip and the panel start below the game's own notices in the top left
 
 function hud.reset() info, me, top, toasts, panel_open = nil, nil, nil, {}, false end
 -- What the HUD holds now (tests/test_tools_plugin.py reads it).
-function hud.state() return {info = info, me = me, top = top, toasts = toasts, panel = panel_open} end
+function hud.state() return {info = info, me = me, top = top, toasts = toasts, panel = panel_open, hidden = hidden} end
 function hud.server_name() return info and info.name end
 function hud.toggle_panel()
     panel_open = not panel_open
@@ -57,89 +60,94 @@ local function my_name()
     return "you"
 end
 
--- ---- the corner tag -----------------------------------------------------------------------------------
-local function corner(d)
+-- ---- the chip: small and faint, the logo and one line (points, rank, time played) ------------------------
+local function chip(d)
     local s = me and me.stats
-    local w, h = 320, (s and s.points) and 116 or 84
-    local x, y = 24, 24
-    if settings.side == "right" then x = draw.w - w - 24 end
-    draw.card(d, x, y, w, h, nil, 31)
-    draw.tag(d, x + 12, y - 12, "COCOJAMBO", draw.coral, 16, 32)
-    local role = me and me.role
-    if role then draw.text(d, x + w - 14, y - 6, util.one_line(role, 18):upper(), 14, draw.teal, "right", "bold") end
-    draw.text(d, x + 16, y + 26, util.one_line(my_name(), 22), 22, draw.paper)
-    draw.text(d, x + 16, y + 56, util.duration(played()) .. " played", 16, draw.dim, "left", "bold")
-    if s and s.points then
-        local line = util.thousands(s.points) .. " PTS"
-        draw.text(d, x + 16, y + 80, line, 22, draw.sun, "left", "title")
-        if s.rank then
-            draw.text(d, x + w - 16, y + 80, "#" .. tostring(s.rank) .. (s.of and (" / " .. tostring(s.of)) or ""), 20, draw.paper, "right", "title")
-        end
-    end
+    local parts = {}
+    if s and s.points then parts[#parts + 1] = util.thousands(s.points) .. " pts" end
+    if s and s.rank then parts[#parts + 1] = "#" .. tostring(s.rank) end
+    parts[#parts + 1] = util.duration(played())
+    local line = table.concat(parts, "  |  ")
+    local logo_h = 11
+    local w = math.max(logo_h * draw.LOGO_RATIO, draw.width(d, line, 14, "bold")) + 20
+    local h = 46
+    local x = 16
+    if settings.side == "right" then x = draw.w - w - 16 end
+    draw.card(d, x, TOP_Y, w, h, 0.55, 6)
+    draw.logo(d, x + 10, TOP_Y + 8, logo_h, 0.85)
+    draw.text(d, x + 10, TOP_Y + 23, line, 14, theme.a(theme.ink, 0.8), "left", "bold")
 end
 
--- ---- the panel (F4) ---------------------------------------------------------------------------------------
-local function section(d, x, y, w, title)
-    draw.tag(d, x, y, title, draw.teal, 16, #title)
-    return y + 40
-end
+-- ---- the panel (F4), on the other side from the chip -------------------------------------------------------
 local function row(d, x, y, w, label, value, colour)
-    draw.text(d, x, y, label, 17, draw.dim, "left", "bold")
-    draw.text(d, x + w, y, value, 18, colour or draw.paper, "right")
-    return y + 28
+    draw.text(d, x, y, label, 16, theme.muted)
+    draw.text(d, x + w, y, value, 16, colour or theme.ink, "right", "bold")
+    return y + 26
 end
 
 local function panel(d)
-    local w = 520
-    local x = 24 + (1 - draw.ease(now(), panel_at, 180)) * -60
-    if settings.side == "right" then x = draw.w - w - 24 + (1 - draw.ease(now(), panel_at, 180)) * 60 end
-    local y = settings.corner and 170 or 40
+    local w = 460
+    local slide = (1 - draw.ease(now(), panel_at, 180)) * 40
+    local x = draw.w - w - 24 + slide
+    if settings.side == "right" then x = 24 - slide end
+    local y = TOP_Y
     local s = me and me.stats or {}
-    -- how tall: counted first, so the card is drawn under what goes on it
-    local lines = 4 + (s.team and 1 or 0) + (type(s.lines) == "table" and #s.lines or 0)
+    local extra = type(s.lines) == "table" and s.lines or {}
     local rows = top and math.min(#top.rows, 10) or 0
     local links = info and type(info.links) == "table" and math.min(#info.links, 6) or 0
     local rules = info and type(info.rules) == "table" and math.min(#info.rules, 6) or 0
-    local h = 70 + lines * 28 + 40 + (rows > 0 and (rows * 28 + 52) or 0) + ((links + rules) > 0 and ((links + rules) * 28 + 52) or 0) + 30
+    -- how tall: counted first, so the card is drawn under what goes on it
+    local h = 64 + 30 + (4 + (s.team and 1 or 0) + #extra) * 26
+    if rows > 0 then h = h + 24 + 30 + rows * 26 end
+    if links + rules > 0 then h = h + 24 + 30 + (links + rules) * 26 end
+    h = h + 14
     if y + h > draw.h - 20 then y = math.max(20, draw.h - 20 - h) end
-    draw.card(d, x, y, w, h, "#15121ff0", 41)
-    draw.tag(d, x + 16, y - 16, (info and info.name) and util.one_line(info.name, 30):upper() or "COCOJAMBO", draw.coral, 20, 42)
-    draw.text(d, x + w - 18, y + 8, "F4 CLOSES", 13, draw.dim, "right", "bold")
-    local ix, iw = x + 24, w - 48
-    local cy = section(d, ix, y + 40, iw, "YOU")
-    cy = row(d, ix, cy, iw, "Time played here", util.duration(played()))
-    cy = row(d, ix, cy, iw, "Role", me and me.role or "-", draw.teal)
-    cy = row(d, ix, cy, iw, "Points" .. (s.board and (" (" .. util.one_line(s.board, 20) .. ")") or ""),
-             s.points and util.thousands(s.points) or "-", draw.sun)
+    draw.card(d, x, y, w, h, 0.94)
+    local ix, iw = x + 22, w - 44
+    draw.logo(d, ix, y + 18, 14)
+    draw.text(d, x + w - 20, y + 18, "F4 CLOSES", 12, theme.muted, "right", "bold")
+    draw.text(d, ix, y + 38, draw.fit(d, (info and info.name ~= "" and info.name) or "COCOJAMBO", 17, iw, "bold"), 17, theme.ink, "left", "bold")
+    local cy = y + 64
+    draw.rule(d, x, cy, w)
+    draw.label(d, ix, cy + 12, "You")
+    if me and me.role then draw.pill(d, x + w - 22 - draw.width(d, me.role, 12, "bold") - 30, cy + 8, me.role, theme.iris, 12) end
+    cy = cy + 40
+    cy = row(d, ix, cy, iw, "Points" .. (s.board and (", " .. util.one_line(s.board, 28)) or ""), s.points and util.thousands(s.points) or "-", theme.sun)
     cy = row(d, ix, cy, iw, "Rank", s.rank and ("#" .. tostring(s.rank) .. (s.of and (" of " .. tostring(s.of)) or "")) or "-")
+    cy = row(d, ix, cy, iw, "Time played here", util.duration(played()))
     if s.team then cy = row(d, ix, cy, iw, "Team", util.one_line(s.team, 28)) end
-    if type(s.lines) == "table" then
-        for _, l in ipairs(s.lines) do
-            if type(l) == "table" then cy = row(d, ix, cy, iw, util.one_line(l.l or l.label, 30), util.one_line(l.v or l.value, 24)) end
-        end
+    for _, l in ipairs(extra) do
+        if type(l) == "table" then cy = row(d, ix, cy, iw, util.one_line(l.l or l.label, 30), util.one_line(l.v or l.value, 24)) end
     end
+    cy = cy + 4
     if rows > 0 then
-        cy = section(d, ix, cy + 12, iw, "BOARD" .. (top.board and ("  " .. util.one_line(top.board, 24):upper()) or ""))
+        cy = cy + 20
+        draw.rule(d, x, cy - 10, w)
+        draw.label(d, ix, cy, "Board" .. (top.board and ("  " .. util.one_line(top.board, 30)) or ""))
+        cy = cy + 30
         local mine = my_name()
         for i = 1, rows do
             local r = top.rows[i]
-            local colour = draw.medals[i] or draw.paper
-            if r.n == mine then d:rect(V(ix - 8, cy - 2), V(ix + iw + 8, cy + 26), {colour = "#ffd23f26", fill = true}) end
-            draw.text(d, ix, cy, tostring(i) .. ".", 18, colour, "left", "title")
-            draw.text(d, ix + 40, cy, util.one_line(r.n, 24), 18, r.n == mine and draw.sun or draw.paper)
-            draw.text(d, ix + iw, cy, util.thousands(r.p or 0), 18, colour, "right", "title")
-            cy = cy + 28
+            local colour = theme.places[i] or theme.ink
+            if r.n == mine then d:rect(V(x + 8, cy - 3), V(x + w - 8, cy + 23), {colour = theme.a(theme.sun, 0.12), fill = true, rounding = 4 * draw.u}) end
+            draw.text(d, ix, cy, tostring(i), 16, colour, "left", "bold")
+            draw.text(d, ix + 30, cy, util.one_line(r.n, 26), 16, r.n == mine and theme.sun or theme.ink)
+            draw.text(d, ix + iw, cy, util.thousands(r.p or 0), 16, colour, "right", "bold")
+            cy = cy + 26
         end
     end
     if links + rules > 0 then
-        cy = section(d, ix, cy + 12, iw, "SERVER")
+        cy = cy + 20
+        draw.rule(d, x, cy - 10, w)
+        draw.label(d, ix, cy, "Server")
+        cy = cy + 30
         for i = 1, rules do
-            draw.text(d, ix, cy, util.one_line(info.rules[i], 60), 16, draw.paper, "left", "bold")
-            cy = cy + 28
+            draw.text(d, ix, cy, util.one_line(info.rules[i], 56), 16, theme.ink)
+            cy = cy + 26
         end
         for i = 1, links do
             local l = info.links[i]
-            if type(l) == "table" then cy = row(d, ix, cy, iw, util.one_line(l.label, 20), util.one_line(l.url, 40), draw.teal) end
+            if type(l) == "table" then cy = row(d, ix, cy, iw, util.one_line(l.label, 20), util.one_line(l.url, 40), theme.sky) end
         end
     end
 end
@@ -156,23 +164,37 @@ local function notes(d)
     for _, n in ipairs(toasts) do
         local fade = math.min(draw.ease(t, n.at, 200), (n.until_ms - t) / 250)
         if fade > 1 then fade = 1 end
-        local w = draw.width(d, n.text, 22) + 56
+        local w = draw.width(d, n.text, 17, "bold") + 52
         local x = draw.w / 2 - w / 2
-        local yy = y - (1 - fade) * 30
-        draw.card(d, x, yy, w, 50, "#15121fe8", 51)
-        d:rect(V(x + 10, yy + 12), V(x + 16, yy + 38), {colour = KIND[n.kind] or draw.teal, fill = true})
-        draw.text(d, x + 30, yy + 12, n.text, 22, draw.paper)
-        y = y + 62
+        local yy = y - (1 - fade) * 24
+        draw.card(d, x, yy, w, 40, 0.92, 20)
+        d:circle(V(x + 22, yy + 20), 4 * draw.u, {colour = KIND[n.kind] or theme.sky, fill = true})
+        draw.text(d, x + 36, yy + 10, n.text, 17, theme.ink, "left", "bold")
+        y = y + 50
     end
 end
 
 function hud.draw(d)
     if not info then return end
     draw.frame(d, settings.scale)
-    if settings.corner then corner(d) end
-    if panel_open then panel(d) end
+    if not hidden then
+        if settings.corner then chip(d) end
+        if panel_open then panel(d) end
+    end
     if #toasts > 0 then notes(d) end
 end
+
+-- A menu (the pause menu, ReSkate's, Throwdowns ...) or another screen open: the chip and the panel step aside.
+local function follow()
+    local ok, game = pcall(reskate.menu.game)
+    local ok2, focus = pcall(reskate.input.focus)
+    if not (ok and ok2 and game and focus) then
+        hidden = false
+        return
+    end
+    hidden = game.open or not focus.gameplay or focus.interface_open or false
+end
+reskate.time.every(250, follow)
 
 -- ---- the handshake: the client says hello until the server's copy answers; a server without it never does ---
 local HELLO_EVERY = 10000

@@ -1,12 +1,10 @@
--- Drawing helpers for the HUD: positions in pixels of a 1080-line screen (draw.u turns them into the
--- window's), the COCOJAMBO colours and skate.'s hand-cut tiles. draw.frame(d) sets the scale each frame.
-local draw = {u = 1, scale = 1}
+-- Drawing helpers for the HUD, in the COCOJAMBO look (lib/theme.lua): positions in pixels of a 1080-line
+-- screen (draw.u turns them into the window's); draw.frame(d) sets the scale each frame.
+local theme = require("lib/theme")
 
--- The overlay shows colours a little darker than given on some setups: they are bright, and text is light on
--- dark or dark on a bright colour.
-draw.ink, draw.paper, draw.dim = "#0d0b14", "#ffffff", "#c6c2d6"
-draw.coral, draw.teal, draw.sun, draw.red, draw.green = "#ff4f7b", "#29d3c2", "#ffd23f", "#ff5a4a", "#4dff7c"
-draw.medals = {"#ffd84a", "#eef1f5", "#f0a266"}
+local draw = {u = 1, scale = 1}
+draw.LOGO = "images/logo.png"   -- the website's logo, 1024 x 143
+draw.LOGO_RATIO = 1024 / 143
 
 function draw.frame(d, scale)
     draw.scale = scale or draw.scale
@@ -19,31 +17,40 @@ end
 function draw.V(x, y) return vector.create(x * draw.u, y * draw.u, 0) end
 local V = draw.V
 
--- A dark tile with hand-cut edges and its shadow; seed picks the edge.
-function draw.card(d, x, y, w, h, colour, seed)
-    d:rough_rect(V(x + 5, y + 7), V(x + w + 5, y + h + 7), {colour = "#00000060", seed = (seed or 3) + 1})
-    d:rough_rect(V(x, y), V(x + w, y + h), {colour = colour or "#15121fe0", seed = seed or 3})
+-- A card as on the website: a near-black surface, 8 px corners, a thin light border. alpha: the surface's.
+function draw.card(d, x, y, w, h, alpha, radius)
+    local r = (radius or theme.radius) * draw.u
+    d:rect(V(x, y), V(x + w, y + h), {colour = theme.a(theme.surface, alpha or 0.92), fill = true, rounding = r})
+    d:rect(V(x, y), V(x + w, y + h), {colour = theme.line_strong, fill = false, thickness = 1, rounding = r})
 end
--- A strip of colour with dark text on it: a card's label.
-function draw.tag(d, x, y, text, colour, size, seed)
-    size = size or 20
-    local w = d:measure(text, {size = size * draw.scale, font = "heading"}).x / draw.u + 28
-    d:rough_rect(V(x, y), V(x + w, y + size + 14), {colour = colour or draw.coral, seed = seed or 7})
-    draw.text(d, x + 14, y + 5, text, size, draw.ink)
-    return w
+-- A thin line across a card, between its parts.
+function draw.rule(d, x, y, w)
+    d:rect(V(x, y), V(x + w, y + 1), {colour = theme.line_strong, fill = true})
 end
 function draw.text(d, x, y, text, size, colour, align, font)
-    d:text(V(x, y), tostring(text), {size = size * draw.scale, colour = colour or draw.paper, align = align or "left",
-                                     font = font or "heading", shadow = false})
+    d:text(V(x, y), tostring(text), {size = size * draw.scale, colour = colour or theme.ink, align = align or "left",
+                                     font = font or "body", shadow = false})
+end
+-- A small uppercase grey label over a part of a card, as the website's section heads.
+function draw.label(d, x, y, text, colour)
+    draw.text(d, x, y, string.upper(text), 13, colour or theme.muted, "left", "bold")
 end
 function draw.width(d, text, size, font)
-    return d:measure(tostring(text), {size = size * draw.scale, font = font or "heading"}).x / draw.u
+    return d:measure(tostring(text), {size = size * draw.scale, font = font or "body"}).x / draw.u
 end
--- A bar that runs down: left 0..1 of w.
-function draw.bar(d, x, y, w, left, colour)
-    if left <= 0 then return end
-    if left > 1 then left = 1 end
-    d:rect(V(x, y), V(x + w * left, y + 6), {colour = colour or draw.sun, fill = true, rounding = 3 * draw.u})
+-- A pill with a coloured dot: the role, a note's kind.
+function draw.pill(d, x, y, text, dot, size)
+    size = size or 13
+    local w = draw.width(d, text, size, "bold") + 30
+    local h = size + 12
+    d:rect(V(x, y), V(x + w, y + h), {colour = theme.a(theme.ink, 0.06), fill = true, rounding = h / 2 * draw.u})
+    d:rect(V(x, y), V(x + w, y + h), {colour = theme.line_strong, fill = false, thickness = 1, rounding = h / 2 * draw.u})
+    d:circle(V(x + 11, y + h / 2), 3.5 * draw.u, {colour = dot or theme.mint, fill = true})
+    draw.text(d, x + 20, y + 5, text, size, theme.ink, "left", "bold")
+    return w
+end
+function draw.logo(d, x, y, h, alpha)
+    d:image(draw.LOGO, V(x, y), V(x + h * draw.LOGO_RATIO, y + h), {colour = theme.a("#ffffff", alpha or 1)})
 end
 -- 0..1 over the first `ms` after `at`, easing out: for sliding in.
 function draw.ease(now, at, ms)

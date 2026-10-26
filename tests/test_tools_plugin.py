@@ -142,7 +142,10 @@ reskate = {
         command = function(name, help, f) commands[name] = f py.call("command " .. name) end,
         print = function(text) py.call("print " .. text) end,
     },
-    menu = {page = function(title, build) menu_page = build py.call("page " .. title) end},
+    menu = {
+        page = function(title, build) menu_page = build py.call("page " .. title) end,
+        game = function() return {open = py.menu_open(), skaters = 0, buttons = {}} end,
+    },
     server = {
         say = function(text) py.call("say " .. text) end,
         tell = function(id, text) py.call("tell " .. id .. " " .. text) end,
@@ -161,6 +164,10 @@ reskate = {
         is_dedicated = function() return true end,
         players = function() return py.players() end,
     },
+    world = {raycast = function(from, to)
+        if from.y >= 0 and to.y <= 0 then return v(from.x, 0, from.z) end
+        return nil
+    end},
     skater = {
         position = function() local p = py.pos() return v(p[1], p[2], p[3]) end,
         get = function() local p = py.pos() return {position = v(p[1], p[2], p[3]), heading = py.heading, speed = 0} end,
@@ -182,7 +189,10 @@ reskate = {
     },
     audio = {play_ui = function(name) return true end},
     log = function(text, level) py.call("log " .. text) end,
-    input = {bind = function(action, key) py.call("bind " .. action .. " " .. key) return true end},
+    input = {
+        bind = function(action, key) py.call("bind " .. action .. " " .. key) return true end,
+        focus = function() return {focused = true, interface_open = false, gameplay = true} end,
+    },
 }
 """
 
@@ -249,6 +259,7 @@ class Client:
         self.can_teleport = True
         self.calls, self.toasts, self.doc, self.dialogs, self.oversize = [], [], {}, [], []
         self.shapes = 0
+        self.menu_open = False
         self.lua = lupa.LuaRuntime(unpack_returned_tuples=True)
         py = self.lua.table_from({
             "id": steam_id, "name": name, "side": side, "map": lambda: session.map, "heading": 1.25,
@@ -257,7 +268,7 @@ class Client:
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
             "source": lambda name: luau_to_lua((PLUGIN / "plugin" / (name + ".lua")).read_text(encoding="utf-8")),
-            "players": self.players,
+            "players": self.players, "menu_open": lambda: self.menu_open,
         })
         self.lua.execute(PRELUDE, py)
         self.lua.execute(SOURCE if side == "server" else SOURCE + STATE)
@@ -432,7 +443,7 @@ class RaceTest(unittest.TestCase):
     def test_loading_registers_the_mode_and_its_keys(self):
         self.assertIn("mode race", self.a.calls)
         self.assertIn("bind race_editor F7", self.a.calls)
-        self.assertIn("bind adjust_right Alt+D", self.a.calls)
+        self.assertIn("bind adjust_right 5", self.a.calls)   # the game keeps Alt for itself
         self.assertIn("bind hud_panel F4", self.a.calls)
         self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 14, "at most 16 actions")
 
@@ -458,6 +469,17 @@ class RaceTest(unittest.TestCase):
         late = self.session.add("76561198000000003", "Late")
         self.session.settle()
         self.assertEqual(late.tracks()[0]["name"], "Harbour Loop", "a player who comes later gets it too")
+
+    def test_a_gate_placed_in_the_air_stands_on_the_ground(self):
+        self.session.settle()
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "new", "", 0)
+        self.a.position = [5.0, 3.2, 0.0]          # mid-ollie: the ground (the stand-in's) is at y = 0
+        self.a.key("gate_add")
+        self.a.position = [9.0, 2.0, 0.0]
+        self.a.key("gate_add")
+        self.a.key("gate_here")                     # 6: the selected one, moved to here, lands too
+        self.assertEqual([g["p"][1] for g in self.a.gates()], [0, 0])
 
     def test_the_editor_moves_turns_and_sizes_a_gate(self):
         self.session.settle()
@@ -770,6 +792,23 @@ class HudTest(unittest.TestCase):
         self.assertGreater(self.a.shapes, before)
         self.a.key("hud_panel")
         self.assertFalse(self.a.hud()["panel"])
+
+    def test_the_hud_steps_aside_while_a_menu_is_open(self):
+        self.session.step()
+        shown = self.a.shapes
+        self.session.step()
+        per_frame = self.a.shapes - shown
+        self.a.menu_open = True
+        self.session.now += 300
+        self.session.step()                      # the HUD looks every 250 ms
+        self.assertTrue(self.a.hud()["hidden"])
+        before = self.a.shapes
+        self.session.step()
+        self.assertLess(self.a.shapes - before, per_frame)
+        self.a.menu_open = False
+        self.session.now += 300
+        self.session.step()
+        self.assertFalse(self.a.hud()["hidden"])
 
     def test_the_settings_page_builds_and_keeps_a_change(self):
         lua = self.a.lua

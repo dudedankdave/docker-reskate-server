@@ -36,9 +36,11 @@ local HELLO_EVERY_MS = 10000     -- asking the server for the tracks until it an
 local JUMP_SPEED = 80            -- m/s between two ticks: faster is a teleport
 local SEND_BUDGET = 12000        -- bytes a second (the plugin limit is 16 KB)
 
-local NEON = {"#00B4FF22", "#00B4FF55", "#00C8FFAA", "#BFF4FFFF"}
-local NEON_DIM = {nil, "#00B4FF18", "#00C8FF40", "#BFF4FF60"}
-local SELECTED = {"#FFD20022", "#FFD20055", "#FFD200AA", "#FFF6C0FF"}
+-- The COCOJAMBO look (lib/theme.lua): the gates glow in the logo's sky blue, the selected one in its sun yellow.
+local theme = require("lib/theme")
+local NEON = {"#87CFE422", "#87CFE455", "#87CFE4AA", "#E6F6FBFF"}
+local NEON_DIM = {nil, "#87CFE418", "#87CFE440", "#E6F6FB60"}
+local SELECTED = {"#FFD97222", "#FFD97255", "#FFD972AA", "#FFF4D6FF"}
 local THICK = {18, 10, 5, 2}
 
 -- ---- helpers ------------------------------------------------------------------------------------
@@ -705,9 +707,9 @@ end)
 -- ---- the track editor (staff) ---------------------------------------------------------------------
 
 local MODES = {
-    {name = "MOVE", help = "Alt+W/S forward/back, Alt+A/D left/right"},
-    {name = "HEIGHT & TURN", help = "Alt+W/S up/down, Alt+A/D turn"},
-    {name = "SIZE", help = "Alt+W/S taller/lower, Alt+A/D narrower/wider"},
+    {name = "MOVE", help = "3/2 forward/back, 4/5 left/right"},
+    {name = "HEIGHT & TURN", help = "3/2 up/down, 4/5 turn"},
+    {name = "SIZE", help = "3/2 taller/lower, 4/5 narrower/wider"},
 }
 
 local function open_dialog(id, spec)
@@ -738,10 +740,19 @@ local function facing(pos)
     return {0, 1}
 end
 
+-- The ground under a point: a gate placed mid-air (an ollie, a drop) stands on it, not where the skater was.
+-- A hit above the point is the skater's own body or a roof, and is not taken; no ground within 30 m keeps y.
+local function ground(x, y, z)
+    local ok, hit = pcall(R.world.raycast, vector.create(x, y + 0.5, z), vector.create(x, y - 30, z))
+    if ok and hit and hit.y <= y + 0.05 then return hit.y end
+    return y
+end
+
 local function gate_here()
     local ok, s = pcall(R.skater.get)
     if not ok or not s then return nil end
-    return clean_gate({p = {s.position.x, s.position.y, s.position.z}, n = facing(s.position), w = 8, h = 5, heading = s.heading})
+    local p = s.position
+    return clean_gate({p = {p.x, ground(p.x, p.y, p.z), p.z}, n = facing(p), w = 8, h = 5, heading = s.heading})
 end
 
 local function list_dialog()
@@ -955,8 +966,12 @@ end)
 
 -- ---- drawing --------------------------------------------------------------------------------------
 
+-- A card as on the website: a near-black surface with 8 px corners and a thin light border.
 local function panel(d, x, y, w, h, colour)
-    d:rect(vector.create(x, y, 0), vector.create(x + w, y + h, 0), {colour = colour or "#000000B8", fill = true, rounding = 10})
+    local k = d:size().y / 1080
+    local tl, br = vector.create(x, y, 0), vector.create(x + w, y + h, 0)
+    d:rect(tl, br, {colour = colour or theme.a(theme.surface, 0.9), fill = true, rounding = theme.radius * k})
+    d:rect(tl, br, {colour = theme.line_strong, fill = false, thickness = 1, rounding = theme.radius * k})
 end
 
 local function text(d, x, y, words, style)
@@ -1007,16 +1022,16 @@ local function draw_editor(d, w, h, k)
     for i, g in ipairs(t.gates) do
         draw_gate(d, g, gate_label(t, i), i == editor.sel and SELECTED or NEON, true)
         if i > 1 then
-            d:world_line(v3(t.gates[i - 1].p) + vector.create(0, 0.2, 0), v3(g.p) + vector.create(0, 0.2, 0), {colour = "#00B4FF50", thickness = 2})
+            d:world_line(v3(t.gates[i - 1].p) + vector.create(0, 0.2, 0), v3(g.p) + vector.create(0, 0.2, 0), {colour = "#87CFE450", thickness = 2})
         end
     end
     local mode = MODES[editor.mode]
     panel(d, w / 2 - 420 * k, 16 * k, 840 * k, 118 * k)
     text(d, w / 2, 26 * k, string.format("TRACK EDITOR  -  %s  -  %s  -  gate %d of %d", t.name ~= "" and t.name or "new track",
-        t.circuit and "circuit" or "sprint", editor.sel, #t.gates), {colour = "#00C8FF", size = 26, align = "centre", font = "bold"})
-    text(d, w / 2, 62 * k, "Alt+M mode: " .. mode.name .. "   " .. mode.help, {colour = "#FFD200", size = 22, align = "centre"})
-    text(d, w / 2, 92 * k, "F8 add here  F9 delete  F5/F6 pick  Alt+H move here  Alt+C circuit  F7 save  F10 close",
-        {colour = "#FFFFFF", size = 20, align = "centre"})
+        t.circuit and "circuit" or "sprint", editor.sel, #t.gates), {colour = theme.sky, size = 26, align = "centre", font = "bold"})
+    text(d, w / 2, 62 * k, "1 mode: " .. mode.name .. "   " .. mode.help, {colour = theme.sun, size = 22, align = "centre", font = "bold"})
+    text(d, w / 2, 92 * k, "F8 add here  F9 delete  F5/F6 pick  6 move here  7 circuit/sprint  F7 save  F10 close",
+        {colour = theme.ink, size = 20, align = "centre", font = "body"})
 end
 
 local function standings()
@@ -1037,39 +1052,39 @@ local function draw_lights(d, w, h, k, t)
     local into = t - (race.go_at - 5 * LIGHT_MS - HOLD_MS)
     local lit = math.clamp(math.floor(into / LIGHT_MS) + 1, 0, 5)
     local cx, cy, r = w / 2, h * 0.24, 34 * k
-    panel(d, cx - 230 * k, cy - 60 * k, 460 * k, 120 * k, "#101010E0")
+    panel(d, cx - 230 * k, cy - 60 * k, 460 * k, 120 * k)
     for i = 1, 5 do
         local x = cx + (i - 3) * 86 * k
-        d:circle(vector.create(x, cy, 0), r, {colour = i <= lit and "#FF2020" or "#3A0A0A", fill = true})
+        d:circle(vector.create(x, cy, 0), r, {colour = i <= lit and theme.danger or "#2a1614", fill = true})
     end
     if into < 0 then
-        text(d, cx, cy + 74 * k, "LINE UP", {colour = "#FFFFFF", size = 40, align = "centre", font = "title", shadow = true})
+        text(d, cx, cy + 74 * k, "LINE UP", {colour = theme.ink, size = 40, align = "centre", font = "bold", shadow = true})
     end
 end
 
 local function draw_results(d, w, h, k, list)
     local bw, row = 900 * k, 46 * k
     local x, y = (w - bw) / 2, h * 0.16
-    panel(d, x, y, bw, row * (#list + 3) + 30 * k, "#000000D8")
-    d:rect(vector.create(x, y, 0), vector.create(x + bw, y + 6 * k, 0), {colour = "#00C8FF", fill = true})
-    text(d, x + bw / 2, y + 22 * k, "RESULTS  -  " .. race.track.name, {colour = "#00C8FF", size = 40, align = "centre", font = "title"})
+    panel(d, x, y, bw, row * (#list + 3) + 30 * k)
+    text(d, x + 30 * k, y + 22 * k, "RESULTS", {colour = theme.muted, size = 18, font = "bold"})
+    text(d, x + bw / 2, y + 18 * k, race.track.name, {colour = theme.ink, size = 36, align = "centre", font = "bold"})
     local cols = {x + 30 * k, x + 110 * k, x + 560 * k, x + 730 * k}
     local hy = y + 22 * k + row * 1.3
     for i, head in ipairs({"POS", "SKATER", "TIME", race.track.circuit and "BEST LAP" or "GAP"}) do
-        text(d, cols[i], hy, head, {colour = "#9AA0A6", size = 22, font = "bold"})
+        text(d, cols[i], hy, head, {colour = theme.muted, size = 20, font = "bold"})
     end
     local winner = list[1] and list[1].r.ms
     for i, item in ipairs(list) do
         local r = item.r
         local ry = hy + row * i
-        local colour = item.id == race.me and "#FFD200" or (i == 1 and r.ms and "#40FF60" or "#FFFFFF")
+        local colour = item.id == race.me and theme.sun or (i == 1 and r.ms and theme.mint or theme.ink)
         local last = r.dnf and "" or (race.track.circuit and clock_text(r.best)) or (winner and r.ms and i > 1 and ("+" .. clock_text(r.ms - winner)) or "")
         text(d, cols[1], ry, r.dnf and "-" or tostring(i), {colour = colour, size = 28, font = "bold"})
         text(d, cols[2], ry, r.name or "?", {colour = colour, size = 28})
         text(d, cols[3], ry, r.ms and clock_text(r.ms) or ("DNF (" .. tostring(r.dnf) .. ")"), {colour = colour, size = 28})
         text(d, cols[4], ry, last, {colour = colour, size = 28})
     end
-    text(d, x + bw / 2, hy + row * (#list + 1), "F10 closes", {colour = "#9AA0A6", size = 20, align = "centre"})
+    text(d, x + bw / 2, hy + row * (#list + 1), "F10 closes", {colour = theme.muted, size = 20, align = "centre", font = "body"})
 end
 
 local function draw_race(d, w, h, k, t)
@@ -1080,7 +1095,7 @@ local function draw_race(d, w, h, k, t)
     if mine and not done(mine) then
         for i = race.next + 2, #race.seq do
             local gi = race.seq[i]
-            if gi ~= race.seq[race.next] and gi ~= race.seq[race.next + 1] then draw_gate(d, race.track.gates[gi], nil, {nil, nil, "#00B4FF25", nil}, false) end
+            if gi ~= race.seq[race.next] and gi ~= race.seq[race.next + 1] then draw_gate(d, race.track.gates[gi], nil, {nil, nil, "#87CFE425", nil}, false) end
         end
         local after = race.seq[race.next + 1]
         if after then draw_gate(d, race.track.gates[after], nil, NEON_DIM, false) end
@@ -1102,28 +1117,28 @@ local function draw_race(d, w, h, k, t)
     local lap = race.track.circuit and math.clamp(math.floor(math.max(race.next - 2, 0) / lap_len) + 1, 1, race.laps) or 1
     panel(d, w / 2 - 330 * k, 16 * k, 660 * k, 70 * k)
     text(d, w / 2, 26 * k, string.format("P%d/%d   LAP %d/%d   GATE %d/%d   %s", position, #list, lap, race.laps,
-        math.clamp(race.next - 2, 0, gates_total), gates_total, clock_text(elapsed)), {colour = "#FFFFFF", size = 30, align = "centre", font = "bold"})
+        math.clamp(race.next - 2, 0, gates_total), gates_total, clock_text(elapsed)), {colour = theme.ink, size = 30, align = "centre", font = "bold"})
     if race.phase == "start" then draw_lights(d, w, h, k, t)
     elseif t - race.go_at < 1500 then
-        text(d, w / 2, h * 0.2, "GO!", {colour = "#40FF60", size = 150, align = "centre", font = "title_large", shadow = true})
+        text(d, w / 2, h * 0.2, "GO!", {colour = theme.mint, size = 150, align = "centre", font = "bold", shadow = true})
     end
     if race.missed_at and t - race.missed_at < 1500 then
-        text(d, w / 2, h * 0.32, "MISSED THE GATE - GO BACK THROUGH IT", {colour = "#FF4040", size = 40, align = "centre", font = "title", shadow = true})
+        text(d, w / 2, h * 0.32, "MISSED THE GATE - GO BACK THROUGH IT", {colour = theme.danger, size = 40, align = "centre", font = "bold", shadow = true})
     end
     if mine and mine.ms then
-        text(d, w / 2, h * 0.3, string.format("FINISHED  P%d  %s", position, clock_text(mine.ms)), {colour = "#40FF60", size = 54, align = "centre", font = "title", shadow = true})
+        text(d, w / 2, h * 0.3, string.format("FINISHED  P%d  %s", position, clock_text(mine.ms)), {colour = theme.mint, size = 54, align = "centre", font = "bold", shadow = true})
     elseif mine and mine.dnf then
-        text(d, w / 2, h * 0.3, "OUT: " .. string.upper(mine.dnf), {colour = "#FF4040", size = 54, align = "centre", font = "title", shadow = true})
+        text(d, w / 2, h * 0.3, "OUT: " .. string.upper(mine.dnf), {colour = theme.danger, size = 54, align = "centre", font = "bold", shadow = true})
     end
     -- the standings
     local bw, row = 380 * k, 34 * k
     local x, y = w - bw - 24 * k, 120 * k
     panel(d, x, y, bw, row * (#list + 1) + 14 * k)
-    text(d, x + 16 * k, y + 8 * k, "STANDINGS", {colour = "#00C8FF", size = 24, font = "bold"})
+    text(d, x + 16 * k, y + 10 * k, "STANDINGS", {colour = theme.muted, size = 18, font = "bold"})
     for i, item in ipairs(list) do
         local r = item.r
         local value = r.ms and clock_text(r.ms) or r.dnf and "OUT" or ("G" .. math.max(r.n - 1, 0))
-        local colour = item.id == race.me and "#FFD200" or "#FFFFFF"
+        local colour = item.id == race.me and theme.sun or theme.ink
         text(d, x + 16 * k, y + 8 * k + row * i, string.format("%d. %s", i, r.name or "?"), {colour = colour, size = 22})
         text(d, x + bw - 16 * k, y + 8 * k + row * i, value, {colour = colour, size = 22, align = "right"})
     end
@@ -1142,7 +1157,7 @@ R.on("draw", function(d)
     if joined then
         panel(d, w / 2 - 330 * k, 16 * k, 660 * k, 56 * k)
         text(d, w / 2, 30 * k, "In " .. tostring(joined.name) .. "'s race: waiting for the start  (F10 leaves)",
-            {colour = "#FFFFFF", size = 24, align = "centre", font = "bold"})
+            {colour = theme.ink, size = 24, align = "centre", font = "bold"})
     end
 end)
 
@@ -1199,8 +1214,8 @@ R.throwdowns.mode{
 }
 for action, key in pairs({
     race_editor = "F7", gate_add = "F8", gate_delete = "F9", race_leave = "F10", gate_prev = "F5", gate_next = "F6",
-    gate_here = "Alt+H", adjust_mode = "Alt+M", gate_circuit = "Alt+C",
-    adjust_up = "Alt+W", adjust_down = "Alt+S", adjust_left = "Alt+A", adjust_right = "Alt+D",
+    -- the game keeps Alt for itself: the editor's other keys are on the number row
+    adjust_mode = "1", adjust_down = "2", adjust_up = "3", adjust_left = "4", adjust_right = "5", gate_here = "6", gate_circuit = "7",
 }) do
     R.input.bind(action, key)
 end

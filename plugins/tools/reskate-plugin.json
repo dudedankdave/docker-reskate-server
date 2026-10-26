@@ -16,6 +16,7 @@
         "storage",
         "server",
         "console",
-        "menu"
+        "menu",
+        "world.raycast"
     ]
 }

@@ -6,13 +6,14 @@ races as a throwdown mode. It only shows on a server that runs its server side.
 
 ## HUD
 
-- **Corner tag** (top left): your name and role, the time you played on this server, and your
-  points and rank once the server sends them.
-- **F4** opens the panel: your stats, the board (top 10), the server's rules and links.
+In the COCOJAMBO look of the website:
+
+- **Points chip** (top left, small and faint): your points, rank and the time you played on this server.
+- **F4** opens the panel on the other side: your stats, the board (top 10), the server's rules and links.
 - **Notes** from the server at the top of the screen instead of chat lines.
 
-Insert > PLUGINS > **COJA tools**: turn the corner tag and the notes on or off, put the tag and the
-panel on the left or the right, and set the HUD's size.
+Both step aside while a menu or another screen is open. Insert > PLUGINS > **COJA tools**: turn the chip and the
+notes on or off, put the chip on the left or the right, and set the HUD's size.
 
 ## Races
 
@@ -45,13 +46,14 @@ can make, change or delete them. Everyone gets them when they join.
 | **F8** | New gate where you stand, facing the way you skate, after the selected one |
 | **F9** | Delete the selected gate |
 | **F5 / F6** | Select the previous / next gate |
-| **Alt+H** | Move the selected gate to where you stand |
-| **Alt+M** | Switch what Alt+W/A/S/D do: MOVE (forward/back, left/right), HEIGHT & TURN (up/down, turn 15°), SIZE (taller/lower, narrower/wider) |
-| **Alt+C** | Circuit (gate 1 is start and finish, laps) or sprint (the last gate is the finish) |
+| **6** | Move the selected gate to where you stand |
+| **1** | Switch what 2/3/4/5 do: MOVE (back/forward, left/right), HEIGHT & TURN (down/up, turn 15°), SIZE (lower/taller, narrower/wider) |
+| **7** | Circuit (gate 1 is start and finish, laps) or sprint (the last gate is the finish) |
 | **F10** | Close the editor |
 
-Gate 1 is the start. Place it facing the way the race goes: the grid faces where you faced. The
-selected gate is yellow; the arrows show the way through each gate.
+Gate 1 is the start. Place it facing the way the race goes: the grid faces where you faced. A gate stands on the
+ground under you, also when you place it mid-air. The selected gate is yellow; the arrows show the way through each
+gate.
 
 All keys can be changed on ReSkate's Binds page.
 

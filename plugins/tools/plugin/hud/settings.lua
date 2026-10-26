@@ -1,7 +1,7 @@
 -- The player's settings, on the plugin's page in the ReSkate menu (Insert > PLUGINS > COJA tools), kept in storage.
 local settings = {}
 
-local DEFAULTS = {corner = true, side = "left", scale = 1, toasts = true}
+local DEFAULTS = {corner = true, side = "left", scale = 1, toasts = true}   -- side: the chip's; the panel opens on the other
 local saved = reskate.storage.get("hud:settings")
 if type(saved) ~= "table" then saved = {} end
 for k, v in pairs(DEFAULTS) do
@@ -25,11 +25,11 @@ reskate.menu.page("COJA tools", function(ui)
     ui:separator()
     ui:card("HUD", "What shows while you skate")
     local changed = false
-    local corner = ui:toggle("corner", "Corner tag (points, rank, time played)", settings.corner)
+    local corner = ui:toggle("corner", "Points chip (points, rank, time played)", settings.corner)
     if corner ~= settings.corner then settings.corner, changed = corner, true end
     local side = 1
     if settings.side == "right" then side = 2 end
-    local pick = ui:dropdown("side", "Corner tag and panel on the", {"Left", "Right"}, side)
+    local pick = ui:dropdown("side", "Points chip on the (the panel opens on the other side)", {"Left", "Right"}, side)
     if SIDES[pick] ~= settings.side then settings.side, changed = SIDES[pick], true end
     local toasts = ui:toggle("toasts", "Notes from the server at the top of the screen", settings.toasts)
     if toasts ~= settings.toasts then settings.toasts, changed = toasts, true end
