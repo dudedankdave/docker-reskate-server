@@ -698,6 +698,21 @@ func entrypointMain(serverArgs []string) {
 		sub(cfg, "maps")["pool"] = pool
 	}
 
+	// PLUGINS_REQUIRED=Owner-Name,Owner-Name-1.0.0: Thunderstore plugins every player must have (ReSkate 2.1.2+),
+	// offered to them on joining. Pins the list (restart only, there is no console command); "off" empties it.
+	if v, ok := env("PLUGINS_REQUIRED"); ok {
+		plugins := []any{}
+		if l := strings.ToLower(v); l != "off" && l != "none" {
+			for _, p := range asList(v) {
+				plugins = append(plugins, p)
+			}
+		}
+		if len(plugins) > 16 {
+			die("PLUGINS_REQUIRED: at most 16 plugins, got %d", len(plugins))
+		}
+		sub(cfg, "plugins")["required"] = plugins
+	}
+
 	// Lists are merged so in-game additions (admin add, ban) are kept.
 	if v, ok := env("ADMINS"); ok {
 		mergeList(cfg, "access", "admins", v, false)

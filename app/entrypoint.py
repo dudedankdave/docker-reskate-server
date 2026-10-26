@@ -485,6 +485,14 @@ if (value := env("LAYERS")) is not None:
 if (value := env("MAP_POOL")) is not None:
     setting("maps", "pool", [] if value.lower() in ("off", "none") else as_list(value))
 
+# PLUGINS_REQUIRED=Owner-Name,Owner-Name-1.0.0: Thunderstore plugins every player must have (ReSkate 2.1.2+),
+# offered to them on joining. Pins the list (restart only, there is no console command); "off" empties it.
+if (value := env("PLUGINS_REQUIRED")) is not None:
+    plugins = [] if value.lower() in ("off", "none") else as_list(value)
+    if len(plugins) > 16:
+        sys.exit(f"PLUGINS_REQUIRED: at most 16 plugins, got {len(plugins)}")
+    setting("plugins", "required", plugins)
+
 # Lists are merged so in-game additions (admin add, ban) are kept.
 def merge_list(section, key, value, lower=False):
     norm = (lambda x: str(x).lower()) if lower else str

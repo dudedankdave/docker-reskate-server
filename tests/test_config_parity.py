@@ -16,7 +16,7 @@ FULL = {
     "SERVER_NAME": "Test Yard 1 - Main", "SERVER_PASSWORD": "secret", "WELCOME_MESSAGE": "Hi #1",
     "LISTED": "false", "MAX_PLAYERS": "50", "PORT": "12400", "QUERY_PORT": "12401", "STEAM_TOKEN": "abc",
     "ACTIVITY_LOG": "true", "CHAT_COLOR": "#8e5cff", "CHAT_TEXT_COLOR": "#D9C8FF", "GLOBAL_BANS": "true",
-    "MAP": "Isle of Grom", "MAP_POOL": "Isle of Grom,San Vansterdam", "MAP_ROTATION_MINUTES": "30",
+    "MAP": "Isle of Grom", "MAP_POOL": "Isle of Grom,San Vansterdam", "PLUGINS_REQUIRED": "SmokeyDawg58-ReSkate_Throwdown,neekgate-FPV_Drone-1.0.0", "MAP_ROTATION_MINUTES": "30",
     "MAP_ROTATION_VOTE": "true", "MAP_ROTATION_VOTE_SECONDS": "45", "MAP_ROTATION_EXTEND_MINUTES": "15",
     "MAP_ROTATION_ANNOUNCE": "false", "MAP_LATEST_VERSIONS": "true", "MAP_LATEST_CHECK_MINUTES": "60",
     "WORLD_LAYER_SYNC": "true", "LAYERS": "rain=on,fog=off", "BOOSTS": "false", "NO_BAIL": "true",
@@ -43,7 +43,7 @@ FULL = {
 CASES = {
     "nothing set": {},
     "every setting": FULL,
-    "cleared": {"SERVER_PASSWORD": "off", "WELCOME_MESSAGE": "off", "MAP_POOL": "off", "ANNOUNCEMENTS": "off",
+    "cleared": {"SERVER_PASSWORD": "off", "WELCOME_MESSAGE": "off", "MAP_POOL": "off", "PLUGINS_REQUIRED": "off", "ANNOUNCEMENTS": "off",
                 "COMMANDS": "off", "VOTES_CUSTOM": "off", "PARK_MODS": "off", "WORDS_BLOCKED": "off"},
     "leaderboard": {"LEADERBOARD": "true", "COMMANDS": '[{"name": "rules", "reply": "Be nice"}]'},
     "name cleaned": {"SERVER_NAME": "Cocojambo's Yard | discord.gg/x"},
@@ -158,11 +158,13 @@ class ConfigParityTest(unittest.TestCase):
         self.assertEqual(cfg["players"]["use_global_word_filter"], False)
         self.assertEqual(cfg["maps"]["park_limits"], {"parks": 2, "objects": 300})
         self.assertEqual(cfg["maps"]["park_mods"][0]["name"], "street")
+        self.assertEqual(cfg["plugins"]["required"], ["SmokeyDawg58-ReSkate_Throwdown", "neekgate-FPV_Drone-1.0.0"])
         self.assertEqual((cfg["players"]["kick_minutes"], cfg["votes"]["kick_minutes"]), (30, 0))
         self.assertIn("darn\nheck\n", py[os.path.join("data", "words_filtered.txt")])
 
     def test_bad_value_stops(self):
-        for env in ({"PARTY_SIZE": "9"}, {"BOARD_CHECK": "maybe"}, {"KICK_MINUTES": "1441"}, {"PARK_MODS": "{}"}):
+        for env in ({"PARTY_SIZE": "9"}, {"BOARD_CHECK": "maybe"}, {"KICK_MINUTES": "1441"}, {"PARK_MODS": "{}"},
+                    {"PLUGINS_REQUIRED": ",".join(f"a-p{i}" for i in range(17))}):
             with self.subTest(env):
                 run = subprocess.run([sys.executable, os.path.join(ROOT, "app", "entrypoint.py"), "config"],
                                      env={"PATH": os.environ["PATH"], "RESKATE_DATA": tempfile.mkdtemp(dir=self.tmp), **env},
