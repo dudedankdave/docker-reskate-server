@@ -26,8 +26,7 @@ local MAX_TRACKS = 20            -- per map
 local LAPS = {1, 2, 3, 5}
 local GRID_MS = 2500             -- lining up on the grid
 local GRID_DELAYS = {0, 2500, 5000}
-local LIGHT_MS = 1000            -- five start lights, one a second
-local HOLD_MS = 600              -- all five lit, then out: GO
+local COUNT_MS = 3000            -- the game's own 3-2-1, then GO (the kit's hud.countdown)
 local GRACE_MS = 60000           -- the rest's time once the first racer finished
 local MAX_RACE_MS = 15 * 60 * 1000
 local RESULTS_MS = 25000         -- the results page stays this long (F10 closes it)
@@ -525,6 +524,15 @@ local function publish()
         -- and its HUD is active or it holds the flag; the flag is left at the start, so the HUD (drawn by the
         -- plugin itself, no native slots) is what keeps it allowed.
         doc.hud = {active = true}
+        if race.phase == "start" then
+            -- The game's own 3-2-1-GO: it shows the last 3 s of this clock and GO as the race starts; before that,
+            -- while the racers line up, its intro card names the track.
+            local t = now()
+            doc.hud.countdown = {remaining_ms = math.max(0, race.go_at - t), total_ms = math.max(1, race.go_at - race.counted_from),
+                                 sampled_ms = t, ticking = true}
+            doc.hud.intro = {title = string.upper(race.track.name), rules = setup_label(race.track, race.laps, race.grid_delay) ..
+                             (race.challenge and "  ·  solo challenge" or ""), until_ms = race.go_at - COUNT_MS}
+        end
     end
     local ok, why = pcall(R.throwdowns.ui, doc)
     if not ok then R.log("could not publish throwdown UI: " .. tostring(why)) end
@@ -579,7 +587,7 @@ local function begin_race(message, from_id)
     local my_id = me()
     race = {
         id = message.race, host = from_id, me = my_id, track = track, laps = message.laps,
-        racers = {}, order = {}, phase = "start", grid_delay = grid_delay, go_at = now() + grid_delay + 5 * LIGHT_MS + HOLD_MS, beeped = 0,
+        racers = {}, order = {}, phase = "start", grid_delay = grid_delay, go_at = now() + grid_delay + COUNT_MS, counted_from = now(),
         next = 1, seq = course(track, message.laps), placed = false, tp_until = now() + 5000,
         last_pos = nil, last_at = nil, lap_start = nil, best_lap = nil, missed_at = nil, first_finish = nil,
     }
@@ -600,7 +608,8 @@ local function begin_race(message, from_id)
         diag(string.format("teleport: ok=%s returned=%s %s", tostring(ok), tostring(moved), tostring(why or "")))
         race.tp_until = now() + 5000
         -- Start the countdown only after the grid placement, then publish the input lock.
-        race.go_at = now() + grid_delay + 5 * LIGHT_MS + HOLD_MS
+        race.go_at = now() + grid_delay + COUNT_MS
+        race.counted_from = now()
         publish()
         if not race.placed then
             -- the game would not move the skater: the server's copy puts them on the grid of the saved track
@@ -686,16 +695,8 @@ local function passed(t)
 end
 
 local function race_tick(t)
-    if race.phase == "start" then
-        local lit = math.floor((t - race.go_at + 5 * LIGHT_MS + HOLD_MS) / LIGHT_MS) + 1
-        if lit >= 1 and lit <= 5 and lit > race.beeped then
-            race.beeped = lit
-            sound("countdown")
-        end
-        if t >= race.go_at then
-            race.phase = "running"
-            sound("go")
-        end
+    if race.phase == "start" then   -- the game counts down and says GO itself (publish: hud.countdown)
+        if t >= race.go_at then race.phase = "running" end
         return
     end
     if race.phase == "done" then
@@ -1679,20 +1680,6 @@ local function standings()
     return list
 end
 
-local function draw_lights(d, w, h, k, t)
-    local into = t - (race.go_at - 5 * LIGHT_MS - HOLD_MS)
-    local lit = math.clamp(math.floor(into / LIGHT_MS) + 1, 0, 5)
-    local cx, cy, r = w / 2, h * 0.24, 34 * k
-    panel(d, cx - 230 * k, cy - 60 * k, 460 * k, 120 * k)
-    for i = 1, 5 do
-        local x = cx + (i - 3) * 86 * k
-        d:circle(vector.create(x, cy, 0), r, {colour = i <= lit and theme.danger or "#2a1614", fill = true})
-    end
-    if into < 0 then
-        text(d, cx, cy + 74 * k, "LINE UP", {colour = theme.ink, size = 40, align = "centre", font = "bold", shadow = true})
-    end
-end
-
 local function draw_results(d, w, h, k, list)
     local bw, row = 900 * k, 46 * k
     local x, y = (w - bw) / 2, h * 0.16
@@ -1759,10 +1746,6 @@ local function draw_race(d, w, h, k, t)
         string.format("P%d/%d   LAP %d/%d   GATE %d/%d   %s", position, #list, lap, race.laps,
             math.clamp(race.next - 2, 0, gates_total), gates_total, clock_text(elapsed)),
         {colour = theme.ink, size = 23, align = "right", font = "bold"})
-    if race.phase == "start" then draw_lights(d, w, h, k, t)
-    elseif t - race.go_at < 1500 then
-        text(d, w / 2, h * 0.2, "GO!", {colour = theme.mint, size = 150, align = "centre", font = "bold", shadow = true})
-    end
     if race.missed_at and t - race.missed_at < 1500 then
         text(d, w / 2, h * 0.32, "MISSED THE GATE - GO BACK THROUGH IT", {colour = theme.danger, size = 40, align = "centre", font = "bold", shadow = true})
     end

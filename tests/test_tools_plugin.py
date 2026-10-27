@@ -534,7 +534,7 @@ def menu(client, tab, click=None, **choose):
 
 
 def lights_out(session):
-    for _ in range(90):  # the grid, five lights, the hold
+    for _ in range(90):  # the grid and the game's 3-2-1
         session.step()
 
 
@@ -675,6 +675,9 @@ class RaceTest(unittest.TestCase):
             self.assertLess(client.position[0], 20, client.name + " is on the grid behind the start")
             self.assertTrue(client.doc["match"]["input_lock"], "held for the lights")
             self.assertTrue(client.doc["hud"]["active"], "teleports are the mode's while its HUD is active")
+            countdown = client.doc["hud"]["countdown"]
+            self.assertTrue(0 < countdown["remaining_ms"] <= countdown["total_ms"] and countdown["ticking"], "the game's 3-2-1-GO")
+            self.assertEqual(client.doc["hud"]["intro"]["title"], "HARBOUR LOOP")
             self.assertIn("competition true", client.calls)
         self.assertNotEqual(self.a.position, self.b.position, "side by side")
         for client in (self.a, self.b):   # gate 1 is gone through along +x: heading pi/2 faces (sin, cos) = (1, 0)
@@ -682,6 +685,7 @@ class RaceTest(unittest.TestCase):
         lights_out(self.session)
         self.assertEqual(self.a.race().phase, "running")
         self.assertFalse(self.a.doc["match"]["input_lock"])
+        self.assertNotIn("countdown", self.a.doc["hud"], "GO: the game shows it as the countdown ends")
         for corner in CORNERS * 2 + [CORNERS[0]]:
             skate(self.session, self.a, corner)
         mine = self.a.race().racers[self.a.id]

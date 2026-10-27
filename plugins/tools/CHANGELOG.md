@@ -2,6 +2,12 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.2
+
+- Races and challenges start with the game's own countdown: while the racers line up, its intro card names the
+  track and the race (laps, grid time); then its 3-2-1 and GO. Our five start lights and GO are gone; our bar
+  (position, lap, gate, time), the standings and the results stay.
+
 ## 0.2.1
 
 - Fixed: switching to the ADMIN tab could get the plugin stopped (its F-keys and the menu gone until the game is

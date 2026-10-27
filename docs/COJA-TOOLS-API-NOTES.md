@@ -59,6 +59,21 @@ test server. Each point says where it is in that source, so it can be checked ag
 - `reskate.entities.set(id, blueprint, transform)` places a world object from one of the game's blueprints;
   `reskate.entities.blueprints(prefix)` lists the loaded ones. The ADMIN tab logs the ones that look like markers.
 
+## Native countdown
+
+- `hud.countdown = {remaining_ms, total_ms, sampled_ms, ticking = true}` (with `hud.active`) is the game's own
+  3-2-1-GO: it shows the digits for the last 3 s of the clock and GO for under a second once the match plays
+  (`native_hud_selection.h`, `HudCountdownLifecycle`); `hud.intro = {title, rules, until_ms}` is its card before.
+
+## Map markers and the maps' own races
+
+- The race point the Skate 3 map shows at the top of University is a native skate. race challenge in the map's level
+  data (built with ReSkate Studio from a template level); the game registers it on the map itself. Plugins can
+  neither create such a point (the map's POI registry is only used by ReSkate's C++: party markers, waypoints) nor
+  read a challenge's position or route (`reskate.progression` has id, type, neighborhood and attempts only).
+- The maps' archives are Oodle-compressed (CAS block codec 0x11, Kraken header 8C 06): only readable on Windows with
+  the game's Oodle DLL, so a native race's route can only be exported there (ReSkate Studio).
+
 ## Web requests
 
 - `reskate.http.request({url, method, body, content_type}, function(status, body, error))` needs the `net.http`

@@ -60,8 +60,8 @@ not on the board yet.
    laps for a circuit.
 2. Place the flag. It shows on the map like every throwdown flag, with the track, laps and gates on
    its card. Other players join it as usual; everyone on the flag sees the track's gates.
-3. Press **Start**. Everyone is put on the grid behind the start gate. Five red lights come on one
-   by one; when they go out, **GO**. The game uses stock physics during the race.
+3. Press **Start**. Everyone is put on the grid behind the start gate, facing through it. The game's
+   own intro card names the track while everyone lines up, then its 3-2-1 and **GO**. The game uses stock physics during the race.
 4. Go through every gate in order: the bright one with the arrow is next, the dim one after it.
    A gate you miss has to be taken again: no gate can be skipped. Standings are on the right.
 5. The results page shows positions, times, gaps or best laps once everyone finished, one minute
@@ -72,7 +72,7 @@ not on the board yet.
 ### Challenges
 
 A track an admin marks as a **challenge** is there all the time, no host needed: its start has a sun-yellow
-beacon with the track's name and record over it. Skate to it and press **F8**: the start lights run and you race
+beacon with the track's name and record over it. Skate to it and press **F8** (or **Run** in F5 > RACES): the game counts down and you race
 it alone, timed. The server keeps each challenge's top 10 (every player's best), tells you your time and place,
 and tells everyone when the record falls. **F10** stops a run.
 
