@@ -18,15 +18,15 @@ if reskate.side == "server" then require("hud/server") else require("hud/client"
 
 local R = reskate
 
-local MODE = "race"
-local TITLE = "COCOJAMBO RACE"
+local MODE = "deathraces"
+local TITLE = "COCOJAMBO DEATHRACES"
 local MAX_GATES = 40             -- a "go" message carries the track and stays under 4 KB
 local MAX_TRACKS = 20            -- per map
 local LAPS = {1, 2, 3, 5}
 local GRID_MS = 2500             -- lining up on the grid
+local GRID_DELAYS = {0, 2500, 5000}
 local LIGHT_MS = 1000            -- five start lights, one a second
 local HOLD_MS = 600              -- all five lit, then out: GO
-local START_MS = GRID_MS + 5 * LIGHT_MS + HOLD_MS
 local GRACE_MS = 60000           -- the rest's time once the first racer finished
 local MAX_RACE_MS = 15 * 60 * 1000
 local RESULTS_MS = 25000         -- the results page stays this long (F10 closes it)
@@ -355,7 +355,8 @@ local answered = false   -- the server's copy answered
 local last_hello = -HELLO_EVERY_MS
 
 local editor = nil       -- {track, sel, mode, changed}
-local setup = {track = 1, laps = 1, players = 6}
+local admin_menu, admin_sel = false, 1
+local setup = {track = 1, laps = 1, players = 6, grid_choice = 2, grid_delay = GRID_MS}
 local setup_open = false
 local host = nil         -- this player's flag
 local offers = {}        -- others' flags by race id
@@ -391,8 +392,11 @@ local function setup_document()
         local names = {}
         for i, one in ipairs(tracks) do names[i] = one.name end
         rows = {
+            -- Setup documents use one-based choice values; setup_row events return zero-based choices.
             {id = "track", kind = "choice", caption = "Track", options = names, value = setup.track},
             {id = "gates", kind = "info", caption = "Gates", label = string.format("%d  (%s)", #t.gates, t.circuit and "circuit" or "sprint")},
+            {id = "grid", kind = "choice", caption = "Grid time", options = {"Quick", "Standard", "Relaxed"},
+             value = setup.grid_choice or 1},
         }
         if t.circuit then
             local laps = {}
@@ -418,6 +422,11 @@ local function host_racers()
 end
 
 local function laps_of(t, laps) return t.circuit and laps or 1 end
+local function grid_label(ms) return string.format("%.1f s", (tonumber(ms) or GRID_MS) / 1000) end
+local function setup_label(track, laps, grid_delay)
+    local race_type = track.circuit and string.format("%d lap%s", laps, laps == 1 and "" or "s") or "Sprint"
+    return race_type .. " · " .. grid_label(grid_delay) .. " grid"
+end
 
 local function publish()
     local doc = {}
@@ -425,7 +434,7 @@ local function publish()
     if host then
         doc.waiting = {
             mode = MODE, title = TITLE,
-            status = string.format("%s  |  %d lap%s  |  Host starts", host.track.name, host.laps, host.laps == 1 and "" or "s"),
+            status = string.format("%s  |  %s  |  Host starts", host.track.name, setup_label(host.track, host.laps, host.grid_delay)),
             enrolled = #host.order, capacity = host.capacity, can_start = true,
         }
     end
@@ -434,7 +443,8 @@ local function publish()
         table.insert(flags, {
             id = id, mode = MODE, leader = o.host, game = o.game, at = v3(o.at), yaw = o.yaw,
             players = #o.racers, capacity = o.cap, open = #o.racers < o.cap,
-            stats = {{title = "TRACK", value = o.track.name}, {title = "LAPS", value = tostring(o.laps)},
+            stats = {{title = "TRACK", value = o.track.name},
+                     {title = "SETUP", value = setup_label(o.track, o.laps, o.grid_delay)},
                      {title = "GATES", value = tostring(o.track.gates)}},
         })
     end
@@ -453,7 +463,8 @@ local function broadcast_offer()
     local _, my_name = me()
     local t = host.track
     send("all", {t = "offer", race = host.id, name = my_name, game = host.game, at = host.at, yaw = host.yaw,
-                 track = {id = t.id, name = t.name, gates = #t.gates}, laps = host.laps, cap = host.capacity, racers = host_racers()})
+                 track = {id = t.id, name = t.name, gates = #t.gates}, laps = host.laps, grid_delay = host.grid_delay,
+                 cap = host.capacity, racers = host_racers()})
 end
 
 local function cancel_host(tell)
@@ -497,10 +508,11 @@ end
 local function begin_race(message, from_id)
     leave_flag(false)
     local track = message.track
+    local grid_delay = math.clamp(tonumber(message.grid_delay) or GRID_MS, 0, 5000)
     local my_id = me()
     race = {
         id = message.race, host = from_id, me = my_id, track = track, laps = message.laps,
-        racers = {}, order = {}, phase = "start", go_at = now() + START_MS, beeped = 0,
+        racers = {}, order = {}, phase = "start", grid_delay = grid_delay, go_at = now() + grid_delay + 5 * LIGHT_MS + HOLD_MS, beeped = 0,
         next = 1, seq = course(track, message.laps), placed = false, tp_until = now() + 5000,
         last_pos = nil, last_at = nil, lap_start = nil, best_lap = nil, missed_at = nil, first_finish = nil,
     }
@@ -519,12 +531,16 @@ local function begin_race(message, from_id)
         local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot), track.gates[1].heading)
         race.placed = ok and moved == true
         race.tp_until = now() + 5000
+        -- Start the countdown only after the grid placement, then publish the input lock.
+        race.go_at = now() + grid_delay + 5 * LIGHT_MS + HOLD_MS
+        publish()
         if not race.placed then toast("Skate to the start gate: " .. tostring(why or moved), "warn") end
     end)
 end
 
 local function start_race()
-    local message = {t = "go", race = host.id, laps = host.laps, racers = host_racers(), track = pack(host.track)}
+    local message = {t = "go", race = host.id, laps = host.laps, grid_delay = host.grid_delay,
+                     racers = host_racers(), track = pack(host.track)}
     local my_id = me()
     local track = host.track
     host = nil
@@ -570,8 +586,10 @@ end
 
 local function passed(t)
     local mine = race.racers[race.me]
-    local elapsed = t - race.go_at
     local gate = race.seq[race.next]
+    -- The clock starts when the skater crosses the start gate, not when GO appears.
+    if race.next == 1 then race.started_at = t end
+    local elapsed = race.started_at and (t - race.started_at) or 0
     race.next += 1
     mine.n, mine.at_ms = race.next - 1, elapsed
     if race.track.circuit and gate == 1 then
@@ -670,7 +688,10 @@ function from_server.track(m)
     if at then tracks[at] = t else table.insert(tracks, t) end
 end
 
-function from_server.saved(m) toast("Track \"" .. tostring(m.name) .. "\" saved for everyone.") end
+function from_server.saved(m)
+    admin_menu = true
+    toast("Track \"" .. tostring(m.name) .. "\" saved for everyone.")
+end
 function from_server.challenge_set(m)
     toast(m.on and ("\"" .. tostring(m.name) .. "\" is a challenge: its start has a marker, F8 there runs it.")
           or ("\"" .. tostring(m.name) .. "\" is no challenge any more."))
@@ -696,7 +717,8 @@ function from_players.offer(from, m)
     local track = {id = tostring(m.track.id), name = tostring(m.track.name):sub(1, 32), gates = tonumber(m.track.gates) or 0}
     offers[m.race] = {
         host = from.id, name = m.name or from.name, game = tonumber(m.game) or 1, at = m.at, yaw = tonumber(m.yaw) or 0,
-        track = track, laps = tonumber(m.laps) or 1, cap = tonumber(m.cap) or 10, racers = m.racers, until_ms = now() + OFFER_TTL_MS,
+        track = track, laps = tonumber(m.laps) or 1, grid_delay = tonumber(m.grid_delay) or GRID_MS,
+        cap = tonumber(m.cap) or 10, racers = m.racers, until_ms = now() + OFFER_TTL_MS,
     }
     if joined and joined.race == m.race then joined.track = track_by_id(track.id) end
 end
@@ -851,24 +873,21 @@ local function gate_here()
 end
 
 local function list_dialog()
-    local rows = {}
-    for _, t in ipairs(tracks) do
-        table.insert(rows, {text = t.name, sub = string.format("%d gates, %s%s%s", #t.gates, t.circuit and "circuit" or "sprint",
-            t.author and t.author ~= "" and (", by " .. t.author) or "", t.challenge and ", CHALLENGE" or ""),
-            buttons = {"edit", "challenge", "delete"}})
-    end
-    open_dialog("tracks", {
-        title = "Race tracks on this map",
-        list = {rows = rows, empty = "No tracks yet."},
-        buttons = {{id = "new", label = "New track"}, {id = "close", label = "Close"}},
-    })
+    admin_menu = true
+    admin_sel = math.clamp(admin_sel, 1, math.max(#tracks, 1))
+end
+
+local function admin_track()
+    admin_sel = math.clamp(admin_sel, 1, math.max(#tracks, 1))
+    local track = tracks[admin_sel]
+    if track and not track.loading then return track end
 end
 
 local function save_dialog()
     local t = editor.track
     open_dialog("save_track", {
-        title = "Save track",
-        message = string.format("%d gates, %s. It is saved on the server for everyone.", #t.gates, t.circuit and "a circuit" or "a sprint"),
+        title = "COJA | SAVE TRACK",
+        message = string.format("%d gates, %s. This track will be shared on the server.", #t.gates, t.circuit and "a circuit" or "a sprint"),
         field = {text = t.name ~= "" and t.name or ("Track " .. (#tracks + 1)), max = 32},
         buttons = {{id = "save", label = "Save"}, {id = "discard", label = "Discard"}, {id = "cancel", label = "Keep editing"}},
     })
@@ -907,11 +926,45 @@ local function edit_key(name)
     if name == "race_editor" then
         if race or host or joined then return toast("Not during a race.", "warn") end
         if not staff then return toast(answered and "Only admins make race tracks." or "The server has not answered yet.", "warn") end
-        if not editor then list_dialog()
+        if admin_menu then admin_menu = false
+        elseif not editor then list_dialog()
         elseif editor.changed then save_dialog()
         else
             editor = nil
+            admin_menu = true
             toast("Track editor closed.")
+        end
+        return
+    end
+    if admin_menu then
+        if name == "gate_prev" or name == "gate_next" then
+            if #tracks > 0 then
+                local step = name == "gate_prev" and -1 or 1
+                admin_sel = ((admin_sel - 1 + step) % #tracks) + 1
+                sound("navigate")
+            end
+        elseif name == "gate_add" then
+            admin_menu = false
+            editor = {track = {name = "", circuit = false, gates = {}}, sel = 0, mode = 1, changed = false}
+            toast("New track: skate to the start, F8 places a gate where you are, facing the way you skate.")
+        elseif name == "gate_here" then
+            local t = admin_track()
+            if t then
+                admin_menu = false
+                editor = {track = copy(t), sel = 1, mode = 1, changed = false}
+                toast("Editing \"" .. t.name .. "\". F5/F6 pick a gate.")
+            end
+        elseif name == "gate_circuit" then
+            local t = admin_track()
+            if t then send("server", {t = "challenge", map = map_key(), id = t.id}) end
+        elseif name == "gate_delete" then
+            local t = admin_track()
+            if t then
+                open_dialog("delete_track", {
+                    title = "COJA | DELETE TRACK", message = "Delete \"" .. t.name .. "\" for everyone?",
+                    buttons = {{id = "delete:" .. tostring(t.id), label = "Delete track"}, {id = "cancel", label = "Keep track"}},
+                })
+            end
         end
         return
     end
@@ -985,17 +1038,19 @@ local function on_dialog(args)
     if id == "tracks" then
         local t = row and tracks[row]
         if button == "new" then
+            admin_menu = false
             editor = {track = {name = "", circuit = false, gates = {}}, sel = 0, mode = 1, changed = false}
             toast("New track: skate to the start, F8 places a gate where you are, facing the way you skate.")
         elseif button == "edit" and t and not t.loading then
+            admin_menu = false
             editor = {track = copy(t), sel = 1, mode = 1, changed = false}
             toast("Editing \"" .. t.name .. "\". F5/F6 pick a gate.")
         elseif button == "challenge" and t and not t.loading then
             send("server", {t = "challenge", map = map_key(), id = t.id})
         elseif button == "delete" and t then
             open_dialog("delete_track", {
-                title = "Delete track", message = "Delete \"" .. t.name .. "\" for everyone?",
-                buttons = {{id = "delete:" .. tostring(t.id), label = "Delete"}, {id = "cancel", label = "Cancel"}},
+                title = "COJA | DELETE TRACK", message = "Delete \"" .. t.name .. "\" for everyone?",
+                buttons = {{id = "delete:" .. tostring(t.id), label = "Delete track"}, {id = "cancel", label = "Keep track"}},
             })
         end
     elseif id == "delete_track" and type(button) == "string" and button:sub(1, 7) == "delete:" then
@@ -1012,6 +1067,7 @@ local function on_dialog(args)
             editor = nil
         elseif button == "discard" then
             editor = nil
+            admin_menu = true
             toast("Changes discarded.")
         end
     end
@@ -1024,9 +1080,10 @@ R.on("throwdown_ui", function(e)
     if a == "dialog" then
         on_dialog(args)
     elseif a == "open" then
+        if admin_menu then admin_menu = false end
         if race or joined or editor then
             pcall(R.throwdowns.flag.leave)
-            toast(editor and "Close the track editor first (F7)." or "Leave your race first (F10).", "warn")
+            toast(editor and "Close Track Studio first (F7)." or "Leave your race first (F10).", "warn")
             return
         end
         if not answered then hello() end
@@ -1035,6 +1092,9 @@ R.on("throwdown_ui", function(e)
         local value = tonumber(args[2]) or 0
         if args[1] == "track" then setup.track = value + 1
         elseif args[1] == "laps" then setup.laps = LAPS[value + 1] or 1
+        elseif args[1] == "grid" then
+            setup.grid_choice = math.clamp(value + 1, 1, #GRID_DELAYS)
+            setup.grid_delay = GRID_DELAYS[setup.grid_choice]
         elseif args[1] == "players" then setup.players = math.clamp(value, 1, 10) end
     elseif a == "setup_back" then
         setup_open = false
@@ -1054,7 +1114,8 @@ R.on("throwdown_ui", function(e)
         host = {
             id = my_id .. ":" .. math.floor(now()), game = tonumber(args[1]) or 1,
             at = {round(tonumber(args[2]) or 0, 0.1), round(tonumber(args[3]) or 0, 0.1), round(tonumber(args[4]) or 0, 0.1)},
-            yaw = tonumber(args[5]) or 0, track = t, laps = laps_of(t, setup.laps), capacity = setup.players,
+            yaw = tonumber(args[5]) or 0, track = t, laps = laps_of(t, setup.laps), grid_delay = setup.grid_delay,
+            capacity = setup.players,
             racers = {[my_id] = my_name}, order = {my_id}, last_offer = 0,
         }
         broadcast_offer()
@@ -1087,11 +1148,17 @@ local function leave_key()
         cancel_host(true)
     elseif editor then
         if editor.changed then save_dialog() else editor = nil end
+    elseif admin_menu then
+        admin_menu = false
+        toast("Track Studio closed.")
     end
 end
 
 R.on("action", function(name)
-    if name == "race_leave" then leave_key() else edit_key(name) end
+    if name == "race_leave" then leave_key()
+    elseif name == "gate_add_pad" then edit_key("gate_add")
+    elseif name == "gate_here_pad" then edit_key("gate_here")
+    else edit_key(name) end
 end)
 
 -- ---- drawing --------------------------------------------------------------------------------------
@@ -1147,6 +1214,45 @@ local function draw_track(d, track, dim)
     end
 end
 
+local function draw_admin_menu(d, w, h, k)
+    local x, y, bw, bh = w / 2 - 460 * k, h * 0.14, 920 * k, 620 * k
+    local selected = admin_track()
+    if selected then draw_track(d, selected, true) end
+    panel(d, x, y, bw, bh)
+    d:image("images/logo.png", vector.create(x + 24 * k, y + 22 * k, 0),
+        vector.create(x + 24 * k + 144 * k, y + 42 * k, 0), {colour = theme.a("#ffffff", 0.92)})
+    text(d, x + bw - 24 * k, y + 20 * k, "TRACK STUDIO", {colour = theme.sky, size = 20, align = "right", font = "bold"})
+    text(d, x + bw - 24 * k, y + 48 * k, "SERVER TRACKS  ·  " .. tostring(map_key()),
+        {colour = theme.muted, size = 15, align = "right", font = "bold"})
+    local total = #tracks
+    text(d, x + 26 * k, y + 84 * k, total == 0 and "No tracks on this map yet" or string.format("TRACK LIBRARY  ·  %d / %d", admin_sel, total),
+        {colour = theme.ink, size = 20, font = "bold"})
+    local first = math.max(1, math.min(admin_sel - 2, total - 5))
+    for i = first, math.min(total, first + 5) do
+        local t, ry = tracks[i], y + (112 + (i - first) * 60) * k
+        if i == admin_sel then
+            d:rect(vector.create(x + 18 * k, ry, 0), vector.create(x + bw - 18 * k, ry + 52 * k, 0),
+                {colour = theme.a(theme.sky, 0.12), fill = true, rounding = theme.radius * k})
+            d:rect(vector.create(x + 18 * k, ry, 0), vector.create(x + bw - 18 * k, ry + 52 * k, 0),
+                {colour = theme.a(theme.sky, 0.48), fill = false, thickness = 1, rounding = theme.radius * k})
+        end
+        text(d, x + 34 * k, ry + 8 * k, t.name or "Loading track...", {colour = i == admin_sel and theme.ink or theme.muted, size = 22, font = "bold"})
+        local detail = t.loading and "Loading track data..." or string.format("%d gates  ·  %s  ·  %s",
+            #t.gates, t.circuit and "CIRCUIT" or "SPRINT", t.challenge and "CHALLENGE ON" or "CHALLENGE OFF")
+        text(d, x + 34 * k, ry + 32 * k, detail, {colour = t.challenge and theme.sun or theme.muted, size = 15, font = "body"})
+    end
+    if total == 0 then
+        text(d, x + 30 * k, y + 155 * k, answered and "Create the first track and place its start gate." or "Waiting for the server's track list...",
+            {colour = theme.muted, size = 19, font = "body"})
+    end
+    local foot = y + bh - 94 * k
+    d:rect(vector.create(x + 20 * k, foot, 0), vector.create(x + bw - 20 * k, foot + 1 * k, 0), {colour = theme.line_strong, fill = true})
+    text(d, x + bw / 2, foot + 18 * k, "F5/F6 SELECT   ·   F8 / LB+RB+A NEW   ·   6 / LB+RB+X EDIT   ·   7 CHALLENGE   ·   F9 DELETE   ·   F10 CLOSE",
+        {colour = theme.ink, size = 14, align = "centre", font = "bold"})
+    text(d, x + bw / 2, foot + 50 * k, "Only server staff can change tracks. All edits are shared on this map.",
+        {colour = theme.muted, size = 15, align = "centre", font = "body"})
+end
+
 local function draw_editor(d, w, h, k)
     local t = editor.track
     for i, g in ipairs(t.gates) do
@@ -1156,12 +1262,16 @@ local function draw_editor(d, w, h, k)
         end
     end
     local mode = MODES[editor.mode]
-    panel(d, w / 2 - 420 * k, 16 * k, 840 * k, 118 * k)
-    text(d, w / 2, 26 * k, string.format("TRACK EDITOR  -  %s  -  %s  -  gate %d of %d", t.name ~= "" and t.name or "new track",
-        t.circuit and "circuit" or "sprint", editor.sel, #t.gates), {colour = theme.sky, size = 26, align = "centre", font = "bold"})
-    text(d, w / 2, 62 * k, "1 mode: " .. mode.name .. "   " .. mode.help, {colour = theme.sun, size = 22, align = "centre", font = "bold"})
-    text(d, w / 2, 92 * k, "F8 add here  F9 delete  F5/F6 pick  6 move here  7 circuit/sprint  F7 save  F10 close",
-        {colour = theme.ink, size = 20, align = "centre", font = "body"})
+    local x, y, bw = w / 2 - 460 * k, 16 * k, 920 * k
+    panel(d, x, y, bw, 142 * k)
+    d:image("images/logo.png", vector.create(x + 22 * k, y + 18 * k, 0),
+        vector.create(x + 22 * k + 144 * k, y + 38 * k, 0), {colour = theme.a("#ffffff", 0.92)})
+    text(d, x + bw - 22 * k, y + 17 * k, "TRACK STUDIO  /  GATE EDITOR", {colour = theme.sky, size = 18, align = "right", font = "bold"})
+    text(d, x + bw / 2, y + 51 * k, string.format("%s   ·   %s   ·   GATE %d OF %d", t.name ~= "" and t.name or "NEW TRACK",
+        t.circuit and "CIRCUIT" or "SPRINT", editor.sel, #t.gates), {colour = theme.ink, size = 24, align = "centre", font = "bold"})
+    text(d, x + bw / 2, y + 84 * k, "1 MODE: " .. mode.name .. "   ·   " .. mode.help, {colour = theme.sun, size = 19, align = "centre", font = "bold"})
+    text(d, x + bw / 2, y + 113 * k, "F8 / LB+RB+A PLACE   ·   F9 DELETE   ·   F5/F6 SELECT   ·   6 / LB+RB+X MOVE   ·   7 CIRCUIT   ·   F7 SAVE   ·   F10 CLOSE",
+        {colour = theme.muted, size = 14, align = "centre", font = "body"})
 end
 
 local function standings()
@@ -1196,7 +1306,9 @@ local function draw_results(d, w, h, k, list)
     local bw, row = 900 * k, 46 * k
     local x, y = (w - bw) / 2, h * 0.16
     panel(d, x, y, bw, row * (#list + 3) + 30 * k)
-    text(d, x + 30 * k, y + 22 * k, "RESULTS", {colour = theme.muted, size = 18, font = "bold"})
+    d:image("images/logo.png", vector.create(x + 24 * k, y + 17 * k, 0),
+        vector.create(x + 24 * k + 122 * k, y + 34 * k, 0), {colour = theme.a("#ffffff", 0.9)})
+    text(d, x + 160 * k, y + 22 * k, "RESULTS", {colour = theme.muted, size = 18, font = "bold"})
     text(d, x + bw / 2, y + 18 * k, race.track.name, {colour = theme.ink, size = 36, align = "centre", font = "bold"})
     local cols = {x + 30 * k, x + 110 * k, x + 560 * k, x + 730 * k}
     local hy = y + 22 * k + row * 1.3
@@ -1237,7 +1349,7 @@ local function draw_race(d, w, h, k, t)
         draw_gate(d, g, label .. far, NEON, true)
     end
     -- the bar
-    local elapsed = race.phase == "start" and 0 or (mine and mine.ms) or (t - race.go_at)
+    local elapsed = (mine and mine.ms) or (race.started_at and (t - race.started_at)) or 0
     local position = 1
     for i, item in ipairs(list) do
         if item.id == race.me then position = i end
@@ -1245,9 +1357,17 @@ local function draw_race(d, w, h, k, t)
     local gates_total = #race.seq - 1
     local lap_len = #race.track.gates - (race.track.circuit and 0 or 1)
     local lap = race.track.circuit and math.clamp(math.floor(math.max(race.next - 2, 0) / lap_len) + 1, 1, race.laps) or 1
-    panel(d, w / 2 - 330 * k, 16 * k, 660 * k, 70 * k)
-    text(d, w / 2, 26 * k, string.format("P%d/%d   LAP %d/%d   GATE %d/%d   %s", position, #list, lap, race.laps,
-        math.clamp(race.next - 2, 0, gates_total), gates_total, clock_text(elapsed)), {colour = theme.ink, size = 30, align = "centre", font = "bold"})
+    local bx, by, bw = w / 2 - 440 * k, 16 * k, 880 * k
+    panel(d, bx, by, bw, 88 * k)
+    d:image("images/logo.png", vector.create(bx + 18 * k, by + 28 * k, 0),
+        vector.create(bx + 18 * k + 122 * k, by + 45 * k, 0), {colour = theme.a("#ffffff", 0.9)})
+    text(d, bx + 158 * k, by + 14 * k, race.challenge and "SOLO CHALLENGE" or "TRACK RACE",
+        {colour = theme.sky, size = 15, font = "bold"})
+    text(d, bx + 158 * k, by + 42 * k, race.track.name, {colour = theme.ink, size = 23, font = "bold"})
+    text(d, bx + bw - 18 * k, by + 31 * k,
+        string.format("P%d/%d   LAP %d/%d   GATE %d/%d   %s", position, #list, lap, race.laps,
+            math.clamp(race.next - 2, 0, gates_total), gates_total, clock_text(elapsed)),
+        {colour = theme.ink, size = 23, align = "right", font = "bold"})
     if race.phase == "start" then draw_lights(d, w, h, k, t)
     elseif t - race.go_at < 1500 then
         text(d, w / 2, h * 0.2, "GO!", {colour = theme.mint, size = 150, align = "centre", font = "bold", shadow = true})
@@ -1307,6 +1427,7 @@ R.on("draw", function(d)
     local k = h / 1080
     local t = now()
     if race then return draw_race(d, w, h, k, t) end
+    if admin_menu then return draw_admin_menu(d, w, h, k) end
     if editor then return draw_editor(d, w, h, k) end
     if not joined and not host then return draw_challenges(d, w, h, k) end
     local preview = (host and host.track) or (joined and joined.track)
@@ -1350,6 +1471,7 @@ local function reset()
     leave_flag(true)
     cancel_host(true)
     editor = nil
+    admin_menu = false
     setup_open = false
     offers = {}
     tracks, tracks_map, answered = {}, nil, false
@@ -1364,13 +1486,14 @@ R.on("unload", function()
 end)
 
 R.throwdowns.mode{
-    id = MODE, name = "Cocojambo Race",
+    id = MODE, name = "Cocojambo Deathraces",
     description = "Skate through the neon gates in order. Fastest time wins.",
     color = 0xffffb400, card = "spot", order = 10,
     players = {min = 1, max = 10, default = 6},
 }
 for action, key in pairs({
     race_editor = "F7", gate_add = "F8", gate_delete = "F9", race_leave = "F10", gate_prev = "F5", gate_next = "F6",
+    gate_add_pad = "Pad.LB+Pad.RB+Pad.A", gate_here_pad = "Pad.LB+Pad.RB+Pad.X",
     -- the game keeps Alt for itself: the editor's other keys are on the number row
     adjust_mode = "1", adjust_down = "2", adjust_up = "3", adjust_left = "4", adjust_right = "5", gate_here = "6", gate_circuit = "7",
 }) do

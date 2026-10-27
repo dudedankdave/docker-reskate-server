@@ -18,28 +18,56 @@ end
 settings.status = function() return "Not on a COCOJAMBO server" end
 
 local SIDES = {"left", "right"}
+local section = 1
 reskate.menu.page("COJA tools", function(ui)
-    ui:card("COJA TOOLS", "The HUD and races of the COCOJAMBO servers")
-    ui:info("Server", settings.status())
-    ui:note("F4 opens the panel: your stats, the board and the server's links. Races: Throwdowns > Cocojambo Race; staff build tracks with F7.")
-    ui:separator()
-    ui:card("HUD", "What shows while you skate")
-    local changed = false
-    local corner = ui:toggle("corner", "Points chip (points, rank, time played)", settings.corner)
-    if corner ~= settings.corner then settings.corner, changed = corner, true end
-    local side = 1
-    if settings.side == "right" then side = 2 end
-    local pick = ui:dropdown("side", "Points chip on the (the panel opens on the other side)", {"Left", "Right"}, side)
-    if SIDES[pick] ~= settings.side then settings.side, changed = SIDES[pick], true end
-    local toasts = ui:toggle("toasts", "Notes from the server at the top of the screen", settings.toasts)
-    if toasts ~= settings.toasts then settings.toasts, changed = toasts, true end
-    local scale = ui:slider("scale", "HUD size", settings.scale, 0.6, 1.4, "%.1f")
-    if math.abs(scale - settings.scale) > 0.001 then settings.scale, changed = scale, true end
-    if ui:button("reset", "Back to the defaults") then
-        for k, v in pairs(DEFAULTS) do settings[k] = v end
-        changed = true
+    section = ui:tabs("sections", {"DASHBOARD", "CONTROLS", "SETTINGS"}, section)
+    if section == 1 then
+        local dash = settings.dashboard and settings.dashboard() or {}
+        ui:card("COJA TOOLS", "Your COCOJAMBO server at a glance")
+        ui:info("Server", dash.server or settings.status())
+        ui:info("Player", dash.player or "Waiting for the server")
+        ui:info("Points", dash.points or "—")
+        ui:info("Rank", dash.rank or "—")
+        ui:info("Playtime", dash.played or "—")
+        ui:info("Leaderboard", dash.board or "Waiting for the server")
+        ui:note("F4 opens your full stats, the top 10, server rules and links.")
+        ui:separator()
+        ui:card("RACES", "Pick a track, race settings and player count")
+        ui:info("Multiplayer", "Throwdowns > Cocojambo Deathraces; choose a track, racer limit and grid time")
+        ui:info("Solo", "Skate to a yellow challenge beacon and press F8")
+    elseif section == 2 then
+        ui:card("RACE CONTROLS", "Keyboard and controller actions are rebindable in Binds")
+        ui:info("F7", "Open Track Studio (staff)")
+        ui:info("F5 / F6", "Select a track or gate")
+        ui:info("F8 / LB+RB+A", "Start a nearby challenge; in Track Studio, create a track or place a gate")
+        ui:info("F9", "Delete the selected gate, or track from Track Studio")
+        ui:info("6 / LB+RB+X", "Edit the selected track, or move the selected gate to your position")
+        ui:info("7", "Toggle challenge in the library; circuit/sprint while editing")
+        ui:info("1–5", "Choose an edit mode and adjust the selected gate")
+        ui:info("F10", "Close Track Studio, leave a race, or close results")
+        ui:separator()
+        ui:card("HUD CONTROLS", "")
+        ui:info("F4", "Open or close your stats and leaderboard panel")
+        ui:info("F8", "Start a marked solo challenge near its beacon")
+    else
+        ui:card("HUD SETTINGS", "Personal display preferences")
+        local changed = false
+        local corner = ui:toggle("corner", "Points chip (points, rank, time played)", settings.corner)
+        if corner ~= settings.corner then settings.corner, changed = corner, true end
+        local side = 1
+        if settings.side == "right" then side = 2 end
+        local pick = ui:dropdown("side", "Points chip on the (panel opens on the other side)", {"Left", "Right"}, side)
+        if SIDES[pick] ~= settings.side then settings.side, changed = SIDES[pick], true end
+        local toasts = ui:toggle("toasts", "Notes from the server at the top of the screen", settings.toasts)
+        if toasts ~= settings.toasts then settings.toasts, changed = toasts, true end
+        local scale = ui:slider("scale", "HUD size", settings.scale, 0.6, 1.4, "%.1f")
+        if math.abs(scale - settings.scale) > 0.001 then settings.scale, changed = scale, true end
+        if ui:button("reset", "Back to the defaults") then
+            for k, v in pairs(DEFAULTS) do settings[k] = v end
+            changed = true
+        end
+        if changed then save() end
     end
-    if changed then save() end
 end)
 
 return settings

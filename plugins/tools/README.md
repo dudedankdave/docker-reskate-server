@@ -12,8 +12,9 @@ In the COCOJAMBO look of the website:
 - **F4** opens the panel on the other side: your stats, the board (top 10), the server's rules and links.
 - **Notes** from the server at the top of the screen instead of chat lines.
 
-Both step aside while a menu or another screen is open. Insert > PLUGINS > **COJA tools**: turn the chip and the
-notes on or off, put the chip on the left or the right, and set the HUD's size.
+Both step aside while a menu or another screen is open. Insert > PLUGINS > **COJA tools** has dashboard,
+controls help and settings tabs. The dashboard shows your server stats; settings control the chip, notes,
+side and size.
 
 ## Races
 
@@ -22,8 +23,8 @@ them in order, and a gate only counts when you go through its frame the right wa
 
 ### Race
 
-1. Open **Throwdowns** and pick **Cocojambo Race**. Choose the track, the laps (circuits only) and
-   how many racers.
+1. Open **Throwdowns** and pick **Cocojambo Deathraces**. Choose a track, racer limit, grid time, and
+   laps for a circuit.
 2. Place the flag. It shows on the map like every throwdown flag, with the track, laps and gates on
    its card. Other players join it as usual; everyone on the flag sees the track's gates.
 3. Press **Start**. Everyone is put on the grid behind the start gate. Five red lights come on one
@@ -49,14 +50,16 @@ can make, change or delete them. Everyone gets them when they join.
 
 | Key | |
 |---|---|
-| **F7** | Track list (new, edit, challenge on/off, delete); while editing: save |
-| **F8** | New gate where you stand, facing the way you skate, after the selected one |
-| **F9** | Delete the selected gate |
-| **F5 / F6** | Select the previous / next gate |
-| **6** | Move the selected gate to where you stand |
-| **1** | Switch what 2/3/4/5 do: MOVE (back/forward, left/right), HEIGHT & TURN (down/up, turn 15°), SIZE (lower/taller, narrower/wider) |
-| **7** | Circuit (gate 1 is start and finish, laps) or sprint (the last gate is the finish) |
-| **F10** | Close the editor |
+| **F7** | Open or close Track Studio; while editing, save the track |
+| **F5 / F6** | Select a track in the library or a gate while editing |
+| **F8** | New track in the library; add a gate while editing; start a nearby challenge outside the editor |
+| **6** | Edit the selected track in the library; move the selected gate while editing |
+| **7** | Toggle a challenge in the library; switch circuit/sprint while editing |
+| **F9** | Delete the selected track or gate, depending on the screen |
+| **1** | Switch what 2/3/4/5 do: MOVE, HEIGHT & TURN, or SIZE |
+| **F10** | Close Track Studio |
+
+Controller: **LB+RB+A** creates a track or places a gate, and **LB+RB+X** edits a track or moves the selected gate. Rebind either combo on ReSkate's Binds page.
 
 Gate 1 is the start. Place it facing the way the race goes: the grid faces where you faced. A gate stands on the
 ground under you, also when you place it mid-air. Moving a challenge's gates starts its times over. The selected gate is yellow; the arrows show the way through each

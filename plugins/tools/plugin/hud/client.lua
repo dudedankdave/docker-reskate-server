@@ -244,4 +244,17 @@ settings.status = function()
     return "Not on a COCOJAMBO server"
 end
 
+settings.dashboard = function()
+    local stats = me and me.stats or {}
+    local rank = stats.rank and ("#" .. tostring(stats.rank) .. (stats.of and (" / " .. tostring(stats.of)) or "")) or "—"
+    return {
+        server = settings.status(),
+        player = me and my_name() or "Waiting for the server",
+        points = stats.points and util.thousands(stats.points) or "—",
+        rank = rank,
+        played = me and util.duration(played()) or "—",
+        board = top and util.one_line(top.board or "Current board", 32) or "Waiting for the server",
+    }
+end
+
 return hud

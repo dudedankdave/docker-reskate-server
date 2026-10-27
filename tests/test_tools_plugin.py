@@ -45,7 +45,8 @@ class PackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             target = build.build(PLUGIN, pathlib.Path(out))
             names = set(zipfile.ZipFile(target).namelist())
-        self.assertEqual(target.name, "TOOLS-1.0.0.zip")
+        manifest = json.loads((PLUGIN / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(target.name, "TOOLS-%s.zip" % manifest["version_number"])
         self.assertTrue({"manifest.json", "icon.png", "README.md", "CHANGELOG.md", "reskate-plugin.json",
                          "plugin/main.lua", "plugin/version.lua", "plugin/hud/client.lua", "plugin/hud/server.lua",
                          "plugin/lib/base64.lua"} <= names, names)
@@ -352,7 +353,7 @@ class Client:
     # -- what a player does
     def ui(self, action, *args):
         self.lua.globals().fire("throwdown_ui", self.lua.table_from({
-            "action": action, "mode": "race", "args": self.lua.table_from([str(a) for a in args])}))
+            "action": action, "mode": "deathraces", "args": self.lua.table_from([str(a) for a in args])}))
 
     def key(self, action):
         self.lua.globals().fire("action", action)
@@ -397,8 +398,7 @@ def build_track(session, admin, name="Harbour Loop", circuit=True):
     admin.position = [0.0, 0.0, 0.0]
     session.settle()
     admin.key("race_editor")
-    assert admin.dialogs[-1][0] == "tracks", admin.dialogs
-    admin.ui("dialog", "tracks", "new", "", 0)
+    admin.key("gate_add")
     for gate, corner in zip(GATES, CORNERS):
         skate(session, admin, gate)
         admin.key("gate_add")
@@ -409,6 +409,7 @@ def build_track(session, admin, name="Harbour Loop", circuit=True):
     assert admin.dialogs[-1][0] == "save_track", admin.dialogs
     admin.ui("dialog", "save_track", "save", name, 0)
     session.settle()
+    admin.key("race_editor")  # close Track Studio after the save returns to its library
 
 
 def host_and_join(session, host, joiner, laps_choice=1):
@@ -441,11 +442,11 @@ class RaceTest(unittest.TestCase):
             self.assertFalse([c for c in client.calls if c.startswith("log ")], client.name)
 
     def test_loading_registers_the_mode_and_its_keys(self):
-        self.assertIn("mode race", self.a.calls)
+        self.assertIn("mode deathraces", self.a.calls)
         self.assertIn("bind race_editor F7", self.a.calls)
         self.assertIn("bind adjust_right 5", self.a.calls)   # the game keeps Alt for itself
         self.assertIn("bind hud_panel F4", self.a.calls)
-        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 14, "at most 16 actions")
+        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 16, "at most 16 actions")
 
     def test_the_server_tells_players_whether_they_are_staff(self):
         self.session.settle()
@@ -536,11 +537,11 @@ class RaceTest(unittest.TestCase):
         self.session.step()
         rows = self.a.doc["setup"]["rows"]
         self.assertEqual(rows[0]["options"], ["Harbour Loop"])
-        self.assertEqual(rows[2]["id"], "laps", "a circuit has laps")
+        self.assertEqual(rows[3]["id"], "laps", "a circuit has laps")
         host_and_join(self.session, self.a, self.b)
         self.session.settle(6)
         flag = self.b.doc["flags"][0]
-        self.assertEqual([s["title"] for s in flag["stats"]], ["TRACK", "LAPS", "GATES"], "its card on the map")
+        self.assertEqual([s["title"] for s in flag["stats"]], ["TRACK", "SETUP", "GATES"], "its card on the map")
         self.assertEqual(flag["players"], 2)
 
     def test_without_a_track_the_flag_is_let_go(self):
@@ -868,6 +869,7 @@ class HudTest(unittest.TestCase):
     def test_the_settings_page_builds_and_keeps_a_change(self):
         lua = self.a.lua
         ui = lua.eval("""{
+            tabs = function() return 3 end,
             card = function() end, info = function() end, note = function() end, separator = function() end,
             toggle = function(_, id, text, on) if id == "corner" then return false end return on end,
             dropdown = function(_, id, text, choices, chosen) return 2 end,
