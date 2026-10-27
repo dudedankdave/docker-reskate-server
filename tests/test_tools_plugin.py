@@ -213,6 +213,13 @@ reskate = {
             return {position = vector.create(c.x, c.y, 0), left = c.left, over_screen = true}
         end,
         pad_bits = function() return py.pad_bits() end,
+        gamepad = function()
+            local buttons = {}
+            for _, name in ipairs({"a", "b", "x", "y", "up", "down", "left", "right", "lb", "rb", "start", "back"}) do
+                buttons[name] = py.pad_button(name)
+            end
+            return {buttons = buttons, left_x = 0, left_y = 0}
+        end,
         game_buttons = function(mask) py.call("game_buttons " .. mask) end,
         hide = function(flags) py.call("hide " .. tostring(next(flags or {}) ~= nil)) end,
         game_keys = function(keys)
@@ -291,7 +298,8 @@ class Client:
         self.can_move = True     # the server's copy: whether reskate.server.move moves players
         self.keys_down = set()   # Windows virtual-key codes held
         self.cursor = None       # reskate.input.cursor: {x, y, left} in screen pixels, or none (no cursor)
-        self.pad_bits = 0        # the controller's buttons, XInput bits
+        self.pad_bits = 0        # the controller's buttons, XInput bits (None: pad_bits has nothing, as under a screen)
+        self.pad_buttons = set()  # reskate.input.gamepad().buttons held, by name
         self.calls, self.toasts, self.doc, self.dialogs, self.oversize = [], [], {}, [], []
         self.shapes = 0
         self.menu_open = False
@@ -303,6 +311,7 @@ class Client:
             "key_down": lambda code: code in self.keys_down,
             "cursor": lambda: self.lua.table_from(self.cursor) if self.cursor else None,
             "pad_bits": lambda: self.pad_bits,
+            "pad_button": lambda name: name in self.pad_buttons,
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
             "source": lambda name: luau_to_lua((PLUGIN / "plugin" / (name + ".lua")).read_text(encoding="utf-8")),
@@ -889,6 +898,30 @@ class RaceTest(unittest.TestCase):
         self.assertEqual(self.a.to_py(self.a.state("editor"))["track"]["name"], "Harbour Loop")
         self.tap(self.a, bit=0x2000)                             # B closes
         self.assertFalse(menu_lua.open)
+
+    def test_the_controller_works_the_menu_through_gamepad_under_its_screen(self):
+        build_track(self.session, self.a)
+        menu_lua = self.a.lua.globals().require("hud/menu")
+        self.a.pad_bits = None
+        self.a.key("coja_menu")
+        self.assertLess(self.a.calls.index("competition true"), self.a.calls.index("hold true"), "stock physics first")
+        self.session.step()
+        def press(name):
+            self.a.pad_buttons = {name}
+            self.session.step()
+            self.a.pad_buttons = set()
+            self.session.step()
+        for name in ("rb", "rb", "rb"):
+            press(name)
+        self.assertEqual(menu_lua.state().tab, "TRACK STUDIO")
+        press("down")
+        press("down")
+        press("a")
+        self.session.step()
+        self.assertEqual(self.a.to_py(self.a.state("editor"))["track"]["name"], "Harbour Loop")
+        press("b")
+        self.assertFalse(menu_lua.open)
+        self.assertIn("competition false", self.a.calls)
 
     def test_the_mouse_works_the_menu_where_the_game_gives_a_cursor(self):
         build_track(self.session, self.a)

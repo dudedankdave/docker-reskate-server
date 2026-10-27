@@ -20,6 +20,8 @@ local theme = require("lib/theme")
 local draw = require("hud/draw")
 
 local menu = {open = false}
+-- Whether the plugin's races have the skater now (set by them): the menu then leaves its physics and hold alone.
+menu.busy = function() return false end
 local V = draw.V
 local now = reskate.time.now
 local W, PAD = 760, 26
@@ -276,8 +278,9 @@ local function read_mouse(d)
         mouse.seen = false
         return
     end
-    local x = tonumber(c.x or (type(c.position) == "table" and c.position.x) or c[1])
-    local y = tonumber(c.y or (type(c.position) == "table" and c.position.y) or c[2])
+    local at = c.position   -- a vector (not a table) in window pixels
+    local x = tonumber(at and at.x or c.x)
+    local y = tonumber(at and at.y or c.y)
     if not x or not y or c.over_screen == false or x < 0 or y < 0 then
         mouse.seen = false
         return
@@ -294,6 +297,8 @@ end
 local KEYS = {up = 0x26, down = 0x28, left = 0x25, right = 0x27, press = 0x0D, space = 0x20, tab = 0x09, close = 0x1B}
 local PAD_BITS = {up = 0x0001, down = 0x0002, left = 0x0004, right = 0x0008, prev_tab = 0x0100, next_tab = 0x0200,
                   press = 0x1000, close = 0x2000}
+local PAD_NAMES = {up = "up", down = "down", left = "left", right = "right", prev_tab = "lb", next_tab = "rb",
+                   press = "a", close = "b"}   -- reskate.input.gamepad().buttons
 local was = {}
 
 local function held()
@@ -302,16 +307,17 @@ local function held()
         local ok, down = pcall(reskate.input.key, code)
         if ok and down == true then now_down[name == "space" and "press" or name] = true end
     end
+    -- while our screen is open pad_bits has nothing (the screen has the pad): gamepad() names its buttons
     local ok, bits = pcall(reskate.input.pad_bits)
-    if ok and type(bits) ~= "number" then
-        local ok_pad, pad = pcall(reskate.input.gamepad)
-        bits = ok_pad and type(pad) == "table" and tonumber(pad.buttons or pad.bits) or nil
-        tell("pad", "pad_bits: " .. json(bits) .. ", gamepad: " .. json(pad))
-    end
-    if type(bits) == "number" then
-        if bits ~= 0 then tell("pad seen", "pad_bits while held: " .. bits) end
+    if ok and type(bits) == "number" then
         for name, bit in pairs(PAD_BITS) do
             if (bits // bit) % 2 == 1 then now_down[name] = true end
+        end
+    else
+        local ok_pad, pad = pcall(reskate.input.gamepad)
+        local buttons = ok_pad and type(pad) == "table" and type(pad.buttons) == "table" and pad.buttons or {}
+        for name, button in pairs(PAD_NAMES) do
+            if buttons[button] == true then now_down[name] = true end
         end
     end
     return now_down
@@ -365,9 +371,13 @@ local function hold_input(on, renew)
         try("game_buttons", 0)
         try("hide", {})
     end
-    if not renew then   -- the skater held on opening, let go on closing: once each, not every tick
+    -- the skater held on opening, let go on closing: once each, not every tick. A hold needs the game's stock
+    -- physics; a race (menu.busy) has its own, so it is left alone then.
+    if not renew and not menu.busy() then
+        if on then pcall(reskate.physics.competition, true) end
         local ok, a, b = pcall(reskate.skater.hold, on)
         results[#results + 1] = "skater.hold=" .. tostring(ok) .. " " .. tostring(a) .. (b and (" " .. tostring(b)) or "")
+        if not on then pcall(reskate.physics.competition, false) end
     end
     tell("hold " .. tostring(on), "hold input " .. tostring(on) .. ": " .. table.concat(results, ", "))
 end

@@ -1440,6 +1440,7 @@ end
 
 local menu = require("hud/menu")
 close_menu = menu.close
+menu.busy = function() return race ~= nil end
 menu.on_report(function(text) diag("F5 menu: " .. text) end)
 -- The stats card (F4), as the menu's first tab.
 menu.tab("STATS", function(ui)

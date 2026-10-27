@@ -2,6 +2,14 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.1.12
+
+- The mouse works in the COJA menu: the cursor's position is a vector, which 0.1.11 did not read.
+- The d-pad works in it again: under the menu's screen the pad comes through `reskate.input.gamepad()`'s named
+  buttons, not `pad_bits`.
+- The skater is held while it is open: the game's stock physics are switched on first, as a hold needs (not during
+  a race, which has its own).
+
 ## 0.1.11
 
 Built against ReSkate's own plugin API source (Dingo-Shenanigans/ReSkate) instead of guesses:
