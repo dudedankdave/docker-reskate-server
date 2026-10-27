@@ -1,6 +1,6 @@
 {
     "name": "TOOLS",
-    "version_number": "0.1.12",
+    "version_number": "0.1.13",
     "website_url": "https://github.com/dudedankdave/docker-reskate-server/tree/main/plugins/tools",
     "description": "COJA tools for the COCOJAMBO ReSkate servers: a HUD with your points, rank and time played, a panel (F4) with the board and the server's links, notes from the server, and neon gate races as a throwdown mode with an in-game track editor.",
     "dependencies": []

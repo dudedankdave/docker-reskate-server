@@ -521,6 +521,10 @@ local function publish()
     if #flags > 0 then doc.flags = flags end
     if race and race.phase ~= "done" then
         doc.match = {markers = true, teleports = true, in_activity = true, input_lock = race.phase == "start" and race.placed}
+        -- The game lets a mode teleport (the line-up) on a server without noclip only while its match asks for it
+        -- and its HUD is active or it holds the flag; the flag is left at the start, so the HUD (drawn by the
+        -- plugin itself, no native slots) is what keeps it allowed.
+        doc.hud = {active = true}
     end
     local ok, why = pcall(R.throwdowns.ui, doc)
     if not ok then R.log("could not publish throwdown UI: " .. tostring(why)) end

@@ -210,7 +210,7 @@ reskate = {
         cursor = function()
             local c = py.cursor()
             if not c then return nil end
-            return {position = vector.create(c.x, c.y, 0), left = c.left, over_screen = true}
+            return {position = vector.create(c.x, c.y, 0), left = c.left, over_screen = false}
         end,
         pad_bits = function() return py.pad_bits() end,
         gamepad = function()
@@ -653,6 +653,7 @@ class RaceTest(unittest.TestCase):
         for client in (self.a, self.b):
             self.assertLess(client.position[0], 20, client.name + " is on the grid behind the start")
             self.assertTrue(client.doc["match"]["input_lock"], "held for the lights")
+            self.assertTrue(client.doc["hud"]["active"], "teleports are the mode's while its HUD is active")
             self.assertIn("competition true", client.calls)
         self.assertNotEqual(self.a.position, self.b.position, "side by side")
         for client in (self.a, self.b):   # gate 1 is gone through along +x: heading pi/2 faces (sin, cos) = (1, 0)

@@ -281,7 +281,8 @@ local function read_mouse(d)
     local at = c.position   -- a vector (not a table) in window pixels
     local x = tonumber(at and at.x or c.x)
     local y = tonumber(at and at.y or c.y)
-    if not x or not y or c.over_screen == false or x < 0 or y < 0 then
+    -- (over_screen is about a game panel under the cursor: a screen without a panel has none, so it is false)
+    if not x or not y or x < 0 or y < 0 then
         mouse.seen = false
         return
     end

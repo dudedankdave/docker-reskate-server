@@ -2,6 +2,13 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.1.13
+
+- The mouse works in the COJA menu: the game reports `over_screen = false` for a screen without a panel (it means
+  "over a game panel"), which 0.1.12 took for the cursor being off the screen.
+- Line-up teleports are allowed on a server without noclip too: a race publishes an active HUD, which the game
+  requires (with `match.teleports`) once the flag is left.
+
 ## 0.1.12
 
 - The mouse works in the COJA menu: the cursor's position is a vector, which 0.1.11 did not read.
