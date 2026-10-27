@@ -2,6 +2,16 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.13
+
+- Fixed (0.2.12): setting up a Throwdown race failed again. The game goes through a setup step (hidden for a flag
+  placed from F5) before placing a flag, and 0.2.12 let go of any registration of ours not placing after 5 s, which
+  took that step away. Only a placed flag waiting with no race of ours on it is let go now.
+- Controller: **LB+RB+B** leaves a race, stops a challenge or closes the results, as F10 does; **LB+RB+A** (already
+  there) runs the challenge you stand at, as F8 does. The prompts and F5 > SETTINGS say so.
+- Rolling start for challenges: staff switch it on per challenge in F5 > ADMIN > Track Studio. Skating through its
+  start gate then runs it at once (no line-up, no countdown, the clock from the gate); F8 still runs it with the grid.
+
 ## 0.2.12
 
 - Fixed: after quitting a race, a new custom Throwdown race could not be set up. A setup page closed without its

@@ -158,7 +158,7 @@ local function clean_track(t)
         best = {n = tostring(t.best.n or "?"):sub(1, 32), ms = t.best.ms}
     end
     return {id = type(t.id) == "string" and t.id:sub(1, 40) or nil, name = name, author = tostring(t.author or ""):sub(1, 40),
-            circuit = circuit, gates = gates, challenge = t.challenge == true, best = best}
+            circuit = circuit, gates = gates, challenge = t.challenge == true, rolling = t.rolling == true or nil, best = best}
 end
 
 -- On the wire a gate is a list, {x, y, z, nx, nz, w, h, heading}: a race of 40 gates and 10
@@ -166,7 +166,8 @@ end
 local function pack(t)
     local gates = {}
     for i, g in ipairs(t.gates) do gates[i] = {g.p[1], g.p[2], g.p[3], g.n[1], g.n[2], g.w, g.h, g.heading} end
-    return {id = t.id, name = t.name, author = t.author, circuit = t.circuit, challenge = t.challenge or nil, best = t.best, g = gates}
+    return {id = t.id, name = t.name, author = t.author, circuit = t.circuit, challenge = t.challenge or nil, rolling = t.rolling or nil,
+            best = t.best, g = gates}
 end
 
 local function unpack_track(t)
@@ -176,7 +177,8 @@ local function unpack_track(t)
         if type(g) ~= "table" then return nil end
         gates[i] = {p = {g[1], g[2], g[3]}, n = {g[4], g[5]}, w = g[6], h = g[7], heading = g[8]}
     end
-    return clean_track({id = t.id, name = t.name, author = t.author, circuit = t.circuit, challenge = t.challenge, best = t.best, gates = gates})
+    return clean_track({id = t.id, name = t.name, author = t.author, circuit = t.circuit, challenge = t.challenge, rolling = t.rolling,
+                        best = t.best, gates = gates})
 end
 
 -- Whether moving from `a` to `b` went through gate `g` the right way: `b` is past the gate's plane,
@@ -313,6 +315,7 @@ local function server_main()
     end
 
     -- Staff mark a track as a challenge: its start shows a marker to everyone, and F8 there runs it alone, timed.
+    -- `rolling` toggles its rolling start instead: skating through its start gate runs it, no grid, no countdown.
     function handlers.challenge(from, m)
         if not staff(from) then
             send(from.id, {t = "refused", why = "Only admins set challenges."})
@@ -321,9 +324,14 @@ local function server_main()
         local list = tracks_of(m.map)
         for _, t in ipairs(list) do
             if t.id == m.id then
-                t.challenge = not t.challenge
+                if m.rolling then
+                    t.rolling = not t.rolling or nil
+                    if t.rolling then t.challenge = true end
+                else
+                    t.challenge = not t.challenge
+                end
                 R.storage.set(key(m.map), list)
-                send(from.id, {t = "challenge_set", name = t.name, on = t.challenge})
+                send(from.id, {t = "challenge_set", name = t.name, on = t.challenge, rolling = t.rolling == true})
                 send_tracks("all", m.map)
                 return
             end
@@ -1013,7 +1021,8 @@ function from_server.saved(m)
     toast("Track \"" .. tostring(m.name) .. "\" saved for everyone.")
 end
 function from_server.challenge_set(m)
-    toast(m.on and ("\"" .. tostring(m.name) .. "\" is a challenge: its start has a marker, F8 there runs it.")
+    toast(m.on and ("\"" .. tostring(m.name) .. "\" is a challenge" .. (m.rolling and " with a rolling start: skating through its start gate runs it."
+                    or ": its start has a marker, F8 or LB+RB+A there runs it."))
           or ("\"" .. tostring(m.name) .. "\" is no challenge any more."))
 end
 function from_server.challenge_result(m)
@@ -1270,6 +1279,8 @@ local function challenge_key()
     if t then start_challenge(t) end
 end
 
+local leave_key   -- F10's (defined with the Throwdowns events below)
+
 local function edit_key(name)
     if name == "race_editor" then
         if race or host or joined then return toast("Not during a race.", "warn") end
@@ -1317,7 +1328,8 @@ local function edit_key(name)
         return
     end
     if not editor then
-        if name == "gate_add" then challenge_key() end
+        if name == "gate_add" then challenge_key()
+        elseif name == "gate_delete" and (race or host or joined) then leave_key() end   -- LB+RB+B: as F10
         return
     end
     local gates, sel = editor.track.gates, editor.sel
@@ -1549,7 +1561,9 @@ local function watch_flag(t)
     -- The setup page is gone once nothing is registered: a page closed without its `setup_back` (Esc, a quit)
     -- must not leave us thinking it is open, which keeps us from letting a stale registration go.
     if setup_open and not st.busy then setup_open = false end
-    local ours_unused = st.busy and st.mode ~= nil and not st.placing and not host and not joined and not setup_open
+    -- Only a placed flag waiting with no race of ours on it: the steps before placing (the card's setup page, even
+    -- the hidden one a flag placed from F5 goes through) are the game's, and a card replaces an abandoned one itself.
+    local ours_unused = st.busy and st.waiting and st.mode ~= nil and not st.placing and not host and not joined
     if not ours_unused then
         flag_stale_since = nil
     elseif not flag_stale_since then
@@ -1561,7 +1575,7 @@ local function watch_flag(t)
     end
 end
 
-local function leave_key()
+leave_key = function()
     if race then
         leave_race()
     elseif joined then
@@ -1737,10 +1751,14 @@ local function studio_tab(ui)
             local t = admin_track()
             if t then
                 ui:info("Gates", string.format("%d  ·  %s  ·  %s", #t.gates, t.circuit and "circuit" or "sprint",
-                    t.challenge and "a challenge" or "no challenge"))
+                    t.challenge and (t.rolling and "a challenge, rolling start" or "a challenge") or "no challenge"))
                 if ui:button("studio_edit", "Edit this track") then edit_track(t) end
                 if ui:button("studio_challenge", t.challenge and "Stop it being a challenge" or "Make it a challenge") then
                     send("server", {t = "challenge", map = map_key(), id = t.id})
+                end
+                if t.challenge and ui:button("studio_rolling", t.rolling and "Rolling start: on (skate through the start)"
+                                             or "Rolling start: off (grid and countdown)") then
+                    send("server", {t = "challenge", map = map_key(), id = t.id, rolling = true})
                 end
                 if ui:button("studio_delete", "Delete this track") then ask_delete(t) end
             end
@@ -1879,8 +1897,8 @@ menu.tab("SETTINGS", function(ui)
     ui:info("Enter · Space · A", "Press")
     ui:info("Tab · LB / RB", "Next / previous tab")
     ui:info("F4", "Your stats card")
-    ui:info("F8", "Run the challenge you stand at")
-    ui:info("F10", "Leave a race, close the results")
+    ui:info("F8 · LB+RB+A", "Run the challenge you stand at (a rolling one: just skate through its start)")
+    ui:info("F10 · LB+RB+B", "Leave a race, stop a challenge, close the results")
 end)
 
 R.on("action", function(name)
@@ -2129,7 +2147,8 @@ local function draw_challenges(d, w, h, k)
     local near = challenge_near(CHALLENGE_REACH)
     if near then
         panel(d, w / 2 - 300 * k, h * 0.74, 600 * k, 64 * k)
-        text(d, w / 2, h * 0.74 + 10 * k, "F8  start the challenge: " .. near.name, {colour = theme.sun, size = 24, align = "centre", font = "bold"})
+        text(d, w / 2, h * 0.74 + 10 * k, (near.rolling and "SKATE THROUGH THE GATE, OR F8 / LB+RB+A:  " or "F8 / LB+RB+A  start the challenge: ") .. near.name,
+            {colour = theme.sun, size = 24, align = "centre", font = "bold"})
         text(d, w / 2, h * 0.74 + 38 * k, near.best and ("record " .. clock_text(near.best.ms) .. " by " .. near.best.n) or "no record yet - set one",
             {colour = theme.muted, size = 17, align = "centre", font = "body"})
     end
@@ -2203,6 +2222,39 @@ local function poll_editor_keys()
     end
 end
 
+-- A rolling start: skating through a rolling challenge's start gate runs it there and then, no grid and no
+-- countdown; its clock starts at that gate, as every challenge's does.
+local rolling_last = nil
+local function start_rolling(track, at, pos)
+    local my_id, my_name = me()
+    race = {
+        id = "challenge:" .. my_id .. ":" .. math.floor(at), host = my_id, me = my_id, track = track, laps = 1,
+        racers = {[my_id] = {name = my_name, n = 0, at_ms = 0}}, order = {my_id}, phase = "running", grid_delay = 0,
+        go_at = at, counted_from = at, next = 1, seq = course(track, 1), placed = true, tp_until = at,
+        last_pos = pos, last_at = at, challenge = true, rolling = true,
+    }
+    pcall(R.physics.competition, true)
+    passed(at)
+    sound("go")
+    toast("Challenge: " .. track.name .. (track.best and ("  -  record " .. clock_text(track.best.ms) .. " by " .. track.best.n) or "")
+          .. ". F10 or LB+RB+B stops.")
+end
+local function watch_rolling(t)
+    if race or host or joined or editor or menu.open then
+        rolling_last = nil
+        return
+    end
+    local ok, pos = pcall(R.skater.position)
+    if not ok or not pos then return end
+    local last = rolling_last
+    rolling_last = pos
+    if not last or distance(last, pos) > 25 then return end   -- a teleport is no run through the gate
+    for _, track in ipairs(tracks) do
+        local g = track.rolling and track.challenge and not track.loading and track.gates[1]
+        if g and distance(pos, v3(g.p)) < 40 and crossed(g, last, pos) then return start_rolling(track, t, pos) end
+    end
+end
+
 R.on("tick", function()
     local t = now()
     flush()
@@ -2228,6 +2280,7 @@ R.on("tick", function()
     if host and t - host.last_offer >= OFFER_EVERY_MS then broadcast_offer() end
     if race then race_tick(t) end
     watch_flag(t)
+    watch_rolling(t)
     scan_tick()
     if menu.open and menu.state().tab == "HOME" and hud and hud.on_server() then hub.refresh(hud.my_name()) end
     publish()

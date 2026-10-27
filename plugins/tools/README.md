@@ -68,14 +68,17 @@ not on the board yet.
 5. The results page shows positions, times, gaps or best laps once everyone finished, one minute
    after the winner, or after 15 minutes.
 
-**F10** leaves the race, a flag you joined, or closes the results.
+**F10** (controller: **LB+RB+B**) leaves the race, a flag you joined, or closes the results.
 
 ### Challenges
 
 A track an admin marks as a **challenge** is there all the time, no host needed: its start has a sun-yellow
-beacon with the track's name and record over it. Skate to it and press **F8** (or **Run** in F5 > RACES): the game counts down and you race
+beacon with the track's name and record over it. Skate to it and press **F8** (controller: **LB+RB+A**, or **Run** in F5 > RACES): the game counts down and you race
 it alone, timed. The server keeps each challenge's top 10 (every player's best), tells you your time and place,
-and tells everyone when the record falls. **F10** stops a run.
+and tells everyone when the record falls. **F10** (**LB+RB+B**) stops a run.
+
+A challenge with a **rolling start** (F5 > ADMIN > Track Studio: "Rolling start") also runs when you just skate
+through its start gate: no line-up, no countdown, the clock starts at the gate.
 
 On the in-game map every challenge is a flag too: its card names the challenge, its record and its gates, and
 **Enroll** runs it. The game only shows flags led by another player, so they show once someone else is on the server.

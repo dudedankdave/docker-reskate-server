@@ -788,6 +788,26 @@ class RaceTest(unittest.TestCase):
         self.assertIsNone(self.b.tracks()[0].get("best"))
         self.assertTrue(self.b.tracks()[0]["challenge"], "it stays a challenge")
 
+    def test_a_rolling_challenge_starts_by_skating_through_its_start(self):
+        build_track(self.session, self.a)
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "challenge", "", 1)
+        self.session.settle()
+        self.assertIn("button studio_rolling", menu(self.a, "ADMIN", click="studio_rolling"))
+        self.session.settle()
+        self.assertTrue(self.b.tracks()[0].get("rolling"), self.b.tracks()[0])
+        self.b.position = [10.0, 0.0, 0.0]
+        skate(self.session, self.b, (16.0, 0.0, 0.0))
+        self.assertIsNone(self.b.race(), "not through the gate yet")
+        skate(self.session, self.b, (24.0, 0.0, 0.0))
+        race = self.b.race()
+        self.assertIsNotNone(race, "through the start gate: the run is on")
+        self.assertEqual(race.phase, "running", "no grid, no countdown")
+        self.assertIsNotNone(race.started_at, "the clock from the start gate")
+        self.assertNotIn("teleport", " ".join(self.b.calls))
+        self.b.key("gate_delete")   # LB+RB+B, as F10
+        self.assertIsNone(self.b.race())
+
     def test_f8_on_the_keyboard_starts_a_challenge(self):
         build_track(self.session, self.a)
         self.a.key("race_editor")
@@ -1139,6 +1159,14 @@ class RaceTest(unittest.TestCase):
         for _ in range(80):
             self.session.step()
         self.assertNotIn("flag leave", self.a.calls, "placing: in use")
+
+    def test_a_flag_on_its_way_to_placing_is_left_alone(self):
+        self.session.settle()
+        # F5's "Place the race flag": the game goes through a hidden setup step before placing, mode ours
+        self.a.flag_state = {"busy": True, "owned": True, "waiting": False, "placing": False, "mode": "deathraces"}
+        for _ in range(150):
+            self.session.step()
+        self.assertNotIn("flag leave", self.a.calls)
 
     def test_a_setup_page_closed_without_back_does_not_block_the_next_race(self):
         self.session.settle()
