@@ -1516,6 +1516,34 @@ R.on("throwdown_ui", function(e)
     publish()
 end)
 
+-- The game has one throwdown flag registration for every mode: while one is open, no card on the Throwdowns page
+-- opens (kit::flag::begin refuses), ours or anyone's. One of ours left open with nothing of ours using it (no race
+-- hosted or joined, no setup page, no placing) is let go after 5 s. Every change of it goes to the server's log.
+local FLAG_STALE_MS = 5000
+local flag_seen, flag_stale_since, flag_checked = nil, nil, 0
+local function watch_flag(t)
+    if t - flag_checked < 1000 then return end
+    flag_checked = t
+    local ok, st = pcall(function() return R.throwdowns.flag.state() end)
+    if not ok or type(st) ~= "table" then return end
+    local seen = string.format("busy=%s owned=%s waiting=%s placing=%s mode=%s", tostring(st.busy), tostring(st.owned),
+        tostring(st.waiting), tostring(st.placing), tostring(st.mode))
+    if seen ~= flag_seen then
+        flag_seen = seen
+        diag("flag " .. seen)
+    end
+    local ours_unused = st.busy and st.mode ~= nil and not st.placing and not host and not joined and not setup_open
+    if not ours_unused then
+        flag_stale_since = nil
+    elseif not flag_stale_since then
+        flag_stale_since = t
+    elseif t - flag_stale_since >= FLAG_STALE_MS then
+        flag_stale_since = nil
+        pcall(R.throwdowns.flag.leave)
+        diag("flag: let go of a registration nothing of ours used")
+    end
+end
+
 local function leave_key()
     if race then
         leave_race()
@@ -2162,6 +2190,7 @@ R.on("tick", function()
     end
     if host and t - host.last_offer >= OFFER_EVERY_MS then broadcast_offer() end
     if race then race_tick(t) end
+    watch_flag(t)
     scan_tick()
     if menu.open and menu.state().tab == "HOME" and hud and hud.on_server() then hub.refresh(hud.my_name()) end
     publish()

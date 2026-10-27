@@ -65,6 +65,13 @@ test server. Each point says where it is in that source, so it can be checked ag
   3-2-1-GO: it shows the digits for the last 3 s of the clock and GO for under a second once the match plays
   (`native_hud_selection.h`, `HudCountdownLifecycle`); `hud.intro = {title, rules, until_ms}` is its card before.
 
+## One flag registration for all modes
+
+- The game has a single throwdown flag registration (`native_flag_session.cpp`, `kit::flag::begin`): clicking any
+  mode's card begins it, and `begin` refuses while one is open (waiting, placing, a placed flag, cleanup). One left
+  open blocks every card on the Throwdowns page. `reskate.throwdowns.flag.state()` gives `{busy, owned, waiting,
+  placing, mine, mode, game}`, `mode` only when it is the plugin's; `flag.leave()` lets it go.
+
 ## Flags on the map
 
 - A `flags` entry shows on *this* player's map only when its `leader` is another player here (a peer): the game then

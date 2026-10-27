@@ -189,7 +189,8 @@ reskate = {
     throwdowns = {
         mode = function(m) py.call("mode " .. m.id) return true end,
         ui = function(doc) py.publish(doc) return true end,
-        flag = {leave = function() py.call("flag leave") end},
+        flag = {leave = function() py.call("flag leave") end,
+                state = function() local st = py.flag_state() if st then return st end return {busy = false} end},
     },
     ui = {
         toast = function(text) py.toast(text) return true end,
@@ -310,6 +311,7 @@ class Client:
         self.can_move = True     # the server's copy: whether reskate.server.move moves players
         self.keys_down = set()   # Windows virtual-key codes held
         self.cursor = None       # reskate.input.cursor: {x, y, left} in screen pixels, or none (no cursor)
+        self.flag_state = None   # reskate.throwdowns.flag.state(), when set
         self.pad_bits = 0        # the controller's buttons, XInput bits (None: pad_bits has nothing, as under a screen)
         self.pad_buttons = set()  # reskate.input.gamepad().buttons held, by name
         self.calls, self.toasts, self.doc, self.dialogs, self.oversize = [], [], {}, [], []
@@ -323,6 +325,7 @@ class Client:
             "key_down": lambda code: code in self.keys_down,
             "cursor": lambda: self.lua.table_from(self.cursor) if self.cursor else None,
             "pad_bits": lambda: self.pad_bits,
+            "flag_state": lambda: self.lua.table_from(self.flag_state) if self.flag_state else None,
             "pad_button": lambda name: name in self.pad_buttons,
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
@@ -1116,6 +1119,22 @@ class RaceTest(unittest.TestCase):
         self.assertTrue(any(c.startswith("print [coco race] moved 1 track(s) from the base world bam to dingolevel_reskate_skate3improved")
                             for c in server.calls), server.calls)
         a.lua.globals().fire("unload")
+
+    def test_a_flag_registration_left_open_is_let_go(self):
+        self.session.settle()
+        self.a.flag_state = {"busy": True, "owned": True, "waiting": True, "placing": False, "mode": "deathraces"}
+        for _ in range(30):
+            self.session.step()
+        self.assertNotIn("flag leave", self.a.calls, "not before 5 s")
+        for _ in range(40):
+            self.session.step()
+        self.assertIn("flag leave", self.a.calls, "nothing of ours used it: the Throwdowns cards open again")
+        self.assertTrue(any("diag Coco: flag: let go of a registration" in c for c in self.session.server.calls))
+        del self.a.calls[:]
+        self.a.flag_state = {"busy": True, "owned": True, "waiting": False, "placing": True, "mode": "deathraces"}
+        for _ in range(80):
+            self.session.step()
+        self.assertNotIn("flag leave", self.a.calls, "placing: in use")
 
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)

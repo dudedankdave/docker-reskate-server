@@ -2,6 +2,13 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.10
+
+- Fixed: the Throwdowns cards (ours and other modes', like Deathrace) could stop opening. The game has one flag
+  registration for every mode and opens no card while one is open; one of ours could stay open after a race. The
+  plugin now lets go of a registration of ours that nothing of ours uses (no race hosted or joined, no setup page, no
+  placing) after 5 s, and logs every change of the game's flag state to the server's log.
+
 ## 0.2.9
 
 - A fair start for races: everyone stands the same distance behind the start gate, spread evenly across it (a second
