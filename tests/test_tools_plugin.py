@@ -908,7 +908,9 @@ class RaceTest(unittest.TestCase):
 
     def test_the_admin_tab_tells_the_game_s_marker_blueprints(self):
         self.session.settle()
-        menu(self.a, "ADMIN")
+        self.assertFalse([c for c in self.a.calls if "blueprints" in c], "not by just showing the tab")
+        menu(self.a, "ADMIN", click="find_markers")
+        self.session.step()
         self.session.step()
         lines = [c for c in self.session.server.calls if "diag Coco: blueprints:" in c]
         self.assertIn("print [coco race] diag Coco: blueprints: Gameplay/Challenges/ChallengeStart_Marker", lines)

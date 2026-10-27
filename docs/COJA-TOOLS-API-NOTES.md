@@ -67,6 +67,13 @@ test server. Each point says where it is in that source, so it can be checked ag
 - The hub's public JSON (reskate.cocojambo.net/status/api/: `board?league=`, `teams`, `servers`) has no Steam IDs:
   players are matched by name, and boards list their top 50.
 
+## Time and memory: what gets a plugin stopped
+
+ReSkate stops a plugin (all its binds, its menu and its drawing are gone until the game is restarted) when one call
+into it runs over 50 ms, when it averages over 2 ms a tick for 3 seconds in a row, when it uses over 64 MB, or after
+more than 5 errors in 10 s (`plugin_vm.h`, `Limits`). So big jobs (thousands of blueprints) are spread over ticks,
+and what is measured every frame (`d:measure`) is cached.
+
 ## Modules
 
 - `require` caches each module per plugin: requiring one twice returns the same table.

@@ -1465,35 +1465,49 @@ menu.tab("RACES", function(ui)
     challenges_tab(ui)
 end)
 
--- ADMIN (staff): Track Studio. The first time it is shown, the game's challenge-marker blueprints go to the server's
--- log, for showing events with skate.'s own marker.
-local blueprints_told = false
-local function tell_blueprints()
-    if blueprints_told then return end
-    blueprints_told = true
-    local ok, names = pcall(R.entities.blueprints)
+-- ADMIN (staff): Track Studio, and a search of the game's blueprints for ones that look like challenge markers (for
+-- showing events with skate.'s own marker), told to the server's log. The game has thousands: they are read a
+-- few hundred a tick, since a plugin that takes over 50 ms in one call, or 2 ms a tick for 3 s, is stopped.
+local scan = nil   -- {names, at, found}
+local function start_scan()
+    if scan then return end
+    local ok, names = pcall(function() return R.entities.blueprints() end)
     if not ok or type(names) ~= "table" then return diag("blueprints: " .. tostring(names)) end
-    local found = {}
-    for _, name in ipairs(names) do
-        local low = string.lower(tostring(name))
-        if low:find("challenge") or low:find("marker") or low:find("race") or low:find("checkpoint") then
-            found[#found + 1] = tostring(name)
+    scan = {names = names, at = 1, found = {}}
+    toast("Looking through " .. #names .. " blueprints...")
+end
+local function scan_tick()
+    if not scan then return end
+    local names, found = scan.names, scan.found
+    local last = math.min(#names, scan.at + 299)
+    for i = scan.at, last do
+        local low = string.lower(tostring(names[i]))
+        if low:find("challenge", 1, true) or low:find("marker", 1, true) or low:find("checkpoint", 1, true) then
+            found[#found + 1] = tostring(names[i])
         end
     end
+    scan.at = last + 1
+    if scan.at <= #names then return end
     diag(string.format("blueprints: %d loaded, %d look like markers", #names, #found))
     local line = ""
-    for _, name in ipairs(found) do
-        if #line + #name + 2 > 280 then
+    for i = 1, math.min(#found, 120) do
+        if #line + #found[i] + 2 > 280 then
             diag("blueprints: " .. line)
             line = ""
         end
-        line = line == "" and name or (line .. ", " .. name)
+        line = line == "" and found[i] or (line .. ", " .. found[i])
     end
     if line ~= "" then diag("blueprints: " .. line) end
+    toast(#found .. " marker blueprints told to the server's log.")
+    scan = nil
 end
 menu.tab("ADMIN", function(ui)
-    tell_blueprints()
     studio_tab(ui)
+    if not editor then
+        ui:separator()
+        ui:card("EVENT MARKERS", "Which of the game's objects could mark our events")
+        if ui:button("find_markers", scan and "Looking..." or "Log the game's marker blueprints") then start_scan() end
+    end
 end, function() return staff end)
 
 -- SETTINGS: the HUD's settings (as on Insert > PLUGINS > COJA tools) and the controls.
@@ -1889,6 +1903,7 @@ R.on("tick", function()
     end
     if host and t - host.last_offer >= OFFER_EVERY_MS then broadcast_offer() end
     if race then race_tick(t) end
+    scan_tick()
     if menu.open and menu.state().tab == "HOME" and hud and hud.on_server() then hub.refresh(hud.my_name()) end
     publish()
 end)

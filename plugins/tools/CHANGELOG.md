@@ -2,6 +2,15 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.1
+
+- Fixed: switching to the ADMIN tab could get the plugin stopped (its F-keys and the menu gone until the game is
+  restarted). The tab read all of the game's blueprints at once while drawing; ReSkate stops a plugin that takes
+  over 50 ms in one call. The search is now a button on ADMIN (**Log the game's marker blueprints**) and reads a
+  few hundred a tick.
+- The menu measures each text once and fits long texts by halving, instead of measuring every frame letter by letter
+  (ReSkate also stops a plugin that averages over 2 ms a tick for 3 s).
+
 ## 0.2.0
 
 - The COJA menu (F5) is redone with four tabs:
