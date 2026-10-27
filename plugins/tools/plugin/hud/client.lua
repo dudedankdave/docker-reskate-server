@@ -148,6 +148,8 @@ local function stats_card(d, x, y, w, corner)
     end
     return h
 end
+function hud.stats_card(d, x, y, w) return stats_card(d, x, y, w) end
+
 -- What the stats card shows, as lines for the COJA menu's STATS tab (the game's widgets): {name, role,
 -- rows = {{label, value}}, board = {title, rows = {{name, points}}} or nil, rules = {text}, links = {{label, url}}}.
 function hud.stats_lines()

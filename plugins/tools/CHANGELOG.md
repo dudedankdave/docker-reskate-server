@@ -2,6 +2,15 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.1.9
+
+- The COJA menu (F5) is our own panel in the HUD's look again, drawn over the game like the F4 card: no game
+  screen, which covered it. The **STATS** tab shows the F4 card itself.
+- Used with the keyboard (arrows, Enter or Space, Tab for the next tab, Esc closes) or a controller (d-pad, A,
+  LB/RB for the tabs, B closes); with the mouse too where the game gives a cursor.
+- While it is open the editor's keys and combos wait, and the game is asked to keep the menu's keys and buttons
+  from the skater; what it answers goes to the server log.
+
 ## 0.1.8
 
 - The COJA menu (F5) is built with the game's own widgets on its own screen: the game draws that screen over

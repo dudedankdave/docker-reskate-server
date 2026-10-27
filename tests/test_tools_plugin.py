@@ -207,6 +207,7 @@ reskate = {
             return py.key_down(code)
         end,
         cursor = function() return py.cursor() end,
+        pad_bits = function() return py.pad_bits() end,
     },
 }
 """
@@ -274,7 +275,8 @@ class Client:
         self.can_teleport = True
         self.can_move = True     # the server's copy: whether reskate.server.move moves players
         self.keys_down = set()   # Windows virtual-key codes held
-        self.cursor = {"x": 0, "y": 0, "left": False}   # reskate.input.cursor, in screen pixels
+        self.cursor = None       # reskate.input.cursor: {x, y, left} in screen pixels, or none (no cursor)
+        self.pad_bits = 0        # the controller's buttons, XInput bits
         self.calls, self.toasts, self.doc, self.dialogs, self.oversize = [], [], {}, [], []
         self.shapes = 0
         self.menu_open = False
@@ -284,7 +286,8 @@ class Client:
             "now": lambda: session.now, "encode": self.encode, "decode": self.decode, "send": self.send,
             "pos": lambda: self.lua.table_from(self.position), "teleport": self.teleport, "move": self.move,
             "key_down": lambda code: code in self.keys_down,
-            "cursor": lambda: self.lua.table_from(self.cursor),
+            "cursor": lambda: self.lua.table_from(self.cursor) if self.cursor else None,
+            "pad_bits": lambda: self.pad_bits,
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
             "source": lambda name: luau_to_lua((PLUGIN / "plugin" / (name + ".lua")).read_text(encoding="utf-8")),
@@ -786,38 +789,73 @@ class RaceTest(unittest.TestCase):
         self.session.settle()
         self.assertEqual([t["name"] for t in self.b.tracks()], ["Menu Sprint"])
 
-    def screen(self, client, tab, click=None, **choose):
-        """The game builds the open COJA screen once, on `tab`, clicking `click`; returns what it showed."""
-        shown = []
-        ui = client.lua.execute(MENU_UI, tab, click, client.lua.table_from(choose), shown.append)
-        client.lua.globals().screens["coja"](ui)
-        return shown
-
-    def test_f5_opens_the_coja_screen_with_the_stats_first(self):
-        self.session.settle()
-        menu_lua = self.a.lua.globals().require("hud/menu")
-        self.assertIn("screen coja", self.a.calls)
-        self.a.key("coja_menu")
-        self.assertIn("open coja", self.a.calls)
-        shown = self.screen(self.a, None)
-        self.assertEqual([line for line in shown if line.startswith("tab ")],
-                         ["tab STATS", "tab RACE", "tab CHALLENGES", "tab TRACK STUDIO"])
-        self.assertIn("info Rank: -", shown)
-        self.assertTrue(menu_lua.is_open())
-        self.a.key("coja_menu")
-        self.assertIn("close coja", self.a.calls)
-        self.assertFalse(menu_lua.is_open())
-        self.assertNotIn("tab TRACK STUDIO", self.screen(self.b, None), "not staff")
+    def tap(self, client, key=None, bit=None):
+        """A key (virtual-key code) or a controller button (XInput bit) pressed and let go, a tick each."""
+        if key:
+            client.keys_down.add(key)
+        if bit:
+            client.pad_bits = bit
         self.session.step()
-        widgets = [c for c in self.session.server.calls if "diag Coco: F5 menu: ui.screen widgets:" in c]
-        self.assertEqual(len(widgets), 1, self.session.server.calls)
+        client.keys_down.clear()
+        client.pad_bits = 0
+        self.session.step()
 
-    def test_a_click_on_the_screen_takes_effect(self):
+    def test_f5_opens_the_menu_over_the_game_and_every_tab_draws(self):
         build_track(self.session, self.a)
+        menu_lua = self.a.lua.globals().require("hud/menu")
         self.a.key("coja_menu")
-        self.screen(self.a, "TRACK STUDIO", click="studio_edit")
+        self.assertTrue(menu_lua.open)
+        self.assertNotIn("open coja", self.a.calls, "no game screen: it would cover the menu")
+        for tab in ("STATS", "RACE", "CHALLENGES", "TRACK STUDIO"):
+            menu_lua.show(tab)
+            before = self.a.shapes
+            self.session.step()
+            self.assertGreater(self.a.shapes - before, 20, tab)
+        self.a.key("gate_add")                                   # the editor's binds wait while it is open
+        self.assertIsNone(self.a.state("editor"))
+        self.tap(self.a, key=0x1B)                               # Esc
+        self.assertFalse(menu_lua.open)
+        reports = [c for c in self.session.server.calls if "diag Coco: F5 menu:" in c]
+        self.assertTrue(any("hold input true" in c for c in reports), reports)
+        self.assertFalse([c for c in reports if "menu tab" in c or "menu draw" in c], reports)
+
+    def test_the_keyboard_and_the_controller_work_the_menu(self):
+        build_track(self.session, self.a)
+        menu_lua = self.a.lua.globals().require("hud/menu")
+        self.a.key("coja_menu")
+        self.session.step()
+        for _ in range(3):
+            self.tap(self.a, key=0x27)                           # right, along the tab row
+        self.assertEqual(menu_lua.state().tab, "TRACK STUDIO")
+        self.tap(self.a, key=0x28)                               # down: the track choice
+        self.tap(self.a, bit=0x0002)                             # d-pad down: Edit this track
+        self.assertEqual(menu_lua.state().focus, 2)
+        self.tap(self.a, bit=0x1000)                             # A
+        self.session.step()
         self.assertEqual(self.a.to_py(self.a.state("editor"))["track"]["name"], "Harbour Loop")
-        self.assertEqual(self.a.lua.globals().require("hud/menu").state().tab, "TRACK STUDIO")
+        self.tap(self.a, bit=0x2000)                             # B closes
+        self.assertFalse(menu_lua.open)
+
+    def test_the_mouse_works_the_menu_where_the_game_gives_a_cursor(self):
+        build_track(self.session, self.a)
+        menu_lua = self.a.lua.globals().require("hud/menu")
+        self.a.key("coja_menu")
+        self.session.step()
+        self.session.step()                                      # slid in
+        def click(x, y):
+            self.a.cursor = {"x": x, "y": y, "left": False}
+            self.session.step()
+            self.a.cursor = {"x": x, "y": y, "left": True}
+            self.session.step()                                  # drawn: the click is kept
+            self.session.step()                                  # the next tick applies it
+        click(700, 170)                                          # the second tab: RACE
+        self.assertEqual(menu_lua.state().tab, "RACE")
+        menu_lua.show("TRACK STUDIO")
+        self.session.step()
+        click(620, 356)                                          # Edit this track, the first button
+        self.assertEqual(self.a.to_py(self.a.state("editor"))["track"]["name"], "Harbour Loop")
+        click(1295, 120)                                         # the X
+        self.assertFalse(menu_lua.open)
 
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)

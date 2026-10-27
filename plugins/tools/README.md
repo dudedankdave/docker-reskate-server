@@ -29,9 +29,11 @@ use **Refresh tracks** or ask staff to create a track with F7.
 
 ### The COJA menu (F5)
 
-**F5** opens the COJA menu, a screen of its own built with ReSkate's widgets and used with the mouse (F5 or Esc close it):
+**F5** opens the COJA menu, our own panel drawn over the game like the F4 card. Use the arrows (left/right on the
+tab row switch tabs, on a choice change it), Enter or Space to press and Tab for the next tab; on a controller the
+d-pad, A, and LB/RB for the tabs. Where the game gives a cursor, the mouse works too. F5, Esc or B close it.
 
-- **STATS**: what your stats card (F4) shows: points, rank, time played, the board's top 10, the server's rules and links.
+- **STATS**: your stats card, as on F4: points, rank, time played, the board's top 10, the server's rules and links.
 - **RACE**: choose the track, laps, grid time and racer count and place the flag; while
   your race waits, start it or call it off.
 - **CHALLENGES**: every challenge on the map with its record and how far its start is; **Run** puts you on its

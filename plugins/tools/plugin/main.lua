@@ -1434,6 +1434,7 @@ menu.on_report(function(text) diag("F5 menu: " .. text) end)
 -- The stats card (F4), as the menu's first tab.
 menu.tab("STATS", function(ui)
     if not (hud and hud.on_server()) then return ui:note("Your stats show once the server has answered.") end
+    if ui.custom then return ui:custom(function(d, x, y, w) return hud.stats_card(d, x, y, w) end) end
     local s = hud.stats_lines()
     ui:card(s.name, s.role and ("You  ·  " .. s.role) or "You")
     for _, r in ipairs(s.rows) do ui:info(r[1], r[2]) end
@@ -1454,6 +1455,7 @@ menu.tab("CHALLENGES", challenges_tab)
 menu.tab("TRACK STUDIO", studio_tab, function() return staff end)
 
 R.on("action", function(name)
+    if menu.open and name ~= "coja_menu" then return end   -- the menu has the keys and buttons
     if name == "race_leave" then leave_key()
     elseif name == "coja_menu" then menu.toggle()
     else edit_key(name) end
@@ -1777,7 +1779,7 @@ local function keys_allowed()
 end
 
 local function poll_editor_keys()
-    if not keys_allowed() then
+    if menu.open or not keys_allowed() then
         keyboard_was_down = {}
         return
     end
@@ -1833,6 +1835,8 @@ R.on("unload", function()
     pcall(R.physics.competition, false)
     pcall(R.throwdowns.flag.leave)
 end)
+
+menu.attach()   -- the menu's draw handler, after the races' own: the menu is drawn over them
 
 R.throwdowns.mode{
     id = MODE, name = "Cocojambo Deathraces",
