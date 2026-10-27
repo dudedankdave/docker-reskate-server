@@ -405,11 +405,14 @@ local function setup_document()
         end
         if t.author and t.author ~= "" then table.insert(rows, {id = "by", kind = "info", caption = "Made by", label = t.author}) end
     else
-        rows = {{id = "none", kind = "info", caption = "Track", label = answered and "None on this map yet" or "Waiting for the server..."}}
+        rows = {
+            {id = "none", kind = "info", caption = "Track", label = answered and "No tracks saved for this map" or "Waiting for the server..."},
+            {id = "refresh_tracks", kind = "button", caption = "Track list", label = "Refresh tracks"},
+        }
     end
     return {
         mode = MODE, title = TITLE, back = "BACK",
-        description = "Skate through the neon gates in order. Fastest time wins.",
+        description = "Choose a Cocojambo track, set the race size and laps, then skate the gates in order.",
         players = {caption = "Racers", min = 1, max = 10, step = 1, value = setup.players},
         rows = rows,
     }
@@ -452,7 +455,8 @@ local function publish()
     if race and race.phase ~= "done" then
         doc.match = {markers = true, teleports = true, in_activity = true, input_lock = race.phase == "start" and race.placed}
     end
-    pcall(R.throwdowns.ui, doc)
+    local ok, why = pcall(R.throwdowns.ui, doc)
+    if not ok then R.log("could not publish throwdown UI: " .. tostring(why)) end
 end
 
 -- ---- hosting --------------------------------------------------------------------------------------
@@ -678,6 +682,7 @@ function from_server.list(m)
     for _, id in ipairs(m.ids) do
         if not track_by_id(id) then table.insert(tracks, {id = id, name = "...", gates = {}, loading = true}) end
     end
+    if setup_open then publish() end
 end
 
 function from_server.track(m)
@@ -686,6 +691,7 @@ function from_server.track(m)
     if not t or not t.id then return end
     local _, at = track_by_id(t.id)
     if at then tracks[at] = t else table.insert(tracks, t) end
+    if setup_open then publish() end
 end
 
 function from_server.saved(m)
@@ -865,11 +871,16 @@ local function ground(x, y, z)
     return y
 end
 
+local GATE_PLACE_AHEAD = 3
+local GATE_FLOOR_CLIP = 0.08
+
 local function gate_here()
     local ok, s = pcall(R.skater.get)
     if not ok or not s then return nil end
     local p = s.position
-    return clean_gate({p = {p.x, ground(p.x, p.y, p.z), p.z}, n = facing(p), w = 8, h = 5, heading = s.heading})
+    local n = facing(p)
+    local x, z = p.x + n[1] * GATE_PLACE_AHEAD, p.z + n[2] * GATE_PLACE_AHEAD
+    return clean_gate({p = {x, ground(x, p.y, z), z}, n = n, w = 8, h = 5, heading = s.heading})
 end
 
 local function list_dialog()
@@ -1090,12 +1101,18 @@ R.on("throwdown_ui", function(e)
         setup_open = true
     elseif a == "setup_row" then
         local value = tonumber(args[2]) or 0
-        if args[1] == "track" then setup.track = value + 1
+        if args[1] == "track" then
+            setup.track = math.clamp(value + 1, 1, math.max(#tracks, 1))
+            local selected = tracks[setup.track]
+            if selected and not selected.loading then toast("Selected track: " .. selected.name) end
         elseif args[1] == "laps" then setup.laps = LAPS[value + 1] or 1
         elseif args[1] == "grid" then
             setup.grid_choice = math.clamp(value + 1, 1, #GRID_DELAYS)
             setup.grid_delay = GRID_DELAYS[setup.grid_choice]
         elseif args[1] == "players" then setup.players = math.clamp(value, 1, 10) end
+    elseif a == "setup_button" and args[1] == "refresh_tracks" then
+        answered = false
+        hello()
     elseif a == "setup_back" then
         setup_open = false
         pcall(R.throwdowns.flag.leave)
@@ -1105,7 +1122,7 @@ R.on("throwdown_ui", function(e)
         local t = tracks[setup.track]
         if not t or t.loading then
             pcall(R.throwdowns.flag.leave)
-            toast("No race track on this map yet: an admin makes them with F7.", "warn")
+            toast("No track is available for this map. Refresh the list or ask staff to save a track with F7.", "warn")
         end
     elseif a == "flag_placed" then
         local t = tracks[math.clamp(setup.track, 1, math.max(#tracks, 1))]
@@ -1136,6 +1153,7 @@ R.on("throwdown_ui", function(e)
             send(leader, {t = "join", race = id})
         end
     end
+    publish()
 end)
 
 local function leave_key()
@@ -1155,10 +1173,7 @@ local function leave_key()
 end
 
 R.on("action", function(name)
-    if name == "race_leave" then leave_key()
-    elseif name == "gate_add_pad" then edit_key("gate_add")
-    elseif name == "gate_here_pad" then edit_key("gate_here")
-    else edit_key(name) end
+    if name == "race_leave" then leave_key() else edit_key(name) end
 end)
 
 -- ---- drawing --------------------------------------------------------------------------------------
@@ -1177,7 +1192,7 @@ end
 
 -- A gate as a glowing frame with an arrow through it.
 local function draw_gate(d, g, label, colours, arrow)
-    local p, u, n = v3(g.p), across(g), normal(g)
+    local p, u, n = v3(g.p) - vector.create(0, GATE_FLOOR_CLIP, 0), across(g), normal(g)
     local up = vector.create(0, g.h, 0)
     local bl, br = p - u * (g.w / 2), p + u * (g.w / 2)
     local tl, tr = bl + up, br + up
@@ -1247,7 +1262,7 @@ local function draw_admin_menu(d, w, h, k)
     end
     local foot = y + bh - 94 * k
     d:rect(vector.create(x + 20 * k, foot, 0), vector.create(x + bw - 20 * k, foot + 1 * k, 0), {colour = theme.line_strong, fill = true})
-    text(d, x + bw / 2, foot + 18 * k, "F5/F6 SELECT   ·   F8 / LB+RB+A NEW   ·   6 / LB+RB+X EDIT   ·   7 CHALLENGE   ·   F9 DELETE   ·   F10 CLOSE",
+    text(d, x + bw / 2, foot + 18 * k, "F5/F6 · LB+←/→ SELECT   ·   F8 · LB+RB+A NEW   ·   6 · LB+RB+X EDIT   ·   7 · LB+RB+START CHALLENGE   ·   F9 · LB+RB+B DELETE   ·   F10 CLOSE",
         {colour = theme.ink, size = 14, align = "centre", font = "bold"})
     text(d, x + bw / 2, foot + 50 * k, "Only server staff can change tracks. All edits are shared on this map.",
         {colour = theme.muted, size = 15, align = "centre", font = "body"})
@@ -1263,14 +1278,16 @@ local function draw_editor(d, w, h, k)
     end
     local mode = MODES[editor.mode]
     local x, y, bw = w / 2 - 460 * k, 16 * k, 920 * k
-    panel(d, x, y, bw, 142 * k)
+    panel(d, x, y, bw, 168 * k)
     d:image("images/logo.png", vector.create(x + 22 * k, y + 18 * k, 0),
         vector.create(x + 22 * k + 144 * k, y + 38 * k, 0), {colour = theme.a("#ffffff", 0.92)})
     text(d, x + bw - 22 * k, y + 17 * k, "TRACK STUDIO  /  GATE EDITOR", {colour = theme.sky, size = 18, align = "right", font = "bold"})
     text(d, x + bw / 2, y + 51 * k, string.format("%s   ·   %s   ·   GATE %d OF %d", t.name ~= "" and t.name or "NEW TRACK",
         t.circuit and "CIRCUIT" or "SPRINT", editor.sel, #t.gates), {colour = theme.ink, size = 24, align = "centre", font = "bold"})
     text(d, x + bw / 2, y + 84 * k, "1 MODE: " .. mode.name .. "   ·   " .. mode.help, {colour = theme.sun, size = 19, align = "centre", font = "bold"})
-    text(d, x + bw / 2, y + 113 * k, "F8 / LB+RB+A PLACE   ·   F9 DELETE   ·   F5/F6 SELECT   ·   6 / LB+RB+X MOVE   ·   7 CIRCUIT   ·   F7 SAVE   ·   F10 CLOSE",
+    text(d, x + bw / 2, y + 113 * k, "F8 PLACE 3 M AHEAD   ·   F9 DELETE   ·   F5/F6 SELECT   ·   6 MOVE 3 M AHEAD   ·   7 CIRCUIT   ·   F7 SAVE   ·   F10 CLOSE",
+        {colour = theme.muted, size = 14, align = "centre", font = "body"})
+    text(d, x + bw / 2, y + 139 * k, "PAD: LB+RB+A PLACE   ·   LB+RB+X MOVE   ·   LB+RB+B DELETE   ·   LB+←/→ SELECT   ·   RB+D-PAD EDIT   ·   LB+RB+Y MODE",
         {colour = theme.muted, size = 14, align = "centre", font = "body"})
 end
 
@@ -1441,9 +1458,33 @@ end)
 
 -- ---- tick and lifetime ----------------------------------------------------------------------------
 
+-- Keep the keyboard shortcuts available while the action defaults are on the controller. Players
+-- can still change either set from ReSkate's Binds page.
+local keyboard_editor_keys = {
+    F8 = "gate_add", F9 = "gate_delete", F5 = "gate_prev", F6 = "gate_next",
+    ["1"] = "adjust_mode", ["2"] = "adjust_down", ["3"] = "adjust_up",
+    ["4"] = "adjust_left", ["5"] = "adjust_right", ["6"] = "gate_here", ["7"] = "gate_circuit",
+}
+local keyboard_was_down = {}
+
+local function poll_editor_keys()
+    local ok, allowed = pcall(R.input.allowed)
+    if not ok or not allowed then
+        keyboard_was_down = {}
+        return
+    end
+    for key, action in pairs(keyboard_editor_keys) do
+        local down_ok, down = pcall(R.input.key, key)
+        down = down_ok and down == true
+        if down and not keyboard_was_down[key] then edit_key(action) end
+        keyboard_was_down[key] = down
+    end
+end
+
 R.on("tick", function()
     local t = now()
     flush()
+    poll_editor_keys()
     if not answered and t - last_hello >= HELLO_EVERY_MS then hello() end
     if tracks_map and tracks_map ~= map_key() then
         tracks, tracks_map = {}, nil
@@ -1487,15 +1528,15 @@ end)
 
 R.throwdowns.mode{
     id = MODE, name = "Cocojambo Deathraces",
-    description = "Skate through the neon gates in order. Fastest time wins.",
+    description = "Choose a Cocojambo track, set the race size and laps, then skate the gates in order.",
     color = 0xffffb400, card = "spot", order = 10,
     players = {min = 1, max = 10, default = 6},
 }
 for action, key in pairs({
-    race_editor = "F7", gate_add = "F8", gate_delete = "F9", race_leave = "F10", gate_prev = "F5", gate_next = "F6",
-    gate_add_pad = "Pad.LB+Pad.RB+Pad.A", gate_here_pad = "Pad.LB+Pad.RB+Pad.X",
-    -- the game keeps Alt for itself: the editor's other keys are on the number row
-    adjust_mode = "1", adjust_down = "2", adjust_up = "3", adjust_left = "4", adjust_right = "5", gate_here = "6", gate_circuit = "7",
+    race_editor = "F7", gate_add = "Pad.LB+Pad.RB+Pad.A", gate_delete = "Pad.LB+Pad.RB+Pad.B", race_leave = "F10",
+    gate_prev = "Pad.LB+Pad.Left", gate_next = "Pad.LB+Pad.Right", adjust_mode = "Pad.LB+Pad.RB+Pad.Y",
+    adjust_down = "Pad.RB+Pad.Down", adjust_up = "Pad.RB+Pad.Up", adjust_left = "Pad.RB+Pad.Left", adjust_right = "Pad.RB+Pad.Right",
+    gate_here = "Pad.LB+Pad.RB+Pad.X", gate_circuit = "Pad.LB+Pad.RB+Pad.Start",
 }) do
     R.input.bind(action, key)
 end

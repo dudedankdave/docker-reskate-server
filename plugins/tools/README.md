@@ -18,8 +18,14 @@ side and size.
 
 ## Races
 
-Gate races as a throwdown mode. A track is a row of glowing neon-blue gates; racers skate through
+**Cocojambo Deathraces** is our custom throwdown mode (the Cocojambo card, separate from other
+Deathrace modes). Choose a track from the server's map list and
+set the racer count. Circuit tracks also prompt for laps before the flag is placed. A track is a
+row of glowing neon-blue gates; racers skate through
 them in order, and a gate only counts when you go through its frame the right way.
+
+The track list comes from tracks saved by staff on the current map. If none are listed in setup,
+use **Refresh tracks** or ask staff to create a track with F7.
 
 ### Race
 
@@ -52,20 +58,20 @@ can make, change or delete them. Everyone gets them when they join.
 |---|---|
 | **F7** | Open or close Track Studio; while editing, save the track |
 | **F5 / F6** | Select a track in the library or a gate while editing |
-| **F8** | New track in the library; add a gate while editing; start a nearby challenge outside the editor |
-| **6** | Edit the selected track in the library; move the selected gate while editing |
+| **F8** | New track in the library; add a gate 3 metres ahead while editing; start a nearby challenge outside the editor |
+| **6** | Edit the selected track in the library; move the selected gate 3 metres ahead while editing |
 | **7** | Toggle a challenge in the library; switch circuit/sprint while editing |
 | **F9** | Delete the selected track or gate, depending on the screen |
 | **1** | Switch what 2/3/4/5 do: MOVE, HEIGHT & TURN, or SIZE |
 | **F10** | Close Track Studio |
 
-Controller: **LB+RB+A** creates a track or places a gate, and **LB+RB+X** edits a track or moves the selected gate. Rebind either combo on ReSkate's Binds page.
-
 Gate 1 is the start. Place it facing the way the race goes: the grid faces where you faced. A gate stands on the
 ground under you, also when you place it mid-air. Moving a challenge's gates starts its times over. The selected gate is yellow; the arrows show the way through each
 gate.
 
-All keys can be changed on ReSkate's Binds page.
+On a controller, use **LB+RB+A** to add a gate (in the library: a new track), **LB+RB+X** to move the selected gate, and **LB+RB+B** to delete it. **LB+Left/Right** selects a gate. Hold **RB** and press the d-pad to adjust it: the current mode decides whether that moves, turns, or resizes the gate. **LB+RB+Y** changes mode; **LB+RB+Start** switches circuit/sprint. New gates are placed ahead of the admin so the frame does not surround their skater. The bottom stroke sits slightly below ground so the floor hides it.
+
+The controller combos can be changed on ReSkate's Binds page; the keyboard keys above are fixed.
 
 ### Fair play
 

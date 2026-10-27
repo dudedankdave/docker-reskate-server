@@ -444,9 +444,9 @@ class RaceTest(unittest.TestCase):
     def test_loading_registers_the_mode_and_its_keys(self):
         self.assertIn("mode deathraces", self.a.calls)
         self.assertIn("bind race_editor F7", self.a.calls)
-        self.assertIn("bind adjust_right 5", self.a.calls)   # the game keeps Alt for itself
+        self.assertIn("bind adjust_right Pad.RB+Pad.Right", self.a.calls)   # the keyboard keys are polled
         self.assertIn("bind hud_panel F4", self.a.calls)
-        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 16, "at most 16 actions")
+        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 14, "at most 16 actions")
 
     def test_the_server_tells_players_whether_they_are_staff(self):
         self.session.settle()
@@ -463,8 +463,11 @@ class RaceTest(unittest.TestCase):
             track = tracks[0]
             self.assertEqual(track["name"], "Harbour Loop")
             self.assertTrue(track["circuit"])
-            self.assertEqual([g["p"] for g in track["gates"]], [list(map(float, g)) for g in GATES])
-            self.assertEqual([g["n"] for g in track["gates"]], [[1, 0], [0, 1], [-1, 0], [0, -1]], "facing the way skated")
+            facing = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+            self.assertEqual([g["n"] for g in track["gates"]], facing, "facing the way skated")
+            self.assertEqual([g["p"] for g in track["gates"]],
+                             [[x + 3.0 * n[0], float(y), z + 3.0 * n[1]] for (x, y, z), n in zip(GATES, facing)],
+                             "3 m ahead of the admin")
             self.assertEqual(track["author"], "Coco")
         self.assertIn("Track \"Harbour Loop\" saved for everyone.", self.a.toasts)
         late = self.session.add("76561198000000003", "Late")
@@ -490,7 +493,7 @@ class RaceTest(unittest.TestCase):
         self.a.key("gate_add")
         self.a.key("adjust_up")       # MOVE: forward
         self.a.key("adjust_right")    # MOVE: right
-        self.assertEqual(self.a.gates()[0]["p"], [10.5, 0.0, -0.5])
+        self.assertEqual(self.a.gates()[0]["p"], [13.5, 0.0, -0.5])   # placed 3 m ahead
         self.a.key("adjust_mode")     # HEIGHT & TURN
         self.a.key("adjust_up")
         self.a.key("adjust_left")
@@ -505,7 +508,7 @@ class RaceTest(unittest.TestCase):
         self.assertEqual(self.a.gates()[0]["w"], 2, "not narrower than 2 m")
         skate(self.session, self.a, (30, 0, 0))
         self.a.key("gate_here")
-        self.assertEqual(self.a.gates()[0]["p"], [30.0, 0.0, 0.0])
+        self.assertEqual(self.a.gates()[0]["p"], [33.0, 0.0, 0.0])   # moved to 3 m ahead
         self.assertEqual(self.a.gates()[0]["w"], 2, "keeps its size")
         self.a.key("gate_add")
         self.a.key("gate_prev")
@@ -548,7 +551,8 @@ class RaceTest(unittest.TestCase):
         self.session.settle()
         self.a.ui("open", 7)
         self.session.step()
-        self.assertEqual(self.a.doc["setup"]["rows"][0]["label"], "None on this map yet")
+        self.assertEqual(self.a.doc["setup"]["rows"][0]["label"], "No tracks saved for this map")
+        self.assertEqual(self.a.doc["setup"]["rows"][1]["id"], "refresh_tracks")
         self.a.ui("setup_confirm", 4, 0)
         self.assertIn("flag leave", self.a.calls)
 
