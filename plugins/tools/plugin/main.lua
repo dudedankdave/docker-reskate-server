@@ -497,6 +497,43 @@ local function setup_label(track, laps, grid_delay)
     return race_type .. " · " .. grid_label(grid_delay) .. " grid"
 end
 
+-- The challenges as throwdown flags on the map (a map point, its bubble and a card): Enroll there runs it. The game
+-- shows a flag only when its leader is another player here (one led by this player goes to the others instead,
+-- throwdown_relay.cpp), so each game publishes its own, led by the online player with the lowest Steam ID; alone on
+-- the server there is nobody to lead them, and they wait for someone to join.
+local CHALLENGE_GAME = 7000      -- their game numbers: 7001 and up, one per challenge
+local MAX_CHALLENGE_FLAGS = 8
+local function flag_leader()
+    local ok, list = pcall(R.session.players)
+    if not ok or type(list) ~= "table" then return nil end
+    local my_id, best = me(), nil
+    for _, p in ipairs(list) do
+        local id = tostring(p.id or "")
+        if id ~= my_id and not p.me and not p.server and id:match("^%d+$") and (not best or #id < #best or (#id == #best and id < best)) then
+            best = id
+        end
+    end
+    return best
+end
+local function challenge_flags(flags)
+    if race or host or joined then return end
+    local leader = flag_leader()
+    if not leader then return end
+    local n = 0
+    for _, t in ipairs(tracks) do
+        if t.challenge and not t.loading and t.gates[1] and n < MAX_CHALLENGE_FLAGS then
+            n += 1
+            table.insert(flags, {
+                id = "challenge:" .. tostring(t.id), mode = MODE, leader = leader, game = CHALLENGE_GAME + n,
+                at = v3(t.gates[1].p), yaw = 0, players = 0, capacity = 1, open = true,
+                stats = {{title = "CHALLENGE", value = t.name:sub(1, 32)},
+                         {title = "RECORD", value = (t.best and (clock_text(t.best.ms) .. " " .. tostring(t.best.n)) or "none yet"):sub(1, 32)},
+                         {title = "GATES", value = tostring(#t.gates)}},
+            })
+        end
+    end
+end
+
 local function publish()
     local doc = {}
     if setup_open then doc.setup = setup_document() end
@@ -517,6 +554,7 @@ local function publish()
                      {title = "GATES", value = tostring(o.track.gates)}},
         })
     end
+    challenge_flags(flags)
     if #flags > 0 then doc.flags = flags end
     if race and race.phase ~= "done" then
         doc.match = {markers = true, teleports = true, in_activity = true, input_lock = race.phase == "start" and race.placed}
@@ -1242,7 +1280,11 @@ R.on("throwdown_ui", function(e)
     elseif a == "join" then
         local id, leader = args[1], args[2]
         local o = offers[id]
-        if race or host then
+        if type(id) == "string" and id:sub(1, 10) == "challenge:" then   -- a challenge's flag on the map
+            local t = track_by_id(id:sub(11))
+            pcall(R.throwdowns.flag.leave)
+            if t and t.challenge then start_challenge(t) end
+        elseif race or host then
             toast("You are in a race already.", "warn")
         elseif o then
             leave_flag(true)

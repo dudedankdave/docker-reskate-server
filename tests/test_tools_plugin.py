@@ -1002,6 +1002,33 @@ class RaceTest(unittest.TestCase):
         click(1295, 120)                                         # the X
         self.assertFalse(menu_lua.open)
 
+    def test_challenges_show_as_flags_on_the_map_and_enroll_runs_them(self):
+        build_track(self.session, self.a)
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "challenge", "", 1)
+        self.session.settle()
+        flags = [f for f in self.a.doc.get("flags", []) if f["id"].startswith("challenge:")]
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["leader"], self.b.id, "led by another player here, or the game would not show it")
+        self.assertEqual(flags[0]["stats"][0], {"title": "CHALLENGE", "value": "Harbour Loop"})
+        self.assertGreater(flags[0]["game"], 7000)
+        self.assertEqual(self.b.to_py(self.b.doc["flags"])[0]["leader"], self.a.id)
+        self.b.position = [300.0, 0.0, 300.0]
+        self.b.ui("join", self.b.doc["flags"][0]["id"], self.a.id, self.b.doc["flags"][0]["game"])
+        self.assertTrue(self.b.race().challenge)
+        self.assertNotIn("flags", self.b.doc, "none while racing")
+
+    def test_alone_there_is_nobody_to_lead_a_challenge_flag(self):
+        session = Session()
+        solo = session.add("76561198000000005", "Solo", staff=True)
+        build_track(session, solo)
+        solo.key("race_editor")
+        solo.ui("dialog", "tracks", "challenge", "", 1)
+        session.settle()
+        self.assertNotIn("flags", solo.doc)
+        for client in [session.server] + session.clients:
+            client.lua.globals().fire("unload")
+
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)
         host_and_join(self.session, self.a, self.b)

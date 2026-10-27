@@ -76,6 +76,9 @@ beacon with the track's name and record over it. Skate to it and press **F8** (o
 it alone, timed. The server keeps each challenge's top 10 (every player's best), tells you your time and place,
 and tells everyone when the record falls. **F10** stops a run.
 
+On the in-game map every challenge is a flag too: its card names the challenge, its record and its gates, and
+**Enroll** runs it. The game only shows flags led by another player, so they show once someone else is on the server.
+
 ### Make tracks (admins)
 
 Tracks are kept on the server for each map, and only its staff (admins, and roles marked staff)

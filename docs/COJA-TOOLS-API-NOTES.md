@@ -65,6 +65,16 @@ test server. Each point says where it is in that source, so it can be checked ag
   3-2-1-GO: it shows the digits for the last 3 s of the clock and GO for under a second once the match plays
   (`native_hud_selection.h`, `HudCountdownLifecycle`); `hud.intro = {title, rules, until_ms}` is its card before.
 
+## Flags on the map
+
+- A `flags` entry shows on *this* player's map only when its `leader` is another player here (a peer): the game then
+  mirrors it as a native flag (map point, bubble, card with up to 3 stats) and its Enroll comes back as `join`. A
+  flag led by this player (or by nobody) is sent to the other players instead, up to 8, keyed by `game`
+  (`throwdown_relay.cpp`, `maintain_custom_flags`). So a plugin showing fixed places (our challenges) publishes its
+  own, led by another online player; alone on the server there is no such flag.
+- Plugins see no parties: players have only `id, name, me, host, server`, and the server's `parties` command is not
+  theirs to run (a plugin's console command only takes the lines meant for it).
+
 ## Map markers and the maps' own races
 
 - The race point the Skate 3 map shows at the top of University is a native skate. race challenge in the map's level

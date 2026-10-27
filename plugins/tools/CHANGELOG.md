@@ -2,6 +2,12 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.3
+
+- Challenges show on the in-game map as throwdown flags: a map point with its bubble and a card naming the challenge,
+  its record and its gates. **Enroll** there puts you on its start and runs it. The game only shows a flag led by
+  another player on the server, so they show once someone else is on (alone, use F5 > RACES or the yellow beacons).
+
 ## 0.2.2
 
 - Races and challenges start with the game's own countdown: while the racers line up, its intro card names the
