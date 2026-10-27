@@ -208,6 +208,15 @@ reskate = {
         end,
         cursor = function() return py.cursor() end,
         pad_bits = function() return py.pad_bits() end,
+        game_buttons = function(mask) py.call("game_buttons " .. mask) end,
+        game_keys = function(keys)
+            local out = {}
+            for _, k in ipairs(keys) do
+                if k == 0x1B then error("Escape and the mouse's buttons always reach the game") end
+                out[#out + 1] = tostring(k)
+            end
+            py.call("game_keys " .. table.concat(out, ","))
+        end,
     },
 }
 """
@@ -818,6 +827,21 @@ class RaceTest(unittest.TestCase):
         reports = [c for c in self.session.server.calls if "diag Coco: F5 menu:" in c]
         self.assertTrue(any("hold input true" in c for c in reports), reports)
         self.assertFalse([c for c in reports if "menu tab" in c or "menu draw" in c], reports)
+
+    def test_the_menu_keeps_the_controller_from_the_game_while_open(self):
+        self.session.settle()
+        self.a.key("coja_menu")
+        del self.a.calls[:]
+        for _ in range(3):
+            self.session.step()
+        self.assertEqual(self.a.calls.count("game_buttons 65535"), 3, "renewed every tick")
+        self.assertEqual(self.a.calls.count("game_keys 38,40,37,39,13,32,9"), 3, "not Escape")
+        self.a.key("coja_menu")
+        self.assertIn("game_buttons 0", self.a.calls)
+        self.assertIn("game_keys ", self.a.calls)
+        del self.a.calls[:]
+        self.session.step()
+        self.assertFalse([c for c in self.a.calls if c.startswith("game_")], "closed: nothing held")
 
     def test_the_keyboard_and_the_controller_work_the_menu(self):
         build_track(self.session, self.a)

@@ -4,7 +4,8 @@
 --   keyboard    arrows move (left/right on the tab row switch tabs, on a choice change it), Enter or Space presses,
 --               Tab switches tabs, Esc or F5 closes
 --   controller  d-pad moves, A presses, LB/RB switch tabs, B closes
---   mouse       hover and click, where reskate.input.cursor (or .mouse) gives a position
+--   mouse       hover and click, where reskate.input.cursor (or .mouse) gives a position on the screen (the game
+--               gives one only while a plugin's camera is shown, so for now it does not)
 --
 -- Its tabs (the stats card, the races, the challenges, Track Studio) are built every frame from widgets (card,
 -- info, note, separator, button, dropdown, slider, toggle, custom), the same calls whether drawn or not:
@@ -268,7 +269,7 @@ local function read_mouse(d)
     end
     local x = tonumber(c.x or (type(c.position) == "table" and c.position.x) or c[1])
     local y = tonumber(c.y or (type(c.position) == "table" and c.position.y) or c[2])
-    if not x or not y or c.over_screen == false then
+    if not x or not y or c.over_screen == false or x < 0 or y < 0 then
         mouse.seen = false
         return
     end
@@ -299,6 +300,7 @@ local function held()
         tell("pad", "pad_bits: " .. json(bits) .. ", gamepad: " .. json(pad))
     end
     if type(bits) == "number" then
+        if bits ~= 0 then tell("pad seen", "pad_bits while held: " .. bits) end
         for name, bit in pairs(PAD_BITS) do
             if (bits // bit) % 2 == 1 then now_down[name] = true end
         end
@@ -333,22 +335,27 @@ local function navigate()
     elseif pressed.press then nav = "press" end
 end
 
--- While open, the menu's keys and buttons are kept from the skater, and the game is asked for a cursor.
+-- While open, the controller and the menu's keys are kept from the game, renewed every tick: the skater stays put
+-- while the d-pad and the arrows work the menu. (Escape always reaches the game; a cursor only comes with a
+-- plugin camera, so the menu asks for none.)
+local HELD_KEYS = {0x26, 0x28, 0x25, 0x27, 0x0D, 0x20, 0x09}   -- the arrows, Enter, Space, Tab
+local ALL_BUTTONS = 0xFFFF
+local STICKS = {"left_stick", "right_stick", "left_trigger", "right_trigger", "left_stick_click", "right_stick_click"}
 local function hold_input(on)
     local results = {}
     local function try(name, ...)
-        local fn = reskate.input[name]
-        local ok, a, b = pcall(fn, ...)
+        local ok, a, b = pcall(reskate.input[name], ...)
         results[#results + 1] = name .. "=" .. tostring(ok) .. (ok and "" or (":" .. tostring(a))) ..
                                 ((ok and (a ~= nil or b ~= nil)) and (" " .. tostring(a) .. " " .. tostring(b)) or "")
     end
-    try("capture", on)
     if on then
-        try("game_keys", {0x26, 0x28, 0x25, 0x27, 0x0D, 0x20, 0x09, 0x1B})
-        try("game_buttons", 0x0001 + 0x0002 + 0x0004 + 0x0008 + 0x0100 + 0x0200 + 0x1000 + 0x2000)
+        try("game_keys", HELD_KEYS)
+        try("game_buttons", ALL_BUTTONS)
+        try("hide", STICKS)
     else
         try("game_keys", {})
         try("game_buttons", 0)
+        try("hide", {})
     end
     tell("hold " .. tostring(on), "hold input " .. tostring(on) .. ": " .. table.concat(results, ", "))
 end
@@ -407,7 +414,6 @@ function menu.toggle()
     menu.open, opened_at, focus, nav = true, now(), 0, nil
     mouse.down = true      -- a button held while opening is no click
     was = held()           -- nor a key held while opening
-    hold_input(true)
 end
 
 function menu.state() return {open = menu.open, tab = current, focus = focus} end
@@ -421,13 +427,18 @@ function menu.attach()
     end)
 end
 
+reskate.on("level_unloading", function() menu.close() end)
+
 reskate.on("tick", function()
     if pending then
         local p = pending
         pending = nil
         menu.apply(p.tab, p.set)
     end
-    if menu.open then navigate() end
+    if menu.open then
+        hold_input(true)
+        navigate()
+    end
 end)
 
 return menu

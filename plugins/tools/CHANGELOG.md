@@ -2,6 +2,14 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.1.10
+
+- While the COJA menu is open the game gets none of the controller's buttons, and neither the arrows, Enter, Space
+  nor Tab, renewed every tick: the d-pad works the menu without moving the skater. The sticks and triggers are
+  asked to wait too.
+- Escape is no longer in that list (it always reaches the game, and with it the whole list was refused).
+- The mouse is left out for now: the game gives a cursor only while a plugin's camera is shown.
+
 ## 0.1.9
 
 - The COJA menu (F5) is our own panel in the HUD's look again, drawn over the game like the F4 card: no game
