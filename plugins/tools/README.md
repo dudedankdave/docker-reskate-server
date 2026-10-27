@@ -135,4 +135,20 @@ splits on spaces):
 
 A player who leaves is logged as `[coco] left <SteamID64> played <seconds>`.
 
+### Skate 3's races as tracks
+
+`coco import <map> <base64>` saves race tracks made elsewhere for a map: a track or `{"tracks": [...]}`, as the
+server stores them (`{"name", "author", "circuit", "challenge", "gates": [{"p": [x, y, z], "n": [nx, nz], "w", "h",
+"heading"}]}`). Each is checked as Track Studio's are, and replaces the map's track of the same name.
+
+`deathrace_tracks.py` (in the plugin's source, not in the package) makes those lines from Skate 3's ten races, as the
+Skate 3 Improved map (333-Skate_3_Improved) ships them for its Deathraces in `data/races.json`: gate 1 a start line
+in front of the original start slots, then one gate per checkpoint.
+
+```
+python plugins/tools/deathrace_tracks.py <Mods>/333-Skate_3_Improved/data/races.json --map bam [--challenge]
+```
+
+It prints one `coco import` line per race for the server's console.
+
 Source: https://github.com/dudedankdave/docker-reskate-server/tree/main/plugins/tools

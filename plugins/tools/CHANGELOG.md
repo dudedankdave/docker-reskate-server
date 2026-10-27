@@ -2,6 +2,13 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.5
+
+- Skate 3's ten races (Downtown, Industrial, University) as race tracks: `coco import <map> <base64 json>` on the
+  server's console saves tracks made elsewhere, and `deathrace_tracks.py` turns the Skate 3 Improved map's race data
+  (its Deathraces' `data/races.json`, taken from Skate 3) into those lines: a start line in front of the original
+  start slots, then the original checkpoints.
+
 ## 0.2.4
 
 - Private races: **Who can join** (F5 > RACES, and the Throwdowns setup page) is Everyone, **My crew** or **Invited

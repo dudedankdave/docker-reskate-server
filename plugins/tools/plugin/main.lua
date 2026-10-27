@@ -1,7 +1,7 @@
 -- COJA tools (COCOJAMBO-TOOLS): the COCOJAMBO servers' plugin. The HUD (corner tag, panel, notes from the server)
 -- is in hud/ and loads first; the rest of this file is the races.
-local hud = nil
-if reskate.side == "server" then require("hud/server") else hud = require("hud/client") end
+local hud, hud_server = nil, nil
+if reskate.side == "server" then hud_server = require("hud/server") else hud = require("hud/client") end
 
 -- Races: gate races as a ReSkate throwdown mode (contrib/throwdown-kit.md in ReSkate).
 --
@@ -382,6 +382,44 @@ local function server_main()
         if diags[from.id] > 50 then return end
         local line = tostring(m.text):gsub("%c", " "):sub(1, 300)
         pcall(R.console.print, "[coco race] diag " .. tostring(from.name) .. ": " .. line)
+    end
+
+    -- `coco import <map> <base64 json>`: tracks made elsewhere (plugins/tools/deathrace_tracks.py: Skate 3's races),
+    -- typed by the server's tools. A track or {tracks = [...]}, as stored; each is checked as Track Studio's are and
+    -- saved under its name: one of that name is replaced (its challenge times start over when its gates moved).
+    hud_server.commands.import = function(args)
+        local map = tostring(args[2] or ""):gsub("[^%w_%-]", "_"):sub(1, 64)
+        local value = map ~= "" and args[3] and hud_server.payload(args[3], "import")
+        if not value then return R.console.print("error: coco import <map> <base64 json>") end
+        local list, saved = tracks_of(map), {}
+        for _, t in ipairs(type(value.tracks) == "table" and value.tracks or {value}) do
+            local track = clean_track(t)
+            local at = nil
+            for i, one in ipairs(list) do
+                if track and one.name == track.name then at = i end
+            end
+            if not track then
+                R.console.print("error: coco import: not a valid track: " .. tostring(type(t) == "table" and t.name or t))
+            elseif not at and #list >= MAX_TRACKS then
+                R.console.print("error: coco import: " .. map .. " has " .. MAX_TRACKS .. " tracks, " .. track.name .. " left out")
+            else
+                if at then
+                    track.id = list[at].id
+                    if R.json.encode(list[at].gates) ~= R.json.encode(track.gates) then R.storage.set(best_key(map, track.id), nil) end
+                    list[at] = track
+                else
+                    next_id += 1
+                    track.id = string.format("%d-%d", math.floor(now()), next_id)
+                    table.insert(list, track)
+                end
+                track.best = nil
+                table.insert(saved, track.name)
+            end
+        end
+        if #saved == 0 then return end
+        R.storage.set(key(map), list)
+        R.console.print(string.format("[coco race] imported %d track(s) on %s: %s", #saved, map, table.concat(saved, ", ")))
+        send_tracks("all", map)
     end
 
     R.on("message", function(from, payload)
