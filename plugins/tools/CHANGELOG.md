@@ -2,6 +2,14 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.11
+
+- Fixed: our card could open the stock Spot Battle setup page (Skater, rounds, round timer) instead of ours (track,
+  gates, grid time, laps, who can join). The game builds the page as the card is clicked, before the plugin hears
+  `open`; the setup document is now always published, so it is there in time (the game only shows it on the page).
+- A game tells the server's log its map key again once the server answers (the first line, sent while loading,
+  could be lost).
+
 ## 0.2.10
 
 - Fixed: the Throwdowns cards (ours and other modes', like Deathrace) could stop opening. The game has one flag

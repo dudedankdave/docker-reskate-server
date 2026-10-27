@@ -53,6 +53,9 @@ test server. Each point says where it is in that source, so it can be checked ag
 ## The throwdown kit
 
 - `setup_row` sends a choice's value **from 0**, while the setup document's `value` is from 1.
+- Publish `setup` all the time, not only after `open`: the game builds the setup page as the card is clicked, before
+  `open` reaches the plugin, and without a setup document then it shows the stock Spot Battle page. It is shown only
+  while the player is on that page.
 - `match.input_lock = true` holds the racers on the grid (no skating input).
 - `flags` show on the map as native throwdown flags (map point, bubble, map card with up to 3 stats, Enroll card):
   the plugin's only way onto the in-game map. Native challenges can only be read (`reskate.progression`).

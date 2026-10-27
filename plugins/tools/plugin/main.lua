@@ -698,7 +698,9 @@ end
 
 local function publish()
     local doc = {}
-    if setup_open then doc.setup = setup_document() end
+    -- Always there: the game builds the setup page as the card is clicked, before the `open` event reaches the plugin,
+    -- and a document sent only then left the stock page on screen. The game shows it only while the player is on it.
+    doc.setup = setup_document()
     if host then
         doc.waiting = {
             mode = MODE, title = TITLE,
@@ -974,6 +976,7 @@ local from_server, from_players = {}, {}
 
 function from_server.staff(m)
     answered, staff = true, m.staff == true
+    told_map = nil   -- the server is there now: tell it the map key (a line sent while loading is lost)
 end
 
 function from_server.list(m)

@@ -667,6 +667,7 @@ class RaceTest(unittest.TestCase):
 
     def test_without_a_track_the_flag_is_let_go(self):
         self.session.settle()
+        self.assertEqual(self.a.doc["setup"]["mode"], "deathraces", "there before the card is clicked: the game builds the page then")
         self.a.ui("open", 7)
         self.session.step()
         self.assertEqual(self.a.doc["setup"]["rows"][0]["label"], "No tracks saved for this map")
