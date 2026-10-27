@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.6
+
+- The keyboard keys of Track Studio and challenges (F5, F6, F8, F9, 1-7) work again: they are read by their key codes.
+- A racer the game could not put on the grid is moved there by the server, and held until the lights go out.
+- Race setup also picks the track by its name when the game sends it, and placing the flag confirms the track in a toast.
+- Players' games report teleports, keys and the setup page's choices to the server log (`[coco race] diag`).
+
 ## 1.0.5
 
 - Place new and moved gates 3 m ahead of the admin, and sink their bottom stroke slightly into the floor.

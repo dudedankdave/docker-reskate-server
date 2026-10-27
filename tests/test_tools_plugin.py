@@ -150,6 +150,7 @@ reskate = {
     server = {
         say = function(text) py.call("say " .. text) end,
         tell = function(id, text) py.call("tell " .. id .. " " .. text) end,
+        move = function(id, at, heading) return py.move(id, at.x, at.y, at.z) end,
     },
     json = {encode = function(value) return py.encode(value) end, decode = function(text) return py.decode(text) end},
     net = {send = function(to, payload) return py.send(to, payload) end},
@@ -193,6 +194,10 @@ reskate = {
     input = {
         bind = function(action, key) py.call("bind " .. action .. " " .. key) return true end,
         focus = function() return {focused = true, interface_open = false, gameplay = true} end,
+        key = function(code)
+            if type(code) ~= "number" or code < 1 or code > 254 then error("a virtual key from 1 to 254") end
+            return py.key_down(code)
+        end,
     },
 }
 """
@@ -258,6 +263,8 @@ class Client:
         self.session, self.id, self.name, self.side = session, steam_id, name, side
         self.position = [0.0, 0.0, 0.0]
         self.can_teleport = True
+        self.can_move = True     # the server's copy: whether reskate.server.move moves players
+        self.keys_down = set()   # Windows virtual-key codes held
         self.calls, self.toasts, self.doc, self.dialogs, self.oversize = [], [], {}, [], []
         self.shapes = 0
         self.menu_open = False
@@ -265,7 +272,8 @@ class Client:
         py = self.lua.table_from({
             "id": steam_id, "name": name, "side": side, "map": lambda: session.map, "heading": 1.25,
             "now": lambda: session.now, "encode": self.encode, "decode": self.decode, "send": self.send,
-            "pos": lambda: self.lua.table_from(self.position), "teleport": self.teleport,
+            "pos": lambda: self.lua.table_from(self.position), "teleport": self.teleport, "move": self.move,
+            "key_down": lambda code: code in self.keys_down,
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
             "source": lambda name: luau_to_lua((PLUGIN / "plugin" / (name + ".lua")).read_text(encoding="utf-8")),
@@ -321,6 +329,17 @@ class Client:
         self.position = [x, y, z]
         self.calls.append("teleport")
         return True
+
+    def move(self, steam_id, x, y, z):
+        """reskate.server.move, from the server's copy: the player is put there."""
+        if not self.can_move:
+            return False, "moving players is off"
+        for client in self.session.clients:
+            if client.id == steam_id:
+                client.position = [x, y, z]
+                self.calls.append("move " + steam_id)
+                return True
+        return False, "no such player"
 
     def count_shape(self):
         self.shapes += 1
@@ -645,6 +664,35 @@ class RaceTest(unittest.TestCase):
         self.assertIsNone(self.b.tracks()[0].get("best"))
         self.assertTrue(self.b.tracks()[0]["challenge"], "it stays a challenge")
 
+    def test_f8_on_the_keyboard_starts_a_challenge(self):
+        build_track(self.session, self.a)
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "challenge", "", 1)
+        self.session.settle()
+        self.b.position = [16.0, 0.0, 2.0]
+        self.b.keys_down.add(0x77)      # F8, by its virtual-key code
+        self.session.step()
+        self.assertTrue(self.b.race().challenge)
+        self.session.step()             # held: not again
+        self.b.keys_down.clear()
+        self.session.step()
+        self.assertFalse(any("diag Jambo: input.key" in c for c in self.session.server.calls), self.session.server.calls)
+
+    def test_the_setup_page_picks_the_track_by_its_label(self):
+        build_track(self.session, self.a)
+        build_track(self.session, self.a, name="Dock Sprint", circuit=False)
+        self.a.ui("open", 7)
+        self.session.step()
+        self.assertEqual(self.a.doc["setup"]["rows"][0]["options"], ["Harbour Loop", "Dock Sprint"])
+        self.a.ui("setup_row", "track", 0, "Dock Sprint")
+        self.a.ui("setup_confirm", 4, 0)
+        self.a.ui("flag_placed", 7, 1, 2, 3, 0)
+        self.assertEqual(self.a.state("host").track.name, "Dock Sprint")
+        self.assertIn("Race on Dock Sprint  -  Sprint · 2.5 s grid", self.a.toasts)
+        self.session.step()
+        self.assertTrue(any(c.startswith("print [coco race] diag Coco: setup_row") and "Dock Sprint" in c
+                            for c in self.session.server.calls), self.session.server.calls)
+
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)
         host_and_join(self.session, self.a, self.b)
@@ -690,10 +738,31 @@ class RaceTest(unittest.TestCase):
         self.assertEqual(self.b.race().racers[self.b.id].dnf, "teleported")
         self.assertEqual(self.a.race().racers[self.b.id].dnf, "teleported", "the others hear it")
 
+    def test_the_server_puts_a_racer_its_game_could_not_move_on_the_grid(self):
+        build_track(self.session, self.a)
+        host_and_join(self.session, self.a, self.b)
+        self.b.can_teleport = False
+        self.b.position = [-30.0, 0.0, 0.0]
+        self.a.ui("start", 7)
+        for _ in range(6):
+            self.session.step()
+        self.assertTrue(self.b.race().placed)
+        self.assertLess(self.b.position[0], 20, "on the grid behind the start")
+        self.assertGreater(self.b.position[0], 5)
+        self.assertTrue(self.b.doc["match"]["input_lock"], "held for the lights")
+        self.assertIn("move " + self.b.id, self.session.server.calls)
+        self.assertTrue(any(c.startswith("print [coco race] grid Jambo slot 2 on Harbour Loop: moved")
+                            for c in self.session.server.calls), self.session.server.calls)
+        self.assertTrue(any(c.startswith("print [coco race] diag Jambo: teleport: ok=true returned=false")
+                            for c in self.session.server.calls), self.session.server.calls)
+        lights_out(self.session)
+        self.assertFalse(self.b.doc["match"]["input_lock"])
+
     def test_a_racer_who_cannot_be_moved_skates_to_the_start(self):
         build_track(self.session, self.a)
         host_and_join(self.session, self.a, self.b)
         self.b.can_teleport = False
+        self.session.server.can_move = False
         self.b.position = [-30.0, 0.0, 0.0]
         self.a.ui("start", 7)
         lights_out(self.session)

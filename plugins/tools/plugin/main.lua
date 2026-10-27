@@ -190,6 +190,16 @@ local function course(track, laps)
     return seq
 end
 
+-- The grid: two by two behind the start gate, the host in front.
+local GRID_SLOTS = 10
+local function grid_slot(track, index)
+    local g = track.gates[1]
+    local row, column = math.floor((index - 1) / 2), (index - 1) % 2
+    local spread = math.min(g.w / 4, 2.5)
+    local at = v3(g.p) - normal(g) * (4 + row * 4) + across(g) * (column == 0 and -spread or spread)
+    return at + vector.create(0, 0.3, 0)
+end
+
 -- ---- the server's copy: the tracks ----------------------------------------------------------------
 
 local function server_main()
@@ -332,6 +342,44 @@ local function server_main()
         end
     end
 
+    -- A racer whose game could not put them on the grid asks the server to: it moves them, but only to a grid
+    -- slot of a track saved on this map, and at most once every 2 s.
+    local gridded_at = {}
+    local function move(player, at, heading)
+        local ok, moved, why = pcall(R.server.move, player.id, at, heading)
+        if not ok then ok, moved, why = pcall(R.server.move, player, at, heading) end
+        if not ok then return false, tostring(moved) end
+        if moved == false then return false, tostring(why or "refused") end
+        return true
+    end
+    function handlers.grid(from, m)
+        local t = now()
+        if gridded_at[from.id] and t - gridded_at[from.id] < 2000 then return end
+        gridded_at[from.id] = t
+        local track = nil
+        for _, one in ipairs(tracks_of(m.map)) do
+            if one.id == m.id then track = one end
+        end
+        if not track then
+            send(from.id, {t = "gridded", race = m.race, ok = false, why = "the track is not on the server"})
+            return
+        end
+        local slot = math.clamp(math.floor(tonumber(m.slot) or 1), 1, GRID_SLOTS)
+        local ok, why = move(from, grid_slot(track, slot), track.gates[1].heading)
+        pcall(R.console.print, string.format("[coco race] grid %s slot %d on %s: %s", tostring(from.name), slot, track.name,
+            ok and "moved" or ("not moved, " .. tostring(why))))
+        send(from.id, {t = "gridded", race = m.race, ok = ok, why = why})
+    end
+
+    -- What a player's game says about the calls the races make (teleport, keys, the setup page), for the server's log.
+    local diags = {}
+    function handlers.diag(from, m)
+        diags[from.id] = (diags[from.id] or 0) + 1
+        if diags[from.id] > 50 then return end
+        local line = tostring(m.text):gsub("%c", " "):sub(1, 300)
+        pcall(R.console.print, "[coco race] diag " .. tostring(from.name) .. ": " .. line)
+    end
+
     R.on("message", function(from, payload)
         local ok, m = pcall(R.json.decode, payload)
         if not ok or type(m) ~= "table" or type(m.map) ~= "string" then return end
@@ -367,6 +415,19 @@ local trail = {}         -- the skater's last positions, {at, pos}: which way th
 local function hello()
     last_hello = now()
     send("server", {t = "hello", map = map_key()})
+end
+
+-- Tells the server's log what this game made of a call (each different line once), so a test round shows it.
+local diag_sent = {}
+local function diag(text)
+    text = tostring(text):sub(1, 300)
+    if diag_sent[text] then return end
+    diag_sent[text] = true
+    send("server", {t = "diag", map = map_key(), text = text})
+end
+local function json_of(value)
+    local ok, text = pcall(R.json.encode, value)
+    return ok and text or tostring(value)
 end
 
 local function track_by_id(id)
@@ -500,15 +561,6 @@ local function end_race()
     sound(mine and mine.ms and "go" or "cancel")
 end
 
--- The grid: two by two behind the start gate, the host in front.
-local function grid_slot(track, index)
-    local g = track.gates[1]
-    local row, column = math.floor((index - 1) / 2), (index - 1) % 2
-    local spread = math.min(g.w / 4, 2.5)
-    local at = v3(g.p) - normal(g) * (4 + row * 4) + across(g) * (column == 0 and -spread or spread)
-    return at + vector.create(0, 0.3, 0)
-end
-
 local function begin_race(message, from_id)
     leave_flag(false)
     local track = message.track
@@ -534,11 +586,19 @@ local function begin_race(message, from_id)
         if not race or race.id ~= id then return end
         local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot), track.gates[1].heading)
         race.placed = ok and moved == true
+        diag(string.format("teleport: ok=%s returned=%s %s", tostring(ok), tostring(moved), tostring(why or "")))
         race.tp_until = now() + 5000
         -- Start the countdown only after the grid placement, then publish the input lock.
         race.go_at = now() + grid_delay + 5 * LIGHT_MS + HOLD_MS
         publish()
-        if not race.placed then toast("Skate to the start gate: " .. tostring(why or moved), "warn") end
+        if not race.placed then
+            -- the game would not move the skater: the server's copy puts them on the grid of the saved track
+            if track.id then
+                send("server", {t = "grid", map = map_key(), race = id, id = track.id, slot = slot})
+            else
+                toast("Skate to the start gate: " .. tostring(why or moved), "warn")
+            end
+        end
     end)
 end
 
@@ -713,6 +773,16 @@ function from_server.challenge_record(m)
     if m.map ~= map_key() then return end
     toast(string.format("New record on %s: %s %s!", tostring(m.name), tostring(m.who), clock_text(tonumber(m.ms))))
     sound("go")
+end
+function from_server.gridded(m)
+    if not race or race.id ~= m.race or race.phase ~= "start" then return end
+    if m.ok then
+        race.placed = true
+        race.tp_until = now() + 5000
+        publish()
+    else
+        toast("Skate to the start gate: " .. tostring(m.why), "warn")
+    end
 end
 function from_server.deleted(m) toast("Track \"" .. tostring(m.name) .. "\" deleted.") end
 function from_server.refused(m) toast(tostring(m.why), "warn") end
@@ -1100,9 +1170,17 @@ R.on("throwdown_ui", function(e)
         if not answered then hello() end
         setup_open = true
     elseif a == "setup_row" then
+        diag("setup_row " .. json_of(args))
         local value = tonumber(args[2]) or 0
         if args[1] == "track" then
-            setup.track = math.clamp(value + 1, 1, math.max(#tracks, 1))
+            -- the choice's label, when the game sends one, names the track; else its index
+            local named = nil
+            for i = 2, #args do
+                for at, one in ipairs(tracks) do
+                    if type(args[i]) == "string" and args[i] == one.name then named = at end
+                end
+            end
+            setup.track = named or math.clamp(value + 1, 1, math.max(#tracks, 1))
             local selected = tracks[setup.track]
             if selected and not selected.loading then toast("Selected track: " .. selected.name) end
         elseif args[1] == "laps" then setup.laps = LAPS[value + 1] or 1
@@ -1117,6 +1195,7 @@ R.on("throwdown_ui", function(e)
         setup_open = false
         pcall(R.throwdowns.flag.leave)
     elseif a == "setup_confirm" then
+        diag("setup_confirm " .. json_of(args))
         setup_open = false
         setup.players = math.clamp(tonumber(args[1]) or setup.players, 1, 10)
         local t = tracks[setup.track]
@@ -1135,6 +1214,7 @@ R.on("throwdown_ui", function(e)
             capacity = setup.players,
             racers = {[my_id] = my_name}, order = {my_id}, last_offer = 0,
         }
+        toast("Race on " .. t.name .. "  -  " .. setup_label(t, host.laps, host.grid_delay))
         broadcast_offer()
     elseif a == "start" then
         if host then start_race() end
@@ -1458,26 +1538,50 @@ end)
 
 -- ---- tick and lifetime ----------------------------------------------------------------------------
 
--- Keep the keyboard shortcuts available while the action defaults are on the controller. Players
--- can still change either set from ReSkate's Binds page.
+-- Keep the keyboard shortcuts available while the action defaults are on the controller (ReSkate's
+-- Binds page changes those). reskate.input.key takes a Windows virtual-key code ("a virtual key from
+-- 1 to 254"); should a game take the key's name instead, that is used from then on.
 local keyboard_editor_keys = {
-    F8 = "gate_add", F9 = "gate_delete", F5 = "gate_prev", F6 = "gate_next",
-    ["1"] = "adjust_mode", ["2"] = "adjust_down", ["3"] = "adjust_up",
-    ["4"] = "adjust_left", ["5"] = "adjust_right", ["6"] = "gate_here", ["7"] = "gate_circuit",
+    {0x74, "F5", "gate_prev"}, {0x75, "F6", "gate_next"}, {0x77, "F8", "gate_add"}, {0x78, "F9", "gate_delete"},
+    {0x31, "1", "adjust_mode"}, {0x32, "2", "adjust_down"}, {0x33, "3", "adjust_up"}, {0x34, "4", "adjust_left"},
+    {0x35, "5", "adjust_right"}, {0x36, "6", "gate_here"}, {0x37, "7", "gate_circuit"},
 }
 local keyboard_was_down = {}
+local keys_by_name = false
+
+local function key_down(code, name)
+    local ok, down = pcall(R.input.key, keys_by_name and name or code)
+    if not ok and not keys_by_name then
+        local by_name, down_by_name = pcall(R.input.key, name)
+        diag("input.key(" .. code .. "): " .. tostring(down) .. (by_name and "; by name it works" or ""))
+        if by_name then keys_by_name, ok, down = true, true, down_by_name end
+    end
+    if not ok then
+        diag("input.key(" .. name .. "): " .. tostring(down))
+        return false
+    end
+    if type(down) ~= "boolean" then diag("input.key returned a " .. type(down)) end
+    return down == true
+end
+
+-- Not while the player types in chat or a menu is open.
+local function keys_allowed()
+    local ok, focus = pcall(R.input.focus)
+    if ok and type(focus) == "table" then return focus.gameplay ~= false and focus.interface_open ~= true end
+    local ok_allowed, allowed = pcall(R.input.allowed)
+    return not ok_allowed or allowed ~= false
+end
 
 local function poll_editor_keys()
-    local ok, allowed = pcall(R.input.allowed)
-    if not ok or not allowed then
+    if not keys_allowed() then
         keyboard_was_down = {}
         return
     end
-    for key, action in pairs(keyboard_editor_keys) do
-        local down_ok, down = pcall(R.input.key, key)
-        down = down_ok and down == true
-        if down and not keyboard_was_down[key] then edit_key(action) end
-        keyboard_was_down[key] = down
+    for _, key in ipairs(keyboard_editor_keys) do
+        local code, name, action = key[1], key[2], key[3]
+        local down = key_down(code, name)
+        if down and not keyboard_was_down[code] then edit_key(action) end
+        keyboard_was_down[code] = down
     end
 end
 
