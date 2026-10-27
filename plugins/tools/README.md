@@ -60,7 +60,8 @@ not on the board yet.
    laps for a circuit.
 2. Place the flag. It shows on the map like every throwdown flag, with the track, laps and gates on
    its card. Other players join it as usual; everyone on the flag sees the track's gates.
-3. Press **Start**. Everyone is put on the grid behind the start gate, facing through it. The game's
+3. Press **Start**. Everyone is put in a row behind the start gate, the same distance from it and spread evenly
+   across it, facing through it; the clock starts for everyone at GO. The game's
    own intro card names the track while everyone lines up, then its 3-2-1 and **GO**. The game uses stock physics during the race.
 4. Go through every gate in order: the bright one with the arrow is next, the dim one after it.
    A gate you miss has to be taken again: no gate can be skipped. Standings are on the right.

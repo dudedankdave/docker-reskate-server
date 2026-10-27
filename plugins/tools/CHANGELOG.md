@@ -2,6 +2,13 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.9
+
+- A fair start for races: everyone stands the same distance behind the start gate, spread evenly across it (a second
+  row only when the gate is too narrow for everyone 1.8 m apart, each row spread evenly too), and the clock starts
+  for everyone at GO.
+- Server challenges are unchanged: run alone, their clock starts when you go through the first gate.
+
 ## 0.2.8
 
 - Racers are held on the grid again until GO: since the game shows the countdown, the throwdown's input lock alone no

@@ -206,13 +206,21 @@ end
 local atan2 = math.atan2 or math.atan
 local function gate_heading(g) return atan2(g.n[1], g.n[2]) end
 
--- The grid: two by two behind the start gate, the host in front.
+-- The grid, a fair start: everyone the same distance behind the start gate, spread evenly across it. A second row
+-- only when the gate is too narrow for all of them GRID_GAP apart; each row spread evenly too. `count` racers.
 local GRID_SLOTS = 10
-local function grid_slot(track, index)
+local GRID_GAP, GRID_MOST_GAP = 1.8, 3    -- metres between racers in a row: at least, at most
+local GRID_BACK, GRID_ROW = 4, 3          -- metres behind the start gate, between rows
+local function grid_slot(track, index, count)
     local g = track.gates[1]
-    local row, column = math.floor((index - 1) / 2), (index - 1) % 2
-    local spread = math.min(g.w / 4, 2.5)
-    local at = v3(g.p) - normal(g) * (4 + row * 4) + across(g) * (column == 0 and -spread or spread)
+    count = math.clamp(math.floor(tonumber(count) or index), math.max(index, 1), GRID_SLOTS)
+    local usable = math.max(g.w - 1.5, 0)
+    local per_row = math.max(1, math.min(count, math.floor(usable / GRID_GAP) + 1))
+    local row = math.floor((index - 1) / per_row)
+    local in_row = math.min(per_row, count - row * per_row)
+    local gap = in_row > 1 and math.min(usable / (in_row - 1), GRID_MOST_GAP) or 0
+    local offset = ((index - 1) % per_row - (in_row - 1) / 2) * gap
+    local at = v3(g.p) - normal(g) * (GRID_BACK + row * GRID_ROW) + across(g) * offset
     return at + vector.create(0, 0.3, 0)
 end
 
@@ -380,7 +388,7 @@ local function server_main()
             return
         end
         local slot = math.clamp(math.floor(tonumber(m.slot) or 1), 1, GRID_SLOTS)
-        local ok, why = move(from, grid_slot(track, slot))
+        local ok, why = move(from, grid_slot(track, slot, tonumber(m.count) or slot))
         pcall(R.console.print, string.format("[coco race] grid %s slot %d on %s: %s", tostring(from.name), slot, track.name,
             ok and "moved" or ("not moved, " .. tostring(why))))
         send(from.id, {t = "gridded", race = m.race, ok = ok, why = why})
@@ -803,7 +811,7 @@ local function begin_race(message, from_id)
     local id = race.id
     R.time.after(250, function()
         if not race or race.id ~= id then return end
-        local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot), gate_heading(track.gates[1]))
+        local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot, #race.order), gate_heading(track.gates[1]))
         race.placed = ok and moved == true
         diag(string.format("teleport: ok=%s returned=%s %s", tostring(ok), tostring(moved), tostring(why or "")))
         race.tp_until = now() + 5000
@@ -814,7 +822,7 @@ local function begin_race(message, from_id)
         if not race.placed then
             -- the game would not move the skater: the server's copy puts them on the grid of the saved track
             if track.id then
-                send("server", {t = "grid", map = map_key(), race = id, id = track.id, slot = slot})
+                send("server", {t = "grid", map = map_key(), race = id, id = track.id, slot = slot, count = #race.order})
             else
                 toast("Skate to the start gate: " .. tostring(why or moved), "warn")
             end
@@ -871,8 +879,8 @@ end
 local function passed(t)
     local mine = race.racers[race.me]
     local gate = race.seq[race.next]
-    -- The clock starts when the skater crosses the start gate, not when GO appears.
-    if race.next == 1 then race.started_at = t end
+    -- A challenge's clock starts when the skater crosses the start gate; a race's started for everyone at GO.
+    if race.next == 1 and race.challenge then race.started_at = t end
     local elapsed = race.started_at and (t - race.started_at) or 0
     race.next += 1
     mine.n, mine.at_ms = race.next - 1, elapsed
@@ -918,6 +926,7 @@ local function race_tick(t)
         end
         if t >= race.go_at then
             race.phase = "running"
+            if not race.challenge then race.started_at = race.go_at end   -- a race: one clock, from GO
             sound("go")
             release_hold()
         end

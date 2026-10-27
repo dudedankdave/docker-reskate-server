@@ -687,10 +687,13 @@ class RaceTest(unittest.TestCase):
             self.assertIn("hold true", client.calls, "held on the grid")
             self.assertIn("competition true", client.calls)
         self.assertNotEqual(self.a.position, self.b.position, "side by side")
+        self.assertAlmostEqual(self.a.position[0], self.b.position[0], msg="a fair start: the same distance behind the gate")
+        self.assertAlmostEqual(self.a.position[2], -self.b.position[2], msg="spread evenly across it")
         for client in (self.a, self.b):   # gate 1 is gone through along +x: heading pi/2 faces (sin, cos) = (1, 0)
             self.assertAlmostEqual(client.facing, math.pi / 2, places=2, msg=client.name + " faces along the start gate")
         lights_out(self.session)
         self.assertEqual(self.a.race().phase, "running")
+        self.assertEqual(self.a.race().started_at, self.a.race().go_at, "a race's clock runs from GO for everyone")
         self.assertFalse(self.a.doc["match"]["input_lock"])
         self.assertNotIn("countdown", self.a.doc["hud"], "GO: the game shows it as the countdown ends")
         for client in (self.a, self.b):
@@ -737,6 +740,12 @@ class RaceTest(unittest.TestCase):
         race = self.b.race()
         self.assertTrue(race.challenge)
         self.assertEqual(list(race.racers.keys()), [self.b.id])
+        lights_out(self.session)
+        self.assertIsNone(self.b.race().started_at, "a challenge's clock waits for the start gate")
+        self.b.key("race_leave")
+        self.b.position = [16.0, 0.0, 2.0]
+        self.b.key("gate_add")
+        race = self.b.race()
         self.assertIsNone(self.a.race(), "nobody else is in it")
         lights_out(self.session)
         for corner in CORNERS + [CORNERS[0]]:
