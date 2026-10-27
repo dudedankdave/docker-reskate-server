@@ -2,6 +2,15 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.7
+
+- Tracks are kept per map: the map's own level (`reskate.level.current()`), e.g. `dingolevel_reskate_skate3improved`.
+  Until now they were kept per skate. base world, which is `bam` for every modded map, so a server rotating maps
+  would have shown every map's tracks on all of them. A server playing a map of its own takes what was kept under its
+  base world (tracks and challenge times) as that map's, once.
+- The bundled Skate 3 races are for Skate 3 Improved's level only.
+- The server's log says which map key the server and each game use (`[coco race] map key ...`).
+
 ## 0.2.6
 
 - The plugin can bring race tracks itself: `deathrace_tracks.py <races.json> --bundle` writes Skate 3's races into

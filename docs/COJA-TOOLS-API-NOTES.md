@@ -99,6 +99,14 @@ into it runs over 50 ms, when it averages over 2 ms a tick for 3 seconds in a ro
 more than 5 errors in 10 s (`plugin_vm.h`, `Limits`). So big jobs (thousands of blueprints) are spread over ticks,
 and what is measured every frame (`d:measure`) is cached.
 
+## Which map
+
+- `reskate.session.world().map` is skate.'s base world (`bam`, `grom`, `ftue`, `stadium_1`, `stadium_2`, `mpr`;
+  `world_layer_types.h`): every modded map (Skate 3 Improved, Skate 2 ...) loads on top of `bam`, so it cannot tell
+  them apart. `reskate.level.current()` (`{name}`, no permission) is the level being played: the map's own level
+  asset in the game (`client_tick.cpp`: the live mod level) and the map the server runs on the server
+  (`server_plugins.cpp`: `map_level()`). Its last path part, lower case, is the key that both share.
+
 ## Modules
 
 - `require` caches each module per plugin: requiring one twice returns the same table.

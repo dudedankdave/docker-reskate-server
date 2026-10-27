@@ -137,6 +137,9 @@ A player who leaves is logged as `[coco] left <SteamID64> played <seconds>`.
 
 ### Skate 3's races as tracks
 
+Tracks are kept per map: the map's own level, the last part of its level asset in lower case
+(`dingolevel_reskate_skate3improved` for Skate 3 Improved, from the map package's `reskate-levels.json`).
+
 `coco import <map> <base64>` saves race tracks made elsewhere for a map: a track or `{"tracks": [...]}`, as the
 server stores them (`{"name", "author", "circuit", "challenge", "gates": [{"p": [x, y, z], "n": [nx, nz], "w", "h",
 "heading"}]}`). Each is checked as Track Studio's are, and replaces the map's track of the same name.
@@ -146,17 +149,17 @@ Skate 3 Improved map (333-Skate_3_Improved) ships them for its Deathraces in `da
 in front of the original start slots, then one gate per checkpoint.
 
 ```
-python plugins/tools/deathrace_tracks.py <Mods>/333-Skate_3_Improved/data/races.json --map bam [--challenge]
+python plugins/tools/deathrace_tracks.py <Mods>/333-Skate_3_Improved/data/races.json [--challenge]
 ```
 
 It prints one `coco import` line per race for the server's console. A race is about 1.2 KB, too long for the bridge's
 console (300 characters), so the servers get them with the plugin instead: `--bundle` writes them into
 `plugin/tracks/bundled.lua` (by map), and the plugin's server copy adds each to its map once when it starts (a track
-staff delete or rename stays so). The bundle holds Skate 3's ten races for the Skate 3 map (`bam`), from
+staff delete or rename stays so). The bundle holds Skate 3's ten races for the Skate 3 map (`dingolevel_reskate_skate3improved`), from
 333-Skate_3_Improved 1.1.8's `data/races.json` (Skate 3's own races, ported by 333).
 
 ```
-python plugins/tools/deathrace_tracks.py races.json --bundle --map bam
+python plugins/tools/deathrace_tracks.py races.json --bundle
 ```
 
 Source: https://github.com/dudedankdave/docker-reskate-server/tree/main/plugins/tools

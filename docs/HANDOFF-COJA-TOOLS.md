@@ -27,7 +27,8 @@ For a new chat that runs on the PC with ReSkate installed. Written 2026-10-27 at
   ("[Plugins] Plugin COCOJAMBO-TOOLS reloading"). Players install the same zip into their own ReSkate by hand.
 - The plugin's server copy stores its data in `/data/data/plugins/COCOJAMBO-TOOLS/storage.json`: keys
   `tracks:<map key>` (the tracks), `best:<map key>:<track id>` (challenge top 10), `hud:*`. The Skate 3 map's key is
-  **`bam`** (what `reskate.session.world().map` gives, cleaned).
+  **`dingolevel_reskate_skate3improved`** (the map's level, `reskate.level.current().name`'s last part, lower case;
+  before 0.2.7 it was `bam`, skate.'s base world, which every modded map shares).
 - Settings: `/shared/settings/server-9.env` (TOOLS_HUD=true, LEADERBOARD=true; PLUGINS_REQUIRED does not list the
   plugin, it is not on Thunderstore).
 - Diagnostics: players' games report what the game did to the server log as `[coco race] diag <player>: ...`
@@ -61,7 +62,7 @@ the native "race" HUD (DEATHRACE header, checkpoint bar, stopwatch, TIME LEFT, "
    them). Read the plugin's Lua for the route format: checkpoints (position, direction, size), start, time limit.
    Also note how it places its start pad (a world entity blueprint? `reskate.entities.set`) and its HUD document.
 2. **Write a converter** (a Python script in `plugins/tools/`, with a test) from Deathrace routes to our track format,
-   then get them into the server's storage under `tracks:bam`. Do not edit `storage.json` by hand while the server
+   then get them into the server's storage under `tracks:<map key>`. Do not edit `storage.json` by hand while the server
    runs: the plugin keeps its storage in memory and writes it back. Add an import to the plugin's server copy
    instead, e.g. a console command `coco import <map> <base64 json>` (the server's tools can type it, like
    `coco player`), which checks each track with `clean_track` and saves it as Track Studio does.

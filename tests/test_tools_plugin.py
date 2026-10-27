@@ -160,6 +160,11 @@ reskate = {
         keys = function() local out = {} for k in pairs(storage) do table.insert(out, k) end return out end,
         set = function(key, value) py.call("storage " .. key) storage[key] = py.decode(py.encode(value)) end,
     },
+    level = {current = function()
+        local name = py.level()
+        if name then return {name = name} end
+        return nil
+    end},
     session = {
         me = function() return {id = py.id, name = py.name, me = true} end,
         world = function() return {world = "1", map = py.map(), barred = false} end,
@@ -256,6 +261,7 @@ class Session:
     def __init__(self, map_name="Skate 3 Improved"):
         self.now = 1_000_000.0
         self.map = map_name
+        self.level = None   # reskate.level.current().name (None: no level known)
         self.bus = []
         self.clients = []
         self.staff = set()
@@ -311,7 +317,7 @@ class Client:
         self.menu_open = False
         self.lua = lupa.LuaRuntime(unpack_returned_tuples=True)
         py = self.lua.table_from({
-            "id": steam_id, "name": name, "side": side, "http": self.http, "map": lambda: session.map, "heading": 1.25,
+            "id": steam_id, "name": name, "side": side, "http": self.http, "map": lambda: session.map, "level": lambda: session.level, "heading": 1.25,
             "now": lambda: session.now, "encode": self.encode, "decode": self.decode, "send": self.send,
             "pos": lambda: self.lua.table_from(self.position), "teleport": self.teleport, "move": self.move,
             "key_down": lambda code: code in self.keys_down,
@@ -1076,6 +1082,26 @@ class RaceTest(unittest.TestCase):
         self.session.settle()
         self.assertEqual(len(self.a.to_py(self.a.state("host"))["order"]), 2)
         c.lua.globals().fire("unload")
+
+    def test_tracks_kept_for_the_base_world_move_to_the_map_the_server_plays(self):
+        session = Session(map_name="bam")
+        session.level = "Levels/Game/dingolevel_reskate_skate3improved/dingolevel_reskate_skate3improved"
+        server = session.server
+        server.lua.execute("""
+            reskate.storage.set("tracks:bam", {{id = "1-1", name = "Old", author = "Coco", circuit = false, challenge = true,
+                gates = {{p = {0, 0, 0}, n = {1, 0}, w = 8, h = 5, heading = 0}, {p = {20, 0, 0}, n = {1, 0}, w = 8, h = 5, heading = 0}}}})
+            reskate.storage.set("best:bam:1-1", {{id = "76561198000000001", n = "Coco", ms = 12345}})
+        """)
+        a = session.add("76561198000000001", "Coco", staff=True)
+        session.settle()
+        names = [t["name"] for t in a.tracks()]
+        self.assertEqual(names[0], "Old", "the game asks for the level's tracks")
+        self.assertIn("University Race 2", names, "and the plugin's bundle for Skate 3 Improved goes in after the move")
+        self.assertEqual(a.tracks()[0]["best"]["ms"], 12345, "with their times")
+        self.assertIsNone(server.lua.eval('reskate.storage.get("tracks:bam")'))
+        self.assertTrue(any(c.startswith("print [coco race] moved 1 track(s) from the base world bam to dingolevel_reskate_skate3improved")
+                            for c in server.calls), server.calls)
+        a.lua.globals().fire("unload")
 
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)

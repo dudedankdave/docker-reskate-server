@@ -10,8 +10,11 @@ console, which checks and saves them as Track Studio does; or, with --bundle, wr
 long (a race of 11 checkpoints is about 1.2 KB; the bridge types at most 300 characters), so --bundle is the way for
 the servers.
 
-    python plugins/tools/deathrace_tracks.py <races.json> [--map bam] [--challenge] [--only race_univ_02,...]
-    python plugins/tools/deathrace_tracks.py <races.json> --bundle [--map bam]
+    python plugins/tools/deathrace_tracks.py <races.json> [--map KEY] [--challenge] [--only race_univ_02,...]
+    python plugins/tools/deathrace_tracks.py <races.json> --bundle [--map KEY]
+
+KEY is the map's level as the plugin keys it: the last part of its level asset, lower case (the map package's
+reskate-levels.json): for Skate 3 Improved dingolevel_reskate_skate3improved, the default.
 """
 import argparse
 import base64
@@ -21,6 +24,7 @@ import pathlib
 import sys
 
 MAX_GATES = 40
+SKATE3 = "dingolevel_reskate_skate3improved"   # Skate 3 Improved's level, as the plugin keys tracks
 START_AHEAD = 4.0   # metres from the start slots to gate 1: the plugin's grid starts 4 m behind gate 1
 START_HEIGHT = 5.0
 
@@ -114,7 +118,7 @@ def write_bundle(map_key, tracks, path=BUNDLE):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("races", type=pathlib.Path, help="the Skate 3 Improved map's data/races.json")
-    ap.add_argument("--map", default="bam", help="the map's key on the server (Skate 3: bam)")
+    ap.add_argument("--map", default=SKATE3, help="the map's level key (default: Skate 3 Improved's, " + SKATE3 + ")")
     ap.add_argument("--challenge", action="store_true", help="make each a challenge (solo, timed, a top 10)")
     ap.add_argument("--only", default="", help="race ids, comma separated (race_univ_02,...)")
     ap.add_argument("--bundle", action="store_true", help="write them into plugin/tracks/bundled.lua instead of printing")

@@ -101,9 +101,20 @@ local function copy(value)
     return out
 end
 
+-- The map the tracks are kept for: the level being played (reskate.level.current(), the map's own level asset, e.g.
+-- dingolevel_reskate_skate3improved), as the game and the server both have it. session.world().map is only the base
+-- world every modded map loads on top of ("bam" for all of them), so it is the fallback while no level is known.
+local BASE_WORLDS = {bam = true, grom = true, ftue = true, stadium_1 = true, stadium_2 = true, mpr = true}
 local function map_key()
-    local ok, world = pcall(R.session.world)
-    local map = ok and world and world.map or ""
+    local map = ""
+    local ok_level, level = pcall(function() return R.level.current() end)
+    if ok_level and type(level) == "table" and type(level.name) == "string" then
+        map = string.lower(level.name):match("([^/\\]+)$") or ""
+    end
+    if map == "" then
+        local ok, world = pcall(R.session.world)
+        map = ok and world and world.map or ""
+    end
     map = map:gsub("[^%w_%-]", "_")
     if map == "" then map = "unknown" end
     return map:sub(1, 64)
@@ -460,7 +471,42 @@ local function server_main()
             end
         end
     end
-    seed_bundled()
+    -- Before 0.2.7 tracks were kept per base world ("bam" for every modded map): a server playing a map of its own
+    -- takes what is kept there (tracks, challenge times, the bundle's record) as its map's, once.
+    local function move_base_world()
+        local here = map_key()
+        if BASE_WORLDS[here] or here == "unknown" or #tracks_of(here) > 0 then return end
+        for base in pairs(BASE_WORLDS) do
+            local moved = tracks_of(base)
+            if #moved > 0 then
+                local ok, keys = pcall(R.storage.keys)
+                for _, k in ipairs(ok and type(keys) == "table" and keys or {}) do
+                    local id = type(k) == "string" and k:match("^best:" .. base .. ":(.+)$")
+                    if id then
+                        R.storage.set(best_key(here, id), R.storage.get(k))
+                        R.storage.set(k, nil)
+                    end
+                end
+                R.storage.set(key(here), moved)
+                R.storage.set(key(base), nil)
+                R.storage.set("seeded:" .. base, nil)
+                R.console.print(string.format("[coco race] moved %d track(s) from the base world %s to %s", #moved, base, here))
+                return
+            end
+        end
+    end
+    -- Both once the server knows the level it plays (not always so while the plugin loads): the move first, so the
+    -- bundle's tracks do not make the map look kept already. After 30 s without a level the bundle goes in anyway.
+    local settled, settle_by = false, now() + 30000
+    local function settle()
+        if settled then return end
+        local here = map_key()
+        if (BASE_WORLDS[here] or here == "unknown") and now() < settle_by then return end
+        settled = true
+        pcall(R.console.print, "[coco race] map key " .. here)
+        move_base_world()
+        seed_bundled()
+    end
 
     R.on("message", function(from, payload)
         local ok, m = pcall(R.json.decode, payload)
@@ -468,7 +514,10 @@ local function server_main()
         local handler = handlers[m.t]
         if handler then handler(from, m) end
     end)
-    R.on("tick", flush)
+    R.on("tick", function()
+        flush()
+        settle()
+    end)
 end
 
 if R.side == "server" then
@@ -516,6 +565,7 @@ local function hello()
     last_hello = now()
     send("server", {t = "hello", map = map_key()})
 end
+local told_map = nil   -- the map key told to the server's log (diag below): it has to match the server's
 
 -- Tells the server's log what this game made of a call (each different line once), so a test round shows it.
 local diag_sent = {}
@@ -524,6 +574,13 @@ local function diag(text)
     if diag_sent[text] then return end
     diag_sent[text] = true
     send("server", {t = "diag", map = map_key(), text = text})
+end
+local function tell_map()
+    local here = map_key()
+    if here ~= told_map then
+        told_map = here
+        diag("map key " .. here)
+    end
 end
 local function json_of(value)
     local ok, text = pcall(R.json.encode, value)
@@ -2050,6 +2107,7 @@ R.on("tick", function()
     flush()
     poll_editor_keys()
     if not answered and t - last_hello >= HELLO_EVERY_MS then hello() end
+    tell_map()
     if tracks_map and tracks_map ~= map_key() then
         tracks, tracks_map = {}, nil
         hello()
