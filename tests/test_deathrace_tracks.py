@@ -1,8 +1,10 @@
 """plugins/tools/deathrace_tracks.py: Skate 3's races (the Skate 3 Improved map's data/races.json) as our race
 tracks, and the plugin's `coco import` that takes them on the server's console."""
 import importlib.util
+import json
 import math
 import pathlib
+import tempfile
 import unittest
 
 from test_tools_plugin import Session, lights_out, lupa, skate
@@ -103,6 +105,48 @@ class ImportTest(unittest.TestCase):
         self.session.settle()
         self.assertEqual(self.b.race().phase, "done")
         self.assertIsNotNone(self.b.race().racers[self.b.id].ms)
+
+
+class BundleTest(unittest.TestCase):
+    def test_the_bundle_keeps_each_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "bundled.lua"
+            dt.write_bundle("bam", dt.convert(RACES), path)
+            dt.write_bundle("other", [], path)
+            maps = dt.read_bundle(path)
+            self.assertEqual(sorted(maps), ["bam", "other"])
+            self.assertEqual(maps["bam"][0]["name"], "Test Race 1")
+            self.assertTrue(path.read_text(encoding="utf-8").startswith("-- Race tracks"))
+
+
+@unittest.skipUnless(lupa, "needs lupa (pip install lupa)")
+class SeedTest(unittest.TestCase):
+    """The plugin's server copy adds the bundled tracks to their map when it starts (here: the stand-in's map)."""
+
+    def setUp(self):
+        self.kept = dt.BUNDLE.read_text(encoding="utf-8") if dt.BUNDLE.is_file() else None
+        maps = dt.read_bundle()
+        maps[MAP] = dt.convert(RACES)
+        dt.BUNDLE.parent.mkdir(parents=True, exist_ok=True)
+        dt.BUNDLE.write_text(dt.BUNDLE_HEAD + json.dumps(maps) + dt.BUNDLE_TAIL, encoding="utf-8")
+
+    def tearDown(self):
+        if self.kept is None:
+            dt.BUNDLE.unlink()
+            if not any(dt.BUNDLE.parent.iterdir()):
+                dt.BUNDLE.parent.rmdir()
+        else:
+            dt.BUNDLE.write_text(self.kept, encoding="utf-8")
+
+    def test_bundled_tracks_are_added_once_when_the_server_starts(self):
+        session = Session()
+        a = session.add("76561198000000001", "Coco", staff=True)
+        session.settle()
+        self.assertEqual([t["name"] for t in a.tracks()], ["Test Race 1"])
+        prints = [c for c in session.server.calls if c.startswith("print [coco race] added 1 bundled track(s) on " + MAP)]
+        self.assertEqual(len(prints), 1)
+        seeded = session.server.to_py(session.server.lua.eval('reskate.storage.get("seeded:' + MAP + '")'))
+        self.assertEqual(seeded, {"Test Race 1": True})
 
 
 if __name__ == "__main__":

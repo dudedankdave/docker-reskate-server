@@ -422,6 +422,46 @@ local function server_main()
         send_tracks("all", map)
     end
 
+    -- The tracks the plugin brings (plugin/tracks/bundled.lua, from deathrace_tracks.py --bundle: Skate 3's races),
+    -- added to their map once each when the server starts ("seeded:<map>" keeps which): one staff delete or rename
+    -- stays so, and a track of the same name already there is left as it is.
+    local function seed_bundled()
+        local ok, text = pcall(require, "tracks/bundled")
+        if not ok or type(text) ~= "string" then return end
+        local ok_json, maps = pcall(R.json.decode, text)
+        if not ok_json or type(maps) ~= "table" then return R.console.print("error: tracks/bundled is not JSON by map") end
+        for map, bundle in pairs(maps) do
+            map = tostring(map):gsub("[^%w_%-]", "_"):sub(1, 64)
+            local seeded_key = "seeded:" .. map
+            local seeded = R.storage.get(seeded_key)
+            if type(seeded) ~= "table" then seeded = {} end
+            local list, added = tracks_of(map), {}
+            for _, t in ipairs(type(bundle) == "table" and bundle or {}) do
+                local track = clean_track(t)
+                if track and not seeded[track.name] then
+                    seeded[track.name] = true
+                    local there = false
+                    for _, one in ipairs(list) do
+                        if one.name == track.name then there = true end
+                    end
+                    if not there and #list < MAX_TRACKS then
+                        next_id += 1
+                        track.id = string.format("%d-%d", math.floor(now()), next_id)
+                        track.best = nil
+                        table.insert(list, track)
+                        table.insert(added, track.name)
+                    end
+                end
+            end
+            R.storage.set(seeded_key, seeded)
+            if #added > 0 then
+                R.storage.set(key(map), list)
+                R.console.print(string.format("[coco race] added %d bundled track(s) on %s: %s", #added, map, table.concat(added, ", ")))
+            end
+        end
+    end
+    seed_bundled()
+
     R.on("message", function(from, payload)
         local ok, m = pcall(R.json.decode, payload)
         if not ok or type(m) ~= "table" or type(m.map) ~= "string" then return end

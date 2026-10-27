@@ -5,9 +5,13 @@ in its data/races.json for its Deathraces: per race its start slots and its chec
 ({position: its bottom centre, size: its extents along x, y, z, heading: the way through, degrees}). This turns them
 into our tracks (plugin/main.lua, clean_track): gate 1 a start line across the start slots, then one gate per
 checkpoint, the last the finish. It prints a `coco import <map> <base64 json>` line per track for the server's
-console, which checks and saves them as Track Studio does.
+console, which checks and saves them as Track Studio does; or, with --bundle, writes them into the plugin itself
+(plugin/tracks/bundled.lua, by map), whose server copy adds each to its map once when it starts. A console line is
+long (a race of 11 checkpoints is about 1.2 KB; the bridge types at most 300 characters), so --bundle is the way for
+the servers.
 
     python plugins/tools/deathrace_tracks.py <races.json> [--map bam] [--challenge] [--only race_univ_02,...]
+    python plugins/tools/deathrace_tracks.py <races.json> --bundle [--map bam]
 """
 import argparse
 import base64
@@ -84,16 +88,45 @@ def import_line(map_key, value):
     return f"coco import {map_key} {data}"
 
 
+BUNDLE = pathlib.Path(__file__).resolve().parent / "plugin" / "tracks" / "bundled.lua"
+BUNDLE_HEAD, BUNDLE_TAIL = "-- Race tracks the plugin brings (deathrace_tracks.py --bundle): JSON by map key.\nreturn [==[", "]==]\n"
+
+
+def read_bundle(path=BUNDLE):
+    """The bundled tracks by map key ({} when there is no bundle yet)."""
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    return json.loads(text[text.index("[==[") + 4:text.rindex("]==]")])
+
+
+def write_bundle(map_key, tracks, path=BUNDLE):
+    """Puts `tracks` in the bundle as the map's (the other maps' stay)."""
+    maps = read_bundle(path)
+    maps[map_key] = tracks
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = json.dumps(maps, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    if "]==]" in body:
+        raise ValueError("a track holds ]==]")
+    path.write_text(BUNDLE_HEAD + body + BUNDLE_TAIL, encoding="utf-8")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("races", type=pathlib.Path, help="the Skate 3 Improved map's data/races.json")
     ap.add_argument("--map", default="bam", help="the map's key on the server (Skate 3: bam)")
     ap.add_argument("--challenge", action="store_true", help="make each a challenge (solo, timed, a top 10)")
     ap.add_argument("--only", default="", help="race ids, comma separated (race_univ_02,...)")
+    ap.add_argument("--bundle", action="store_true", help="write them into plugin/tracks/bundled.lua instead of printing")
     args = ap.parse_args(argv)
     doc = json.loads(args.races.read_text(encoding="utf-8"))
     only = {s.strip() for s in args.only.split(",") if s.strip()} or None
-    for track in convert(doc, args.challenge, only):
+    tracks = convert(doc, args.challenge, only)
+    if args.bundle:
+        write_bundle(args.map, tracks)
+        print(f"{len(tracks)} track(s) for {args.map} in {BUNDLE}")
+        return 0
+    for track in tracks:
         print(import_line(args.map, track))
     return 0
 

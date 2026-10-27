@@ -149,6 +149,14 @@ in front of the original start slots, then one gate per checkpoint.
 python plugins/tools/deathrace_tracks.py <Mods>/333-Skate_3_Improved/data/races.json --map bam [--challenge]
 ```
 
-It prints one `coco import` line per race for the server's console.
+It prints one `coco import` line per race for the server's console. A race is about 1.2 KB, too long for the bridge's
+console (300 characters), so the servers get them with the plugin instead: `--bundle` writes them into
+`plugin/tracks/bundled.lua` (by map), and the plugin's server copy adds each to its map once when it starts (a track
+staff delete or rename stays so). The bundle holds Skate 3's ten races for the Skate 3 map (`bam`), from
+333-Skate_3_Improved 1.1.8's `data/races.json` (Skate 3's own races, ported by 333).
+
+```
+python plugins/tools/deathrace_tracks.py races.json --bundle --map bam
+```
 
 Source: https://github.com/dudedankdave/docker-reskate-server/tree/main/plugins/tools

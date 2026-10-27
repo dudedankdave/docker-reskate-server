@@ -2,6 +2,15 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.6
+
+- The plugin can bring race tracks itself: `deathrace_tracks.py <races.json> --bundle` writes Skate 3's races into
+  `plugin/tracks/bundled.lua` (by map), and the plugin's server copy adds each to its map once when it starts; a
+  track staff delete or rename stays so. A `coco import` line is too long for the bridge's console (300 characters;
+  a race is about 1.2 KB), so this is the way onto the servers.
+- It brings Skate 3's ten races (Downtown 1-3, Industrial 1-3, University 1-4) for the Skate 3 map, from
+  333-Skate_3_Improved 1.1.8's `data/races.json`.
+
 ## 0.2.5
 
 - Skate 3's ten races (Downtown, Industrial, University) as race tracks: `coco import <map> <base64 json>` on the
