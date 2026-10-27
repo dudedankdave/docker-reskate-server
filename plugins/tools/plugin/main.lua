@@ -408,7 +408,24 @@ local last_hello = -HELLO_EVERY_MS
 
 local editor = nil       -- {track, sel, mode, changed}
 local admin_menu, admin_sel = false, 1
-local setup = {track = 1, laps = 1, players = 6, grid_choice = 2, grid_delay = GRID_MS}
+local setup = {track = 1, laps = 1, players = 6, grid_choice = 2, grid_delay = GRID_MS, access = 1, invited = {}}
+
+-- Who can join a race: everyone, the host's crew (the crew tag the server's tools send each player with their
+-- stats), or the players the host invited in the COJA menu (F5 > RACES). A private race's offer goes only to its
+-- invited players; a crew race's to everyone, and each game shows it only to that crew; the host turns away the rest.
+local ACCESS = {"all", "crew", "invite"}
+local ACCESS_NAMES = {"Everyone", "My crew", "Invited players"}
+local function my_team() return hud and hud.my_team() or nil end
+local function online_players()   -- the other players here: {id, name}, by name
+    local ok, list = pcall(R.session.players)
+    local out, my_id = {}, me()
+    for _, p in ipairs(ok and type(list) == "table" and list or {}) do
+        local id = tostring(p.id or "")
+        if id ~= my_id and not p.me and not p.server and id:match("^%d+$") then out[#out + 1] = {id = id, name = tostring(p.name or id)} end
+    end
+    table.sort(out, function(a, b) return a.name:lower() < b.name:lower() end)
+    return out
+end
 local setup_open = false
 local host = nil         -- this player's flag
 local offers = {}        -- others' flags by race id
@@ -469,6 +486,7 @@ local function setup_document()
             for i, n in ipairs(LAPS) do laps[i] = tostring(n) end
             table.insert(rows, {id = "laps", kind = "choice", caption = "Laps", options = laps, value = lap_index()})
         end
+        table.insert(rows, {id = "access", kind = "choice", caption = "Who can join", options = ACCESS_NAMES, value = setup.access})
         if t.author and t.author ~= "" then table.insert(rows, {id = "by", kind = "info", caption = "Made by", label = t.author}) end
     else
         rows = {
@@ -551,7 +569,9 @@ local function publish()
             players = #o.racers, capacity = o.cap, open = #o.racers < o.cap,
             stats = {{title = "TRACK", value = o.track.name},
                      {title = "SETUP", value = setup_label(o.track, o.laps, o.grid_delay)},
-                     {title = "GATES", value = tostring(o.track.gates)}},
+                     o.access == "crew" and {title = "FOR", value = "Crew [" .. tostring(o.crew) .. "]"}
+                     or o.access == "invite" and {title = "FOR", value = "Invited players"}
+                     or {title = "GATES", value = tostring(o.track.gates)}},
         })
     end
     challenge_flags(flags)
@@ -583,9 +603,14 @@ local function broadcast_offer()
     host.last_offer = now()
     local _, my_name = me()
     local t = host.track
-    send("all", {t = "offer", race = host.id, name = my_name, game = host.game, at = host.at, yaw = host.yaw,
-                 track = {id = t.id, name = t.name, gates = #t.gates}, laps = host.laps, grid_delay = host.grid_delay,
-                 cap = host.capacity, racers = host_racers()})
+    local offer = {t = "offer", race = host.id, name = my_name, game = host.game, at = host.at, yaw = host.yaw,
+                   track = {id = t.id, name = t.name, gates = #t.gates}, laps = host.laps, grid_delay = host.grid_delay,
+                   cap = host.capacity, racers = host_racers(), access = host.access, crew = host.crew}
+    if host.access == "invite" then
+        for id in pairs(host.invited) do send(id, offer) end
+    else
+        send("all", offer)
+    end
 end
 
 local function cancel_host(tell)
@@ -839,12 +864,14 @@ function from_server.refused(m) toast(tostring(m.why), "warn") end
 
 function from_players.offer(from, m)
     if from.id == me() or type(m.at) ~= "table" or type(m.racers) ~= "table" or type(m.track) ~= "table" then return end
+    if m.access == "crew" and (not my_team() or my_team() ~= m.crew) then return end   -- another crew's race
     -- The track itself comes with "go"; the flag names it, and the server's copy is shown meanwhile.
     local track = {id = tostring(m.track.id), name = tostring(m.track.name):sub(1, 32), gates = tonumber(m.track.gates) or 0}
     offers[m.race] = {
         host = from.id, name = m.name or from.name, game = tonumber(m.game) or 1, at = m.at, yaw = tonumber(m.yaw) or 0,
         track = track, laps = tonumber(m.laps) or 1, grid_delay = tonumber(m.grid_delay) or GRID_MS,
         cap = tonumber(m.cap) or 10, racers = m.racers, until_ms = now() + OFFER_TTL_MS,
+        access = m.access == "crew" and "crew" or (m.access == "invite" and "invite" or "all"), crew = m.crew,
     }
     if joined and joined.race == m.race then joined.track = track_by_id(track.id) end
 end
@@ -864,6 +891,13 @@ function from_players.join(from, m)
         return
     end
     if not host.racers[from.id] then
+        if host.access == "invite" and not host.invited[from.id] then
+            send(from.id, {t = "joined", race = m.race, ok = false, why = "That race is invite-only."})
+            return
+        elseif host.access == "crew" and m.crew ~= host.crew then
+            send(from.id, {t = "joined", race = m.race, ok = false, why = "That race is for crew [" .. tostring(host.crew) .. "] only."})
+            return
+        end
         if #host.order >= host.capacity then
             send(from.id, {t = "joined", race = m.race, ok = false, why = "That race is full."})
             return
@@ -992,7 +1026,6 @@ local function ground(x, y, z)
 end
 
 local GATE_PLACE_AHEAD = 3
-local GATE_FLOOR_CLIP = 0.08
 
 local function gate_here()
     local ok, s = pcall(R.skater.get)
@@ -1239,6 +1272,7 @@ R.on("throwdown_ui", function(e)
             local selected = tracks[setup.track]
             if selected and not selected.loading then toast("Selected track: " .. selected.name) end
         elseif args[1] == "laps" then setup.laps = LAPS[value + 1] or 1
+        elseif args[1] == "access" then setup.access = math.clamp(value + 1, 1, #ACCESS)
         elseif args[1] == "grid" then
             setup.grid_choice = math.clamp(value + 1, 1, #GRID_DELAYS)
             setup.grid_delay = GRID_DELAYS[setup.grid_choice]
@@ -1266,10 +1300,26 @@ R.on("throwdown_ui", function(e)
             id = my_id .. ":" .. math.floor(now()), game = tonumber(args[1]) or 1,
             at = {round(tonumber(args[2]) or 0, 0.1), round(tonumber(args[3]) or 0, 0.1), round(tonumber(args[4]) or 0, 0.1)},
             yaw = tonumber(args[5]) or 0, track = t, laps = laps_of(t, setup.laps), grid_delay = setup.grid_delay,
-            capacity = setup.players,
+            capacity = setup.players, access = ACCESS[setup.access] or "all", crew = my_team(), invited = {},
             racers = {[my_id] = my_name}, order = {my_id}, last_offer = 0,
         }
-        toast("Race on " .. t.name .. "  -  " .. setup_label(t, host.laps, host.grid_delay))
+        for id, on in pairs(setup.invited) do
+            if on then host.invited[id] = true end
+        end
+        local who = ""
+        if host.access == "crew" and not host.crew then
+            host.access = "all"
+            toast("You are in no crew: this race is open to everyone.", "warn")
+        elseif host.access == "crew" then
+            who = "  -  crew [" .. host.crew .. "] only"
+        elseif host.access == "invite" then
+            local n = 0
+            for _ in pairs(host.invited) do
+                n += 1
+            end
+            who = n > 0 and string.format("  -  %d invited", n) or "  -  nobody invited yet (F5 > RACES)"
+        end
+        toast("Race on " .. t.name .. "  -  " .. setup_label(t, host.laps, host.grid_delay) .. who)
         broadcast_offer()
     elseif a == "start" then
         if host then start_race() end
@@ -1289,7 +1339,7 @@ R.on("throwdown_ui", function(e)
         elseif o then
             leave_flag(true)
             joined = {race = id, leader = leader, name = o.name, track = track_by_id(o.track.id)}
-            send(leader, {t = "join", race = id})
+            send(leader, {t = "join", race = id, crew = my_team()})
         end
     end
     publish()
@@ -1406,6 +1456,17 @@ local function race_tab(ui)
         setup.grid_choice or 2), 1, #GRID_DELAYS)
     setup.grid_delay = GRID_DELAYS[setup.grid_choice]
     setup.players = math.clamp(math.floor(ui:slider("race_players", "Racers", setup.players, 1, 10, "%d") + 0.5), 1, 10)
+    setup.access = math.clamp(ui:dropdown("race_access", "Who can join", ACCESS_NAMES, setup.access), 1, #ACCESS)
+    if ACCESS[setup.access] == "crew" then
+        ui:note(my_team() and ("Only crew [" .. my_team() .. "] sees and joins it.") or "You are in no crew: it would be open to everyone.")
+    elseif ACCESS[setup.access] == "invite" then
+        local players = online_players()
+        if #players == 0 then ui:note("Nobody else is on the server to invite.") end
+        for _, p in ipairs(players) do
+            local on = ui:toggle("invite_" .. p.id, "Invite " .. p.name, setup.invited[p.id] == true)
+            setup.invited[p.id] = on or nil
+        end
+    end
     if ui:button("race_flag", "Place the race flag") then place_flag() end
     ui:note("Throwdowns > Cocojambo Deathraces opens with the same choices.")
 end
@@ -1609,7 +1670,7 @@ end
 
 -- A gate as a glowing frame with an arrow through it.
 local function draw_gate(d, g, label, colours, arrow)
-    local p, u, n = v3(g.p) - vector.create(0, GATE_FLOOR_CLIP, 0), across(g), normal(g)
+    local p, u, n = v3(g.p), across(g), normal(g)
     local up = vector.create(0, g.h, 0)
     local bl, br = p - u * (g.w / 2), p + u * (g.w / 2)
     local tl, tr = bl + up, br + up
@@ -1617,10 +1678,11 @@ local function draw_gate(d, g, label, colours, arrow)
         local colour = colours[layer]
         if colour then
             local style = {colour = colour, thickness = THICK[layer]}
+            -- two posts and the top bar: no line along the ground, since world lines are drawn over everything
+            -- (no depth), so one there showed through the floor from every side
             d:world_line(bl, tl, style)
             d:world_line(tl, tr, style)
             d:world_line(tr, br, style)
-            d:world_line(br, bl, style)
         end
     end
     if arrow then

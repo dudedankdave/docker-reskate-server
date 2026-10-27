@@ -2,6 +2,15 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.4
+
+- Private races: **Who can join** (F5 > RACES, and the Throwdowns setup page) is Everyone, **My crew** or **Invited
+  players**. A crew race shows only to the host's crew (the crew tag the server's leaderboard knows); an invite-only
+  race's flag goes only to the players ticked in F5 > RACES. The host turns everyone else away, and the flag's card
+  says who it is for.
+- Gates are two posts and a top bar: the line along the ground is gone (world lines are drawn over everything, so it
+  showed through the floor), and the posts start at the ground.
+
 ## 0.2.3
 
 - Challenges show on the in-game map as throwdown flags: a map point with its bubble and a card naming the challenge,

@@ -45,8 +45,8 @@ The tabs:
 - **HOME**: your profile: the COCOJAMBO logo, your name, role and crew, your points, rank, time played and week on
   this server, and from the hub (reskate.cocojambo.net) your place on the ranked and unranked All Time boards, your
   crew's points and how many servers are up.
-- **RACES**: choose a track, laps, grid time and racer count and place the race flag; while your race waits, start
-  it or call it off. Below: every challenge on the map with its record and distance; **Run** puts you on its start.
+- **RACES**: choose a track, laps, grid time, racer count and **who can join** (everyone, your crew, or the
+  players you tick) and place the race flag; while your race waits, start it or call it off. Below: every challenge on the map with its record and distance; **Run** puts you on its start.
 - **ADMIN** (staff): Track Studio: new, edit, delete and challenge on/off for the map's tracks; while editing,
   buttons place, move, select, turn, resize and delete gates, switch circuit/sprint and save.
 - **SETTINGS**: the points chip, its side, the notes and the HUD's size; the controls.
@@ -100,7 +100,7 @@ Gate 1 is the start. Place it facing the way the race goes: the grid faces where
 ground under you, also when you place it mid-air. Moving a challenge's gates starts its times over. The selected gate is yellow; the arrows show the way through each
 gate.
 
-On a controller, use **LB+RB+A** to add a gate (in the library: a new track), **LB+RB+X** to move the selected gate, and **LB+RB+B** to delete it. **LB+Left/Right** selects a gate. Hold **RB** and press the d-pad to adjust it: the current mode decides whether that moves, turns, or resizes the gate. **LB+RB+Y** changes mode; **LB+RB+Start** switches circuit/sprint. New gates are placed ahead of the admin so the frame does not surround their skater. The bottom stroke sits slightly below ground so the floor hides it.
+On a controller, use **LB+RB+A** to add a gate (in the library: a new track), **LB+RB+X** to move the selected gate, and **LB+RB+B** to delete it. **LB+Left/Right** selects a gate. Hold **RB** and press the d-pad to adjust it: the current mode decides whether that moves, turns, or resizes the gate. **LB+RB+Y** changes mode; **LB+RB+Start** switches circuit/sprint. New gates are placed ahead of the admin so the frame does not surround their skater. A gate is two posts and a top bar: no line along the ground, which would show through the floor.
 
 The controller combos can be changed on ReSkate's Binds page; the keyboard keys above are fixed.
 

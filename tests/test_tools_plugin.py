@@ -1029,6 +1029,54 @@ class RaceTest(unittest.TestCase):
         for client in [session.server] + session.clients:
             client.lua.globals().fire("unload")
 
+    def place_race(self, host, **choose):
+        """The host chooses in F5 > RACES (choose: widget id -> value), then places the flag; the flag's id."""
+        menu(host, "RACES", **choose)
+        host.ui("open", 7)
+        self.session.step()
+        host.ui("setup_confirm", 4, 0)
+        host.ui("flag_placed", 7, 1, 2, 3, 0)
+        self.session.settle(3)
+        return host.state("host").id
+
+    def race_flags(self, client):
+        return [f for f in client.to_py(client.doc).get("flags", []) if not f["id"].startswith("challenge:")]
+
+    def test_an_invite_only_race_goes_only_to_the_invited(self):
+        c = self.session.add("76561198000000003", "Mambo")
+        build_track(self.session, self.a)
+        menu(self.a, "RACES", race_access=3)
+        shown = menu(self.a, "RACES", click="invite_" + self.b.id)
+        self.assertIn("toggle invite_" + c.id, shown, "everyone here can be invited")
+        race_id = self.place_race(self.a)
+        flags = self.race_flags(self.b)
+        self.assertEqual([f["id"] for f in flags], [race_id])
+        self.assertEqual(flags[0]["stats"][2], {"title": "FOR", "value": "Invited players"})
+        self.assertEqual(self.race_flags(c), [], "not invited: no flag")
+        self.a.receive(c, json.dumps({"t": "join", "race": race_id}))   # asking anyway
+        self.assertEqual(len(self.a.to_py(self.a.state("host"))["order"]), 1, "turned away")
+        self.b.ui("join", race_id, self.a.id, 7)
+        self.session.settle()
+        self.assertEqual(len(self.a.to_py(self.a.state("host"))["order"]), 2)
+        c.lua.globals().fire("unload")
+
+    def test_a_crew_race_shows_only_to_that_crew(self):
+        c = self.session.add("76561198000000003", "Mambo")
+        self.session.settle()
+        for client, tag in ((self.a, "COJA"), (self.b, "COJA"), (c, "XYZ")):
+            self.session.server.console(leaderboard.hud_line("player", client.id, {"points": 1, "team": tag}))
+        self.session.settle()
+        build_track(self.session, self.a)
+        race_id = self.place_race(self.a, race_access=2)
+        self.assertEqual(self.race_flags(self.b)[0]["stats"][2], {"title": "FOR", "value": "Crew [COJA]"})
+        self.assertEqual(self.race_flags(c), [], "another crew: no flag")
+        self.a.receive(c, json.dumps({"t": "join", "race": race_id, "crew": "XYZ"}))
+        self.assertEqual(len(self.a.to_py(self.a.state("host"))["order"]), 1, "turned away")
+        self.b.ui("join", race_id, self.a.id, 7)
+        self.session.settle()
+        self.assertEqual(len(self.a.to_py(self.a.state("host"))["order"]), 2)
+        c.lua.globals().fire("unload")
+
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)
         host_and_join(self.session, self.a, self.b)

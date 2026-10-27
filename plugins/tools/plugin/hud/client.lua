@@ -181,6 +181,8 @@ function hud.stats_lines()
 end
 function hud.on_server() return info ~= nil end
 function hud.my_name() return my_name() end
+-- The player's crew tag, as the server's tools send it with their stats (nil: no crew, or not told yet).
+function hud.my_team() return me and me.stats and me.stats.team or nil end
 
 local function panel(d)
     local w = 460
