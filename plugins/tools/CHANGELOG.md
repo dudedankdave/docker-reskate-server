@@ -2,6 +2,18 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.12
+
+- Fixed: after quitting a race, a new custom Throwdown race could not be set up. A setup page closed without its
+  Back (Esc, a quit) stayed counted as open, so the registration it left was never let go; it is now counted closed
+  as soon as the game has no registration. The race's Quit also lets the flag go, and opening the card while the
+  results show closes them instead of refusing.
+- F5 > RACES: "Place the race flag" lets go of a registration left open and tries again; a new "Throwdowns stuck?
+  Free the flag" button lets go of it by hand.
+- The server's log gets every change of the flag state and every Throwdowns event (a line already seen was skipped).
+- The race still runs on the choices made in F5 > RACES: ReSkate only relabels the setup page in an English game
+  (it looks for "Spot Battle", "Players" and "Timer").
+
 ## 0.2.11
 
 - Fixed: our card could open the stock Spot Battle setup page (Skater, rounds, round timer) instead of ours (track,

@@ -577,10 +577,15 @@ end
 local told_map = nil   -- the map key told to the server's log (diag below): it has to match the server's
 
 -- Tells the server's log what this game made of a call (each different line once), so a test round shows it.
-local diag_sent = {}
-local function diag(text)
+local diag_sent, diag_count = {}, 0
+local function diag(text, again)
     text = tostring(text):sub(1, 300)
-    if diag_sent[text] then return end
+    if diag_sent[text] and not again then return end
+    -- `again`: a state change, sent each time it happens (a line seen before says nothing about now); 200 at most
+    if again then
+        if diag_count >= 200 then return end
+        diag_count += 1
+    end
     diag_sent[text] = true
     send("server", {t = "diag", map = map_key(), text = text})
 end
@@ -1420,10 +1425,15 @@ end
 
 R.on("throwdown_ui", function(e)
     local a, args = e.action, e.args or {}
+    if a ~= "dialog" and a ~= "setup_row" then
+        diag(string.format("ui %s (race=%s host=%s joined=%s setup=%s)", tostring(a), race and race.phase or "no",
+            tostring(host ~= nil), tostring(joined ~= nil), tostring(setup_open)), true)
+    end
     if a == "dialog" then
         on_dialog(args)
     elseif a == "open" then
         if admin_menu then admin_menu = false end
+        if race and race.phase == "done" then leave_race() end   -- the results: a new race closes them
         if race or joined or editor then
             pcall(R.throwdowns.flag.leave)
             toast(editor and "Close Track Studio first (F7)." or "Leave your race first (F10).", "warn")
@@ -1501,6 +1511,7 @@ R.on("throwdown_ui", function(e)
         cancel_host(true)
     elseif a == "quit" then
         leave_race()
+        pcall(R.throwdowns.flag.leave)
     elseif a == "join" then
         local id, leader = args[1], args[2]
         local o = offers[id]
@@ -1533,8 +1544,11 @@ local function watch_flag(t)
         tostring(st.waiting), tostring(st.placing), tostring(st.mode))
     if seen ~= flag_seen then
         flag_seen = seen
-        diag("flag " .. seen)
+        diag("flag " .. seen, true)
     end
+    -- The setup page is gone once nothing is registered: a page closed without its `setup_back` (Esc, a quit)
+    -- must not leave us thinking it is open, which keeps us from letting a stale registration go.
+    if setup_open and not st.busy then setup_open = false end
     local ours_unused = st.busy and st.mode ~= nil and not st.placing and not host and not joined and not setup_open
     if not ours_unused then
         flag_stale_since = nil
@@ -1543,7 +1557,7 @@ local function watch_flag(t)
     elseif t - flag_stale_since >= FLAG_STALE_MS then
         flag_stale_since = nil
         pcall(R.throwdowns.flag.leave)
-        diag("flag: let go of a registration nothing of ours used")
+        diag("flag: let go of a registration nothing of ours used", true)
     end
 end
 
@@ -1585,10 +1599,25 @@ local function ask_delete(t)
 end
 
 -- The race flag from the menu: the game's own placing, as Throwdowns does; flag_placed then hosts it.
+local function free_flag()
+    setup_open = false
+    pcall(R.throwdowns.flag.leave)
+end
+
 local function place_flag()
-    local ok, why = pcall(R.throwdowns.flag.begin, MODE, 1, {setup_page = false})
-    if not ok then ok, why = pcall(R.throwdowns.flag.begin, MODE) end
-    diag("flag.begin: " .. (ok and ("ok " .. tostring(why)) or tostring(why)))
+    local function begin()
+        local ok, why = pcall(R.throwdowns.flag.begin, MODE, 1, {setup_page = false})
+        if not ok then ok, why = pcall(R.throwdowns.flag.begin, MODE) end
+        return ok, why
+    end
+    local ok, why = begin()
+    if ok and why == false and not host and not joined and not race then
+        -- a registration left open (a quit race, a page closed without its back) holds the only flag: let it go, again
+        free_flag()
+        ok, why = begin()
+        diag("flag.begin after letting go: " .. tostring(why), true)
+    end
+    diag("flag.begin: " .. (ok and ("ok " .. tostring(why)) or tostring(why)), true)
     if ok and why ~= false then
         close_menu()   -- placing the flag is skating to the spot
         return toast("Place the race flag.")
@@ -1670,7 +1699,12 @@ local function race_tab(ui)
         end
     end
     if ui:button("race_flag", "Place the race flag") then place_flag() end
-    ui:note("Throwdowns > Cocojambo Deathraces opens with the same choices.")
+    ui:note("Throwdowns > Cocojambo Deathraces races these choices too.")
+    if ui:button("race_free", "Throwdowns stuck? Free the flag") then
+        free_flag()
+        diag("flag freed from the menu", true)
+        toast("Throwdowns flag let go: open Throwdowns again or place the flag here.")
+    end
 end
 
 local function challenges_tab(ui)

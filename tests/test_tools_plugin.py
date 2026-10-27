@@ -190,6 +190,7 @@ reskate = {
         mode = function(m) py.call("mode " .. m.id) return true end,
         ui = function(doc) py.publish(doc) return true end,
         flag = {leave = function() py.call("flag leave") end,
+                begin = function(mode) py.call("flag begin " .. mode) return py.flag_begin() end,
                 state = function() local st = py.flag_state() if st then return st end return {busy = false} end},
     },
     ui = {
@@ -312,6 +313,7 @@ class Client:
         self.keys_down = set()   # Windows virtual-key codes held
         self.cursor = None       # reskate.input.cursor: {x, y, left} in screen pixels, or none (no cursor)
         self.flag_state = None   # reskate.throwdowns.flag.state(), when set
+        self.flag_begins = []    # what reskate.throwdowns.flag.begin answers, in turn (then true)
         self.pad_bits = 0        # the controller's buttons, XInput bits (None: pad_bits has nothing, as under a screen)
         self.pad_buttons = set()  # reskate.input.gamepad().buttons held, by name
         self.calls, self.toasts, self.doc, self.dialogs, self.oversize = [], [], {}, [], []
@@ -326,6 +328,7 @@ class Client:
             "cursor": lambda: self.lua.table_from(self.cursor) if self.cursor else None,
             "pad_bits": lambda: self.pad_bits,
             "flag_state": lambda: self.lua.table_from(self.flag_state) if self.flag_state else None,
+            "flag_begin": lambda: self.flag_begins.pop(0) if self.flag_begins else True,
             "pad_button": lambda name: name in self.pad_buttons,
             "call": self.calls.append, "publish": self.publish, "toast": self.toasts.append,
             "shape": self.count_shape, "dialog": lambda id, spec: self.dialogs.append((id, self.to_py(spec))),
@@ -820,7 +823,7 @@ class RaceTest(unittest.TestCase):
         shown = menu(self.a, "RACES", click="race_flag", race_track=2, race_grid=3)
         self.assertIn("dropdown race_track 2", shown)
         self.assertNotIn("dropdown race_laps 4", shown, "a sprint has no laps")
-        self.assertTrue(any(t.startswith("Open Throwdowns > Cocojambo Deathraces") for t in self.a.toasts), self.a.toasts)
+        self.assertIn("Place the race flag.", self.a.toasts)
         self.a.ui("flag_placed", 7, 1, 2, 3, 0)
         self.assertEqual(self.a.state("host").track.name, "Dock Sprint")
         self.assertEqual(self.a.state("host").grid_delay, 5000)
@@ -1136,6 +1139,30 @@ class RaceTest(unittest.TestCase):
         for _ in range(80):
             self.session.step()
         self.assertNotIn("flag leave", self.a.calls, "placing: in use")
+
+    def test_a_setup_page_closed_without_back_does_not_block_the_next_race(self):
+        self.session.settle()
+        self.a.ui("open")
+        self.a.flag_state = {"busy": True, "owned": True, "waiting": False, "placing": False, "mode": "deathraces"}
+        for _ in range(80):
+            self.session.step()
+        self.assertNotIn("flag leave", self.a.calls, "on the setup page: in use")
+        self.a.flag_state = {"busy": False}   # the page went (Esc, a quit) with no setup_back
+        for _ in range(15):
+            self.session.step()
+        self.a.flag_state = {"busy": True, "owned": True, "waiting": True, "placing": False, "mode": "deathraces"}
+        for _ in range(80):
+            self.session.step()
+        self.assertIn("flag leave", self.a.calls, "the page is no longer counted as open: the stale flag goes")
+
+    def test_placing_the_flag_frees_a_stuck_registration_first(self):
+        build_track(self.session, self.a, circuit=False)
+        self.a.flag_begins = [False]   # one left open from a quit race
+        del self.a.calls[:]
+        menu(self.a, "RACES", click="race_flag")
+        begins = [c for c in self.a.calls if c.startswith("flag begin") or c == "flag leave"]
+        self.assertEqual(begins, ["flag begin deathraces", "flag leave", "flag begin deathraces"])
+        self.assertIn("Place the race flag.", self.a.toasts)
 
     def test_gates_cannot_be_skipped(self):
         build_track(self.session, self.a, circuit=False)
