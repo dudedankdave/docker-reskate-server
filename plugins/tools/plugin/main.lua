@@ -1,6 +1,7 @@
 -- COJA tools (COCOJAMBO-TOOLS): the COCOJAMBO servers' plugin. The HUD (corner tag, panel, notes from the server)
 -- is in hud/ and loads first; the rest of this file is the races.
-if reskate.side == "server" then require("hud/server") else require("hud/client") end
+local hud = nil
+if reskate.side == "server" then require("hud/server") else hud = require("hud/client") end
 
 -- Races: gate races as a ReSkate throwdown mode (contrib/throwdown-kit.md in ReSkate).
 --
@@ -993,14 +994,19 @@ local function challenge_near(reach)
     return best, far
 end
 
-local function challenge_key()
-    if race or host or joined then return end
-    local t = challenge_near(CHALLENGE_REACH)
-    if not t then return end
+local function start_challenge(t)
+    if race or host or joined then return toast("Leave your race first (F10).", "warn") end
+    if editor then return toast("Close Track Studio first (F7).", "warn") end
     local my_id, my_name = me()
     begin_race({race = "challenge:" .. my_id .. ":" .. math.floor(now()), laps = 1, racers = {{my_id, my_name}}, track = t}, my_id)
     race.challenge = true
     toast("Challenge: " .. t.name .. (t.best and ("  -  record " .. clock_text(t.best.ms) .. " by " .. t.best.n) or "") .. ". F10 stops.")
+end
+
+local function challenge_key()
+    if race or host or joined then return end
+    local t = challenge_near(CHALLENGE_REACH)
+    if t then start_challenge(t) end
 end
 
 local function edit_key(name)
@@ -1033,7 +1039,7 @@ local function edit_key(name)
             if t then
                 admin_menu = false
                 editor = {track = copy(t), sel = 1, mode = 1, changed = false}
-                toast("Editing \"" .. t.name .. "\". F5/F6 pick a gate.")
+                toast("Editing \"" .. t.name .. "\". PgUp/PgDn pick a gate.")
             end
         elseif name == "gate_circuit" then
             local t = admin_track()
@@ -1125,7 +1131,7 @@ local function on_dialog(args)
         elseif button == "edit" and t and not t.loading then
             admin_menu = false
             editor = {track = copy(t), sel = 1, mode = 1, changed = false}
-            toast("Editing \"" .. t.name .. "\". F5/F6 pick a gate.")
+            toast("Editing \"" .. t.name .. "\". PgUp/PgDn pick a gate.")
         elseif button == "challenge" and t and not t.loading then
             send("server", {t = "challenge", map = map_key(), id = t.id})
         elseif button == "delete" and t then
@@ -1252,8 +1258,195 @@ local function leave_key()
     end
 end
 
+-- ---- the COJA menu (F5): races, challenges and Track Studio with the mouse, as tabs of the plugin's page ----
+
+local function new_track()
+    admin_menu = false
+    editor = {track = {name = "", circuit = false, gates = {}}, sel = 0, mode = 1, changed = false}
+    toast("New track: skate to the start; Place a gate puts one 3 m ahead, facing the way you skate.")
+end
+
+local function edit_track(t)
+    admin_menu = false
+    editor = {track = copy(t), sel = 1, mode = 1, changed = false}
+    toast("Editing \"" .. t.name .. "\".")
+end
+
+local function ask_delete(t)
+    open_dialog("delete_track", {
+        title = "COJA | DELETE TRACK", message = "Delete \"" .. t.name .. "\" for everyone?",
+        buttons = {{id = "delete:" .. tostring(t.id), label = "Delete track"}, {id = "cancel", label = "Keep track"}},
+    })
+end
+
+-- The race flag from the menu: the game's own placing, as Throwdowns does; flag_placed then hosts it.
+local function place_flag()
+    local ok, why = pcall(R.throwdowns.flag.begin, MODE, 1, {setup_page = false})
+    if not ok then ok, why = pcall(R.throwdowns.flag.begin, MODE) end
+    diag("flag.begin: " .. (ok and ("ok " .. tostring(why)) or tostring(why)))
+    if ok and why ~= false then return toast("Place the race flag.") end
+    toast("Open Throwdowns > Cocojambo Deathraces to place the flag: it starts with these choices.", "warn")
+end
+
+local function names_of(list)
+    local out = {}
+    for i, t in ipairs(list) do out[i] = t.name end
+    return out
+end
+
+local function race_tab(ui)
+    if race then
+        ui:card(race.challenge and "SOLO CHALLENGE" or "IN A RACE", race.track.name)
+        if ui:button("race_quit", race.phase == "done" and "Close the results" or "Leave the race") then leave_key() end
+        return
+    end
+    if host then
+        ui:card("YOUR RACE", host.track.name .. "  ·  " .. setup_label(host.track, host.laps, host.grid_delay))
+        ui:info("Racers", string.format("%d / %d", #host.order, host.capacity))
+        if ui:button("race_start", "Start the race") then
+            start_race()
+            publish()
+        end
+        if ui:button("race_cancel", "Call it off") then cancel_host(true) end
+        return
+    end
+    if joined then
+        ui:card("WAITING FOR THE START", "In " .. tostring(joined.name) .. "'s race")
+        if ui:button("race_unjoin", "Leave the race") then
+            leave_flag(true)
+            toast("You left the race.")
+        end
+        return
+    end
+    ui:card("COCOJAMBO DEATHRACES", "Choose the race, then place its flag; others join it on the map")
+    local ready = {}
+    for _, t in ipairs(tracks) do
+        if not t.loading then ready[#ready + 1] = t end
+    end
+    if #ready == 0 then
+        ui:note(answered and "No tracks saved for this map yet: staff make them in TRACK STUDIO." or "Waiting for the server's tracks...")
+        if ui:button("race_refresh", "Refresh tracks") then
+            answered = false
+            hello()
+        end
+        return
+    end
+    local chosen = 1
+    for i, t in ipairs(ready) do
+        if t == tracks[setup.track] then chosen = i end
+    end
+    local t = ready[ui:dropdown("race_track", "Track", names_of(ready), chosen)] or ready[1]
+    for i, one in ipairs(tracks) do
+        if one == t then setup.track = i end
+    end
+    ui:info("Gates", string.format("%d  (%s)%s", #t.gates, t.circuit and "circuit" or "sprint",
+        t.author ~= "" and ("  ·  made by " .. t.author) or ""))
+    if t.circuit then
+        local laps = {}
+        for i, n in ipairs(LAPS) do laps[i] = n == 1 and "1 lap" or (n .. " laps") end
+        setup.laps = LAPS[ui:dropdown("race_laps", "Laps", laps, lap_index())] or 1
+    end
+    setup.grid_choice = math.clamp(ui:dropdown("race_grid", "Grid time", {"Quick (0 s)", "Standard (2.5 s)", "Relaxed (5 s)"},
+        setup.grid_choice or 2), 1, #GRID_DELAYS)
+    setup.grid_delay = GRID_DELAYS[setup.grid_choice]
+    setup.players = math.clamp(math.floor(ui:slider("race_players", "Racers", setup.players, 1, 10, "%d") + 0.5), 1, 10)
+    if ui:button("race_flag", "Place the race flag") then place_flag() end
+    ui:note("Throwdowns > Cocojambo Deathraces opens with the same choices.")
+end
+
+local function challenges_tab(ui)
+    ui:card("CHALLENGES", "A track alone against the clock: the server keeps everyone's best, top 10")
+    local ok, pos = pcall(R.skater.position)
+    local n = 0
+    for i, t in ipairs(tracks) do
+        if t.challenge and not t.loading and t.gates[1] then
+            n += 1
+            local far = ok and pos and string.format("  ·  %d m away", math.floor(distance(pos, v3(t.gates[1].p)))) or ""
+            ui:info(t.name, (t.best and ("record " .. clock_text(t.best.ms) .. " by " .. t.best.n) or "no record yet") .. far)
+            if ui:button("challenge_" .. i, "Run " .. t.name) then start_challenge(t) end
+        end
+    end
+    if n == 0 then ui:note("No challenges on this map yet.") end
+    if race and race.challenge and ui:button("challenge_stop", "Stop the run") then leave_key() end
+end
+
+-- A gate change from a button: the edit mode it belongs to, then the editor's own step.
+local function adjust(mode, action)
+    editor.mode = mode
+    edit_key(action)
+end
+
+local function studio_tab(ui)
+    if not editor then
+        ui:card("TRACK STUDIO", "The server's tracks on " .. map_key() .. ": every change is shared")
+        if #tracks > 0 then
+            admin_sel = ui:dropdown("studio_track", "Track", names_of(tracks), math.clamp(admin_sel, 1, #tracks))
+            local t = admin_track()
+            if t then
+                ui:info("Gates", string.format("%d  ·  %s  ·  %s", #t.gates, t.circuit and "circuit" or "sprint",
+                    t.challenge and "a challenge" or "no challenge"))
+                if ui:button("studio_edit", "Edit this track") then edit_track(t) end
+                if ui:button("studio_challenge", t.challenge and "Stop it being a challenge" or "Make it a challenge") then
+                    send("server", {t = "challenge", map = map_key(), id = t.id})
+                end
+                if ui:button("studio_delete", "Delete this track") then ask_delete(t) end
+            end
+        else
+            ui:note(answered and "No tracks on this map yet." or "Waiting for the server's tracks...")
+        end
+        if ui:button("studio_new", "New track") then new_track() end
+        return
+    end
+    local t = editor.track
+    ui:card(t.name ~= "" and t.name or "NEW TRACK", string.format("%s  ·  gate %d of %d", t.circuit and "circuit" or "sprint", editor.sel, #t.gates))
+    if ui:button("gate_add", "Place a gate 3 m ahead of me") then edit_key("gate_add") end
+    if editor.sel > 0 then
+        if ui:button("gate_here", "Move this gate 3 m ahead of me") then edit_key("gate_here") end
+        if ui:button("gate_prev", "Previous gate") then edit_key("gate_prev") end
+        if ui:button("gate_next", "Next gate") then edit_key("gate_next") end
+        ui:separator()
+        if ui:button("move_fwd", "Forward 0.5 m") then adjust(1, "adjust_up") end
+        if ui:button("move_back", "Back 0.5 m") then adjust(1, "adjust_down") end
+        if ui:button("move_left", "Left 0.5 m") then adjust(1, "adjust_left") end
+        if ui:button("move_right", "Right 0.5 m") then adjust(1, "adjust_right") end
+        if ui:button("raise", "Up 0.25 m") then adjust(2, "adjust_up") end
+        if ui:button("lower", "Down 0.25 m") then adjust(2, "adjust_down") end
+        if ui:button("turn_left", "Turn 15° left") then adjust(2, "adjust_left") end
+        if ui:button("turn_right", "Turn 15° right") then adjust(2, "adjust_right") end
+        if ui:button("taller", "Taller") then adjust(3, "adjust_up") end
+        if ui:button("shorter", "Lower") then adjust(3, "adjust_down") end
+        if ui:button("wider", "Wider") then adjust(3, "adjust_right") end
+        if ui:button("narrower", "Narrower") then adjust(3, "adjust_left") end
+        ui:separator()
+        if ui:button("gate_delete", "Delete this gate") then edit_key("gate_delete") end
+    end
+    local circuit = ui:toggle("studio_circuit", "Circuit: gate 1 is start and finish of every lap", t.circuit)
+    if circuit ~= t.circuit then edit_key("gate_circuit") end
+    if ui:button("studio_save", "Save the track") then save_dialog() end
+    if ui:button("studio_close", editor.changed and "Discard changes" or "Close the track") then
+        editor = nil
+        toast("Track editor closed.")
+    end
+end
+
+if hud and hud.settings and hud.settings.section then
+    hud.settings.section("RACE", race_tab)
+    hud.settings.section("CHALLENGES", challenges_tab)
+    hud.settings.section("TRACK STUDIO", studio_tab, function() return staff end)
+end
+
+local function open_menu()
+    local ok, why = false, "no settings page"
+    if hud and hud.settings and hud.settings.open then ok, why = hud.settings.open() end
+    if ok then return end
+    diag("F5 menu: " .. tostring(why))
+    toast("The COJA menu is in Insert > PLUGINS > COJA tools: RACE, CHALLENGES and TRACK STUDIO.")
+end
+
 R.on("action", function(name)
-    if name == "race_leave" then leave_key() else edit_key(name) end
+    if name == "race_leave" then leave_key()
+    elseif name == "coja_menu" then open_menu()
+    else edit_key(name) end
 end)
 
 -- ---- drawing --------------------------------------------------------------------------------------
@@ -1342,7 +1535,7 @@ local function draw_admin_menu(d, w, h, k)
     end
     local foot = y + bh - 94 * k
     d:rect(vector.create(x + 20 * k, foot, 0), vector.create(x + bw - 20 * k, foot + 1 * k, 0), {colour = theme.line_strong, fill = true})
-    text(d, x + bw / 2, foot + 18 * k, "F5/F6 · LB+←/→ SELECT   ·   F8 · LB+RB+A NEW   ·   6 · LB+RB+X EDIT   ·   7 · LB+RB+START CHALLENGE   ·   F9 · LB+RB+B DELETE   ·   F10 CLOSE",
+    text(d, x + bw / 2, foot + 18 * k, "PGUP/PGDN · LB+←/→ SELECT   ·   F8 · LB+RB+A NEW   ·   6 · LB+RB+X EDIT   ·   7 · LB+RB+START CHALLENGE   ·   F9 · LB+RB+B DELETE   ·   F10 CLOSE",
         {colour = theme.ink, size = 14, align = "centre", font = "bold"})
     text(d, x + bw / 2, foot + 50 * k, "Only server staff can change tracks. All edits are shared on this map.",
         {colour = theme.muted, size = 15, align = "centre", font = "body"})
@@ -1365,7 +1558,7 @@ local function draw_editor(d, w, h, k)
     text(d, x + bw / 2, y + 51 * k, string.format("%s   ·   %s   ·   GATE %d OF %d", t.name ~= "" and t.name or "NEW TRACK",
         t.circuit and "CIRCUIT" or "SPRINT", editor.sel, #t.gates), {colour = theme.ink, size = 24, align = "centre", font = "bold"})
     text(d, x + bw / 2, y + 84 * k, "1 MODE: " .. mode.name .. "   ·   " .. mode.help, {colour = theme.sun, size = 19, align = "centre", font = "bold"})
-    text(d, x + bw / 2, y + 113 * k, "F8 PLACE 3 M AHEAD   ·   F9 DELETE   ·   F5/F6 SELECT   ·   6 MOVE 3 M AHEAD   ·   7 CIRCUIT   ·   F7 SAVE   ·   F10 CLOSE",
+    text(d, x + bw / 2, y + 113 * k, "F8 PLACE 3 M AHEAD   ·   F9 DELETE   ·   PGUP/PGDN SELECT   ·   6 MOVE 3 M AHEAD   ·   7 CIRCUIT   ·   F7 SAVE   ·   F10 CLOSE",
         {colour = theme.muted, size = 14, align = "centre", font = "body"})
     text(d, x + bw / 2, y + 139 * k, "PAD: LB+RB+A PLACE   ·   LB+RB+X MOVE   ·   LB+RB+B DELETE   ·   LB+←/→ SELECT   ·   RB+D-PAD EDIT   ·   LB+RB+Y MODE",
         {colour = theme.muted, size = 14, align = "centre", font = "body"})
@@ -1542,7 +1735,8 @@ end)
 -- Binds page changes those). reskate.input.key takes a Windows virtual-key code ("a virtual key from
 -- 1 to 254"); should a game take the key's name instead, that is used from then on.
 local keyboard_editor_keys = {
-    {0x74, "F5", "gate_prev"}, {0x75, "F6", "gate_next"}, {0x77, "F8", "gate_add"}, {0x78, "F9", "gate_delete"},
+    {0x21, "PageUp", "gate_prev"}, {0x22, "PageDown", "gate_next"}, {0x75, "F6", "gate_next"},
+    {0x77, "F8", "gate_add"}, {0x78, "F9", "gate_delete"},
     {0x31, "1", "adjust_mode"}, {0x32, "2", "adjust_down"}, {0x33, "3", "adjust_up"}, {0x34, "4", "adjust_left"},
     {0x35, "5", "adjust_right"}, {0x36, "6", "gate_here"}, {0x37, "7", "gate_circuit"},
 }
@@ -1637,7 +1831,7 @@ R.throwdowns.mode{
     players = {min = 1, max = 10, default = 6},
 }
 for action, key in pairs({
-    race_editor = "F7", gate_add = "Pad.LB+Pad.RB+Pad.A", gate_delete = "Pad.LB+Pad.RB+Pad.B", race_leave = "F10",
+    race_editor = "F7", coja_menu = "F5", gate_add = "Pad.LB+Pad.RB+Pad.A", gate_delete = "Pad.LB+Pad.RB+Pad.B", race_leave = "F10",
     gate_prev = "Pad.LB+Pad.Left", gate_next = "Pad.LB+Pad.Right", adjust_mode = "Pad.LB+Pad.RB+Pad.Y",
     adjust_down = "Pad.RB+Pad.Down", adjust_up = "Pad.RB+Pad.Up", adjust_left = "Pad.RB+Pad.Left", adjust_right = "Pad.RB+Pad.Right",
     gate_here = "Pad.LB+Pad.RB+Pad.X", gate_circuit = "Pad.LB+Pad.RB+Pad.Start",

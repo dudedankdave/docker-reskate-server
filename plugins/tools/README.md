@@ -27,6 +27,18 @@ them in order, and a gate only counts when you go through its frame the right wa
 The track list comes from tracks saved by staff on the current map. If none are listed in setup,
 use **Refresh tracks** or ask staff to create a track with F7.
 
+### The COJA menu (F5)
+
+**F5** opens the plugin's page (also in Insert > PLUGINS > **COJA tools**), all with the mouse:
+
+- **RACE**: pick the track, laps, grid time and racer count, and place the flag; while your race waits, start it or
+  call it off.
+- **CHALLENGES**: every challenge on the map with its record and how far its start is; **Run** puts you on its
+  start and runs it.
+- **TRACK STUDIO** (staff): new, edit, delete and challenge on/off for the map's tracks; while editing, buttons place,
+  move, select, turn, resize and delete gates, switch circuit/sprint and save.
+- **DASHBOARD**, **CONTROLS** and **SETTINGS** as before.
+
 ### Race
 
 1. Open **Throwdowns** and pick **Cocojambo Deathraces**. Choose a track, racer limit, grid time, and
@@ -57,7 +69,8 @@ can make, change or delete them. Everyone gets them when they join.
 | Key | |
 |---|---|
 | **F7** | Open or close Track Studio; while editing, save the track |
-| **F5 / F6** | Select a track in the library or a gate while editing |
+| **F5** | The COJA menu: Track Studio with the mouse |
+| **PgUp / PgDn**, **F6** | Select a track in the library or a gate while editing |
 | **F8** | New track in the library; add a gate 3 metres ahead while editing; start a nearby challenge outside the editor |
 | **6** | Edit the selected track in the library; move the selected gate 3 metres ahead while editing |
 | **7** | Toggle a challenge in the library; switch circuit/sprint while editing |

@@ -22,6 +22,7 @@ local TOP_Y = 150       -- the chip and the panel start below the game's own not
 
 function hud.reset() info, me, top, toasts, panel_open = nil, nil, nil, {}, false end
 -- What the HUD holds now (tests/test_tools_plugin.py reads it).
+hud.settings = settings   -- the races add their tabs to its page
 function hud.state() return {info = info, me = me, top = top, toasts = toasts, panel = panel_open, hidden = hidden} end
 function hud.server_name() return info and info.name end
 function hud.toggle_panel()

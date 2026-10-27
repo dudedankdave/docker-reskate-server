@@ -443,6 +443,35 @@ def host_and_join(session, host, joiner, laps_choice=1):
     session.step()
 
 
+MENU_UI = """
+local tab, click, choose, log = ...
+local ui = {}
+function ui:tabs(id, names, at)
+    for i, n in ipairs(names) do log("tab " .. n) end
+    for i, n in ipairs(names) do if n == tab then return i end end
+    return at
+end
+function ui:card(title) log("card " .. title) end
+function ui:info(label, value) log("info " .. label .. ": " .. tostring(value)) end
+function ui:note(text) log("note " .. text) end
+function ui:separator() end
+function ui:button(id, text) log("button " .. id) return id == click end
+function ui:toggle(id, text, on) log("toggle " .. id) if id == click then return not on end return on end
+function ui:dropdown(id, text, choices, chosen) log("dropdown " .. id .. " " .. #choices) return choose[id] or chosen end
+function ui:slider(id, text, value) return choose[id] or value end
+return ui
+"""
+
+
+def menu(client, tab, click=None, **choose):
+    """Builds the plugin's page (F5, Insert > PLUGINS) on `tab` as the game does, clicking the button `click`;
+    returns what it showed."""
+    shown = []
+    ui = client.lua.execute(MENU_UI, tab, click, client.lua.table_from(choose), shown.append)
+    client.lua.globals().menu_page(ui)
+    return shown
+
+
 def lights_out(session):
     for _ in range(90):  # the grid, five lights, the hold
         session.step()
@@ -465,7 +494,7 @@ class RaceTest(unittest.TestCase):
         self.assertIn("bind race_editor F7", self.a.calls)
         self.assertIn("bind adjust_right Pad.RB+Pad.Right", self.a.calls)   # the keyboard keys are polled
         self.assertIn("bind hud_panel F4", self.a.calls)
-        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 14, "at most 16 actions")
+        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 15, "at most 16 actions")
 
     def test_the_server_tells_players_whether_they_are_staff(self):
         self.session.settle()
@@ -691,6 +720,66 @@ class RaceTest(unittest.TestCase):
         self.assertIn("Race on Dock Sprint  -  Sprint · 2.5 s grid", self.a.toasts)
         self.session.step()
         self.assertTrue(any(c.startswith("print [coco race] diag Coco: setup_row") and "Dock Sprint" in c
+                            for c in self.session.server.calls), self.session.server.calls)
+
+    def test_the_menu_hosts_a_race_on_the_chosen_track(self):
+        build_track(self.session, self.a)
+        build_track(self.session, self.a, name="Dock Sprint", circuit=False)
+        shown = menu(self.a, "RACE", click="race_flag", race_track=2, race_grid=3)
+        self.assertIn("dropdown race_track 2", shown)
+        self.assertNotIn("dropdown race_laps 4", shown, "a sprint has no laps")
+        self.assertTrue(any(t.startswith("Open Throwdowns > Cocojambo Deathraces") for t in self.a.toasts), self.a.toasts)
+        self.a.ui("flag_placed", 7, 1, 2, 3, 0)
+        self.assertEqual(self.a.state("host").track.name, "Dock Sprint")
+        self.assertEqual(self.a.state("host").grid_delay, 5000)
+        self.session.step()
+        flag = self.b.doc["flags"][0]
+        self.b.ui("join", flag["id"], flag["leader"], 7)
+        self.session.step()
+        self.assertIn("info Racers: 2 / 6", menu(self.a, "RACE"))
+        menu(self.a, "RACE", click="race_start")
+        self.session.step()
+        for client in (self.a, self.b):
+            self.assertEqual(client.race().track.name, "Dock Sprint", client.name)
+
+    def test_the_menu_runs_a_challenge_from_anywhere(self):
+        build_track(self.session, self.a)
+        self.a.key("race_editor")
+        self.a.ui("dialog", "tracks", "challenge", "", 1)
+        self.session.settle()
+        self.b.position = [300.0, 0.0, 300.0]
+        shown = menu(self.b, "CHALLENGES", click="challenge_1")
+        self.assertTrue(any(line.startswith("info Harbour Loop: no record yet") for line in shown), shown)
+        self.assertTrue(self.b.race().challenge)
+        self.session.settle()
+        self.assertLess(math.dist(self.b.position, [16.0, 0.0, 0.0]), 6, "put on its start")
+
+    def test_track_studio_in_the_menu_is_for_staff(self):
+        self.session.settle()
+        self.assertNotIn("tab TRACK STUDIO", menu(self.b, "TRACK STUDIO"))
+        self.assertIn("tab TRACK STUDIO", menu(self.a, "TRACK STUDIO"))
+        menu(self.a, "TRACK STUDIO", click="studio_new")
+        for x in (10.0, 30.0, 50.0):
+            skate(self.session, self.a, (x, 0, 0))
+            menu(self.a, "TRACK STUDIO", click="gate_add")
+        self.assertEqual(len(self.a.gates()), 3)
+        before = self.a.gates()[2]["p"][1]
+        menu(self.a, "TRACK STUDIO", click="raise")
+        self.assertAlmostEqual(self.a.gates()[2]["p"][1], before + 0.25)
+        menu(self.a, "TRACK STUDIO", click="gate_delete")
+        self.assertEqual(len(self.a.gates()), 2)
+        menu(self.a, "TRACK STUDIO", click="studio_save")
+        self.assertEqual(self.a.dialogs[-1][0], "save_track")
+        self.a.ui("dialog", "save_track", "save", "Menu Sprint", 0)
+        self.session.settle()
+        self.assertEqual([t["name"] for t in self.b.tracks()], ["Menu Sprint"])
+
+    def test_f5_points_to_the_menu_where_the_game_will_not_open_it(self):
+        self.session.settle()
+        self.a.key("coja_menu")
+        self.session.step()
+        self.assertTrue(any("Insert > PLUGINS > COJA tools" in t for t in self.a.toasts), self.a.toasts)
+        self.assertTrue(any(c.startswith("print [coco race] diag Coco: F5 menu: ui.screen")
                             for c in self.session.server.calls), self.session.server.calls)
 
     def test_gates_cannot_be_skipped(self):
@@ -942,7 +1031,7 @@ class HudTest(unittest.TestCase):
     def test_the_settings_page_builds_and_keeps_a_change(self):
         lua = self.a.lua
         ui = lua.eval("""{
-            tabs = function() return 3 end,
+            tabs = function(_, id, names) for i, n in ipairs(names) do if n == "SETTINGS" then return i end end end,
             card = function() end, info = function() end, note = function() end, separator = function() end,
             toggle = function(_, id, text, on) if id == "corner" then return false end return on end,
             dropdown = function(_, id, text, choices, chosen) return 2 end,

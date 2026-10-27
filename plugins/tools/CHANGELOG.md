@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+- **F5** opens the COJA menu (the plugin's page, also in Insert > PLUGINS > COJA tools), all with the mouse:
+  - **RACE**: track, laps, grid time and racer count, then place the flag; start or call off your race.
+  - **CHALLENGES**: each challenge with its record and distance; **Run** puts you on its start and runs it.
+  - **TRACK STUDIO** (staff): new, edit, delete and challenge on/off; buttons for every gate edit, circuit/sprint and save.
+- Gates are selected with PgUp/PgDn (and F6) on the keyboard; F5 is the menu now.
+- Where the game will not open the menu from F5, F5 says where it is, and the reason goes to the server log.
+
 ## 1.0.6
 
 - The keyboard keys of Track Studio and challenges (F5, F6, F8, F9, 1-7) work again: they are read by their key codes.
