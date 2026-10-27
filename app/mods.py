@@ -395,6 +395,72 @@ def install_all(spec, update=True):
             log(f"{token}: {e}")
 
 
+PLUGINS_DIR = "/data/Plugins"        # the server's plugins (/app/Plugins beside ReSkateServer links here)
+PLUGINS_TMP = "/data/.plugins-tmp"
+
+
+def plugin_side(folder):
+    """A plugin's "side" from its reskate-plugin.json ("client" when it says none), or None for no plugin."""
+    try:
+        with open(os.path.join(folder, "reskate-plugin.json"), encoding="utf-8-sig") as f:
+            side = json.load(f).get("side", "client")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return side if side in ("client", "server", "both") else None
+
+
+def install_plugin(owner, name, version, update):
+    """One required plugin: its server side (a "side" of "server" or "both") into /data/Plugins."""
+    label = f"{owner}-{name}"
+    target = os.path.join(PLUGINS_DIR, label)
+    m = meta(owner, name, version)
+    want = m["version_number"]
+    have = read_manifest(target).get("version_number") if os.path.isdir(target) else None
+    if have == want or (have and version is None and not update):
+        log(f"{label} {have}: server side up to date" if have == want else f"{label}: {have} kept (MODS_UPDATE=false)")
+        return
+    rmtree(PLUGINS_TMP)
+    work = os.path.join(PLUGINS_TMP, label)
+    os.makedirs(work)
+    try:
+        unpack(owner, name, want, m["download_url"], work)
+        if plugin_side(work) not in ("server", "both"):
+            log(f"{label} {want}: a plugin for the players' games only, nothing runs on the server")
+            if os.path.isdir(target) and read_marker(target):
+                rmtree(target)
+            return
+        os.makedirs(PLUGINS_DIR, exist_ok=True)
+        old = target + ".old"
+        rmtree(old)
+        if os.path.isdir(target):
+            os.rename(target, old)
+        os.rename(work, target)
+        rmtree(old)
+        log(f"{label} {want}: server side installed in {PLUGINS_DIR} (it reloads within 2 s)")
+    finally:
+        rmtree(PLUGINS_TMP)
+
+
+def install_plugins(spec, update=True):
+    """PLUGINS_REQUIRED: the plugins that also run on the server get their folder in /data/Plugins;
+    one this installer put there that is no longer required is removed. Failures are logged."""
+    wanted = set()
+    for token in re.split(r"[\s,]+", spec.strip()):
+        p = parse(token) if token else None
+        if not p:
+            continue
+        wanted.add(f"{p[0]}-{p[1]}")
+        try:
+            install_plugin(p[0], p[1], p[2], update)
+        except Exception as e:  # the server must start
+            log(f"{token}: server side not installed: {e}")
+    for entry in os.listdir(PLUGINS_DIR) if os.path.isdir(PLUGINS_DIR) else []:
+        folder = os.path.join(PLUGINS_DIR, entry)
+        if entry not in wanted and read_marker(folder):
+            rmtree(folder)
+            log(f"{entry}: no longer in PLUGINS_REQUIRED, server side removed")
+
+
 def gc(days):
     """Remove store folders nobody started with for `days` days, except the newest of each package.
     A running server keeps using the version it started with, so keep `days` above how long a

@@ -485,3 +485,113 @@ func installMods(spec string, update bool) {
 		}
 	}
 }
+
+// The server side of required plugins (PLUGINS_REQUIRED): a plugin whose reskate-plugin.json has
+// "side" "server" or "both" also runs on the server, from /data/Plugins (the image links
+// /app/Plugins beside ReSkateServer there). Same as app/mods.py install_plugins.
+const (
+	pluginsDir = "/data/Plugins"
+	pluginsTmp = "/data/.plugins-tmp"
+)
+
+// pluginSide is the plugin's "side" ("client" when it names none), or "" for no plugin.
+func pluginSide(folder string) string {
+	var m struct {
+		Side *string `json:"side"`
+	}
+	if !readJSON(filepath.Join(folder, "reskate-plugin.json"), &m) {
+		return ""
+	}
+	if m.Side == nil {
+		return "client"
+	}
+	switch *m.Side {
+	case "client", "server", "both":
+		return *m.Side
+	}
+	return ""
+}
+
+func installPlugin(owner, name, version string, update bool) error {
+	label := owner + "-" + name
+	target := filepath.Join(pluginsDir, label)
+	m, err := modMeta(owner, name, version)
+	if err != nil {
+		return err
+	}
+	have := ""
+	if st, err := os.Stat(target); err == nil && st.IsDir() {
+		have = manifestVersion(target)
+	}
+	if have == m.Version {
+		mlog("%s %s: server side up to date", label, have)
+		return nil
+	}
+	if have != "" && version == "" && !update {
+		mlog("%s: %s kept (MODS_UPDATE=false)", label, have)
+		return nil
+	}
+	_ = os.RemoveAll(pluginsTmp)
+	defer os.RemoveAll(pluginsTmp)
+	work := filepath.Join(pluginsTmp, label)
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		return err
+	}
+	if err := unpackMod(owner, name, m.Version, m.DownloadURL, work); err != nil {
+		return err
+	}
+	if side := pluginSide(work); side != "server" && side != "both" {
+		mlog("%s %s: a plugin for the players' games only, nothing runs on the server", label, m.Version)
+		var mk map[string]string
+		if readJSON(filepath.Join(target, modsMarker), &mk) {
+			_ = os.RemoveAll(target)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		return err
+	}
+	old := target + ".old"
+	_ = os.RemoveAll(old)
+	if st, err := os.Stat(target); err == nil && st.IsDir() {
+		if err := os.Rename(target, old); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(work, target); err != nil {
+		return err
+	}
+	_ = os.RemoveAll(old)
+	mlog("%s %s: server side installed in %s (it reloads within 2 s)", label, m.Version, pluginsDir)
+	return nil
+}
+
+// installPlugins installs the server side of each required plugin and removes one this installer
+// put there that is no longer required. Failures are logged and never block the server.
+func installPlugins(spec string, update bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			mlog("plugins: %v", r)
+		}
+	}()
+	wanted := map[string]bool{}
+	for _, token := range splitRe.Split(strings.TrimSpace(spec), -1) {
+		p := parseMod(token)
+		if token == "" || p == nil {
+			continue
+		}
+		wanted[p[1]+"-"+p[2]] = true
+		if err := installPlugin(p[1], p[2], p[3], update); err != nil {
+			mlog("%s: server side not installed: %v", token, err)
+		}
+	}
+	entries, _ := os.ReadDir(pluginsDir)
+	for _, e := range entries {
+		var mk map[string]string
+		folder := filepath.Join(pluginsDir, e.Name())
+		if !wanted[e.Name()] && readJSON(filepath.Join(folder, modsMarker), &mk) {
+			_ = os.RemoveAll(folder)
+			mlog("%s: no longer in PLUGINS_REQUIRED, server side removed", e.Name())
+		}
+	}
+}

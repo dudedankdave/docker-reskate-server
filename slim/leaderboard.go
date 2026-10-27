@@ -137,6 +137,13 @@ type leaderboard struct {
 	postAt                  time.Time
 	started                 time.Time
 	chatEvery, discordEvery map[string]time.Duration // per board kind; 0 = never
+
+	hud       bool                 // the COJA tools HUD (hud.go): what it shows comes from here
+	hudBoard  string               // TOOLS_HUD_BOARD
+	hudServer hudServer            // the panel's server part
+	hudDue    map[string]time.Time // SteamID64 -> when their HUD's stats are due
+	hudInfoAt time.Time            // when the server's info is due (zero: not)
+	hudAt     time.Time            // the last refresh of everyone
 }
 
 // lbIntervals reads "general=60,week=30,event=0" (minutes, 0 = never); kinds not named use def.
@@ -216,6 +223,7 @@ func newLeaderboard(send func(string) bool, post func(string)) *leaderboard {
 		online: map[string]string{}, admins: map[string]bool{}, waiting: map[string]time.Time{}, modded: map[string]string{},
 		speeding: map[string]bool{}, told: map[string]bool{}, asked: map[string]time.Time{}, free: freeTuning(),
 		chatAt: map[string]time.Time{}, postAt: time.Now(), started: time.Now(),
+		hud: hudOn(), hudBoard: lbEnv("TOOLS_HUD_BOARD", "general"), hudServer: hudInfo(), hudDue: map[string]time.Time{}, hudAt: time.Now(),
 	}
 	b.league = "Ranked"
 	dbName := "leaderboard.db"
@@ -607,6 +615,7 @@ func (b *leaderboard) feed(line string) {
 		delete(b.told, name)
 	}
 	if upRe.MatchString(text) {
+		b.hudDue, b.hudInfoAt = map[string]time.Time{}, time.Now().Add(hudAfterUp)
 		b.online, b.waiting, b.modded = map[string]string{}, map[string]time.Time{}, map[string]string{}
 		b.speeding, b.told, b.admins = map[string]bool{}, map[string]bool{}, map[string]bool{}
 		b.free = freeTuning()
@@ -615,8 +624,10 @@ func (b *leaderboard) feed(line string) {
 		b.online[m[1]] = m[2]
 		b.admins[m[2]] = m[3] == "admin"
 		b.waiting[m[1]] = time.Now().Add(rankCheckAfter)
+		b.hudDue[m[2]] = time.Now().Add(hudAfterJoin)
 	} else if m := leftRe.FindStringSubmatch(text); m != nil {
 		forget(m[1])
+		delete(b.hudDue, b.online[m[1]])
 		delete(b.admins, b.online[m[1]])
 		delete(b.online, m[1])
 	} else if m := lbModdedRe.FindStringSubmatch(text); m != nil {
@@ -743,6 +754,14 @@ func (b *leaderboard) score(mode string, results []lbResult) {
 		parts = append(parts, fmt.Sprintf("%s +%d", a.name, a.points))
 	}
 	fmt.Println("[leaderboard] " + strings.Join(parts, ", ") + " (" + strings.Join(boards, ", ") + ")")
+	for _, a := range awards { // their HUDs, and the board on the panel, changed
+		for _, s := range b.online {
+			if s == a.steam {
+				b.hudDue[s] = now
+			}
+		}
+	}
+	b.hudAt = time.Time{}
 }
 
 // ---- chat commands -----------------------------------------------------------------------
@@ -1197,6 +1216,9 @@ func (b *leaderboard) tick() {
 	}
 	playersOn := len(b.online) > 0
 	b.mu.Unlock()
+	if b.hud {
+		b.hudTick(now)
+	}
 	for kind := range b.kinds {
 		every := b.chatEvery[kind]
 		last, ok := b.chatAt[kind]

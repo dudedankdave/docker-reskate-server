@@ -29,6 +29,7 @@ RUN set -e; mkdir -p /rootfs/usr/bin /rootfs/bin /rootfs/usr/local/bin /rootfs/d
     cp /bin/busybox /rootfs/bin/busybox; ln -s busybox /rootfs/bin/sh; \
     ln -s /app/reskate /rootfs/usr/local/bin/curl; \
     ln -s /data/Mods /rootfs/app/Mods; \
+    ln -s /data/Plugins /rootfs/app/Plugins; \
     ln -s /data/world-layers.json /rootfs/app/world-layers.json; \
     ln -s /data/ReSkateServer.log /rootfs/app/ReSkateServer.log; \
     ln -s /app/steamclient.so /rootfs/home/reskate/.steam/sdk64/steamclient.so; \

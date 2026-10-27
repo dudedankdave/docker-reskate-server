@@ -3,3 +3,4 @@ common.env
 Server/
 server*.env
 __pycache__/
+plugins/dist/
