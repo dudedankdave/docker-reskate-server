@@ -1446,28 +1446,88 @@ local menu = require("hud/menu")
 close_menu = menu.close
 menu.busy = function() return race ~= nil end
 menu.on_report(function(text) diag("F5 menu: " .. text) end)
--- The stats card (F4), as the menu's first tab.
-menu.tab("STATS", function(ui)
-    if not (hud and hud.on_server()) then return ui:note("Your stats show once the server has answered.") end
-    if ui.custom then return ui:custom(function(d, x, y, w) return hud.stats_card(d, x, y, w) end) end
-    local s = hud.stats_lines()
-    ui:card(s.name, s.role and ("You  ·  " .. s.role) or "You")
-    for _, r in ipairs(s.rows) do ui:info(r[1], r[2]) end
-    if s.board then
-        ui:separator()
-        ui:card("BOARD", s.board.title)
-        for i, r in ipairs(s.board.rows) do ui:info(i .. ".  " .. r[1], r[2]) end
-    end
-    if #s.rules + #s.links > 0 then
-        ui:separator()
-        ui:card("SERVER", "")
-        for _, rule in ipairs(s.rules) do ui:note(rule) end
-        for _, l in ipairs(s.links) do ui:info(l[1], l[2]) end
-    end
+local hub = require("hud/hub")
+local home = require("hud/home")
+local settings = require("hud/settings")
+hub.on_report(function(text) diag("F5 menu: " .. text) end)
+
+-- HOME: the player's profile and stats, this server's and the hub's.
+menu.tab("HOME", function(ui)
+    if not (hud and hud.on_server()) then return ui:note("Your profile shows once the server has answered.") end
+    if ui.custom then return ui:custom(function(d, x, y, w) return home.draw(d, x, y, w, hud, hub) end) end
+    home.lines(ui, hud, hub)
 end)
-menu.tab("RACE", race_tab)
-menu.tab("CHALLENGES", challenges_tab)
-menu.tab("TRACK STUDIO", studio_tab, function() return staff end)
+
+-- RACES: hosting a race, then the challenges.
+menu.tab("RACES", function(ui)
+    race_tab(ui)
+    ui:separator()
+    challenges_tab(ui)
+end)
+
+-- ADMIN (staff): Track Studio. The first time it is shown, the game's challenge-marker blueprints go to the server's
+-- log, for showing events with skate.'s own marker.
+local blueprints_told = false
+local function tell_blueprints()
+    if blueprints_told then return end
+    blueprints_told = true
+    local ok, names = pcall(R.entities.blueprints)
+    if not ok or type(names) ~= "table" then return diag("blueprints: " .. tostring(names)) end
+    local found = {}
+    for _, name in ipairs(names) do
+        local low = string.lower(tostring(name))
+        if low:find("challenge") or low:find("marker") or low:find("race") or low:find("checkpoint") then
+            found[#found + 1] = tostring(name)
+        end
+    end
+    diag(string.format("blueprints: %d loaded, %d look like markers", #names, #found))
+    local line = ""
+    for _, name in ipairs(found) do
+        if #line + #name + 2 > 280 then
+            diag("blueprints: " .. line)
+            line = ""
+        end
+        line = line == "" and name or (line .. ", " .. name)
+    end
+    if line ~= "" then diag("blueprints: " .. line) end
+end
+menu.tab("ADMIN", function(ui)
+    tell_blueprints()
+    studio_tab(ui)
+end, function() return staff end)
+
+-- SETTINGS: the HUD's settings (as on Insert > PLUGINS > COJA tools) and the controls.
+local SIZES, SIZE_NAMES = {0.8, 1, 1.2, 1.4}, {"Small", "Normal", "Large", "Huge"}
+menu.tab("SETTINGS", function(ui)
+    ui:card("HUD", "Your points chip, notes and the F4 panel")
+    local changed = false
+    local corner = ui:toggle("set_corner", "Points chip (points, rank, time played)", settings.corner)
+    if corner ~= settings.corner then settings.corner, changed = corner, true end
+    local side = ui:dropdown("set_side", "Chip on the", {"Left", "Right"}, settings.side == "right" and 2 or 1)
+    if (side == 2 and "right" or "left") ~= settings.side then settings.side, changed = side == 2 and "right" or "left", true end
+    local toasts = ui:toggle("set_toasts", "Notes from the server at the top of the screen", settings.toasts)
+    if toasts ~= settings.toasts then settings.toasts, changed = toasts, true end
+    local size = 2
+    for i, v in ipairs(SIZES) do
+        if math.abs(v - settings.scale) < 0.05 then size = i end
+    end
+    local picked = ui:dropdown("set_size", "HUD size", SIZE_NAMES, size)
+    if picked ~= size then settings.scale, changed = SIZES[picked], true end
+    if ui:button("set_reset", "Back to the defaults") then
+        for k, v in pairs(settings.DEFAULTS) do settings[k] = v end
+        changed = true
+    end
+    if changed then settings.save() end
+    ui:separator()
+    ui:card("CONTROLS", "Keyboard, controller and mouse")
+    ui:info("F5", "This menu (Esc or B closes it)")
+    ui:info("Arrows · D-pad", "Move; left/right on the tabs switch them")
+    ui:info("Enter · Space · A", "Press")
+    ui:info("Tab · LB / RB", "Next / previous tab")
+    ui:info("F4", "Your stats card")
+    ui:info("F8", "Run the challenge you stand at")
+    ui:info("F10", "Leave a race, close the results")
+end)
 
 R.on("action", function(name)
     if menu.open and name ~= "coja_menu" then return end   -- the menu has the keys and buttons
@@ -1829,6 +1889,7 @@ R.on("tick", function()
     end
     if host and t - host.last_offer >= OFFER_EVERY_MS then broadcast_offer() end
     if race then race_tick(t) end
+    if menu.open and menu.state().tab == "HOME" and hud and hud.on_server() then hub.refresh(hud.my_name()) end
     publish()
 end)
 

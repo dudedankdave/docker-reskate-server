@@ -199,6 +199,12 @@ reskate = {
         close_dialog = function(id) end,
     },
     audio = {play_ui = function(name) return true end},
+    http = {request = function(request, done)
+        local status, body = py.http(request.url)
+        reskate.time.after(50, function() done(status, body) end)
+        return 1
+    end},
+    entities = {blueprints = function() return {"Gameplay/Challenges/ChallengeStart_Marker", "Props/Bench_01"} end},
     log = function(text, level) py.call("log " .. text) end,
     input = {
         bind = function(action, key) py.call("bind " .. action .. " " .. key) return true end,
@@ -305,7 +311,7 @@ class Client:
         self.menu_open = False
         self.lua = lupa.LuaRuntime(unpack_returned_tuples=True)
         py = self.lua.table_from({
-            "id": steam_id, "name": name, "side": side, "map": lambda: session.map, "heading": 1.25,
+            "id": steam_id, "name": name, "side": side, "http": self.http, "map": lambda: session.map, "heading": 1.25,
             "now": lambda: session.now, "encode": self.encode, "decode": self.decode, "send": self.send,
             "pos": lambda: self.lua.table_from(self.position), "teleport": self.teleport, "move": self.move,
             "key_down": lambda code: code in self.keys_down,
@@ -368,6 +374,21 @@ class Client:
         self.facing = heading
         self.calls.append("teleport")
         return True
+
+    HUB = {
+        "board?league=ranked": {"total": 7, "rows": [{"rank": 3, "name": "Coco", "points": 1200, "wins": 4, "played": 9}]},
+        "board?league=unranked": {"total": 2, "rows": [{"rank": 1, "name": "Jambo", "points": 30, "wins": 1, "played": 1}]},
+        "teams": {"teams": [{"tag": "COJA", "name": "Cocojambo", "points": {"ranked": 1200, "unranked": 0},
+                             "members": [{"name": "Coco", "role": "owner"}]}]},
+        "servers": {"servers": [{"server": "1", "online": True, "players": 3}, {"server": "2", "online": False, "players": 0}]},
+    }
+
+    def http(self, url):
+        """reskate.http.request against the hub: (status, body)."""
+        self.calls.append("http " + url)
+        prefix = "https://reskate.cocojambo.net/status/api/"
+        answer = self.HUB.get(url[len(prefix):]) if url.startswith(prefix) else None
+        return (200, json.dumps(answer)) if answer else (404, "{}")
 
     def move(self, steam_id, x, y, z):
         """reskate.server.move, from the server's copy: the player is put there."""
@@ -768,7 +789,7 @@ class RaceTest(unittest.TestCase):
     def test_the_menu_hosts_a_race_on_the_chosen_track(self):
         build_track(self.session, self.a)
         build_track(self.session, self.a, name="Dock Sprint", circuit=False)
-        shown = menu(self.a, "RACE", click="race_flag", race_track=2, race_grid=3)
+        shown = menu(self.a, "RACES", click="race_flag", race_track=2, race_grid=3)
         self.assertIn("dropdown race_track 2", shown)
         self.assertNotIn("dropdown race_laps 4", shown, "a sprint has no laps")
         self.assertTrue(any(t.startswith("Open Throwdowns > Cocojambo Deathraces") for t in self.a.toasts), self.a.toasts)
@@ -779,8 +800,8 @@ class RaceTest(unittest.TestCase):
         flag = self.b.doc["flags"][0]
         self.b.ui("join", flag["id"], flag["leader"], 7)
         self.session.step()
-        self.assertIn("info Racers: 2 / 6", menu(self.a, "RACE"))
-        menu(self.a, "RACE", click="race_start")
+        self.assertIn("info Racers: 2 / 6", menu(self.a, "RACES"))
+        menu(self.a, "RACES", click="race_start")
         self.session.step()
         for client in (self.a, self.b):
             self.assertEqual(client.race().track.name, "Dock Sprint", client.name)
@@ -791,7 +812,7 @@ class RaceTest(unittest.TestCase):
         self.a.ui("dialog", "tracks", "challenge", "", 1)
         self.session.settle()
         self.b.position = [300.0, 0.0, 300.0]
-        shown = menu(self.b, "CHALLENGES", click="challenge_1")
+        shown = menu(self.b, "RACES", click="challenge_1")
         self.assertTrue(any(line.startswith("info Harbour Loop: no record yet") for line in shown), shown)
         self.assertTrue(self.b.race().challenge)
         self.session.settle()
@@ -799,19 +820,19 @@ class RaceTest(unittest.TestCase):
 
     def test_track_studio_in_the_menu_is_for_staff(self):
         self.session.settle()
-        self.assertIsNone(menu(self.b, "TRACK STUDIO"), "not staff")
-        self.assertIsNotNone(menu(self.a, "TRACK STUDIO"))
-        menu(self.a, "TRACK STUDIO", click="studio_new")
+        self.assertIsNone(menu(self.b, "ADMIN"), "not staff")
+        self.assertIsNotNone(menu(self.a, "ADMIN"))
+        menu(self.a, "ADMIN", click="studio_new")
         for x in (10.0, 30.0, 50.0):
             skate(self.session, self.a, (x, 0, 0))
-            menu(self.a, "TRACK STUDIO", click="gate_add")
+            menu(self.a, "ADMIN", click="gate_add")
         self.assertEqual(len(self.a.gates()), 3)
         before = self.a.gates()[2]["p"][1]
-        menu(self.a, "TRACK STUDIO", click="raise")
+        menu(self.a, "ADMIN", click="raise")
         self.assertAlmostEqual(self.a.gates()[2]["p"][1], before + 0.25)
-        menu(self.a, "TRACK STUDIO", click="gate_delete")
+        menu(self.a, "ADMIN", click="gate_delete")
         self.assertEqual(len(self.a.gates()), 2)
-        menu(self.a, "TRACK STUDIO", click="studio_save")
+        menu(self.a, "ADMIN", click="studio_save")
         self.assertEqual(self.a.dialogs[-1][0], "save_track")
         self.a.ui("dialog", "save_track", "save", "Menu Sprint", 0)
         self.session.settle()
@@ -836,7 +857,7 @@ class RaceTest(unittest.TestCase):
         self.assertTrue(menu_lua.open)
         self.assertIn("open COJA", self.a.calls, "the screen: the cursor and the input are the plugin's")
         self.assertIn("hold true", self.a.calls, "the skater is held")
-        for tab in ("STATS", "RACE", "CHALLENGES", "TRACK STUDIO"):
+        for tab in ("HOME", "RACES", "ADMIN", "SETTINGS"):
             menu_lua.show(tab)
             before = self.a.shapes
             self.session.step()
@@ -868,6 +889,36 @@ class RaceTest(unittest.TestCase):
         self.session.step()
         self.assertFalse(menu_b.open, "the start sequence is the race's")
 
+    def test_home_shows_the_profile_from_the_server_and_the_hub(self):
+        self.session.settle()
+        self.a.key("coja_menu")
+        for _ in range(4):
+            self.session.step()                                  # HOME asks the hub; its answers come back
+        self.assertEqual(len([c for c in self.a.calls if c.startswith("http https://reskate.cocojambo.net/")]), 4)
+        shown = menu(self.a, "HOME")
+        self.assertIn("info Ranked: #3 of 7", shown)
+        self.assertIn("info Unranked: unranked", shown)
+        self.assertIn("info Crew: [COJA] Cocojambo", shown)
+        before = self.a.shapes
+        self.session.step()
+        self.assertGreater(self.a.shapes - before, 40, "drawn: the logo, the tiles and the hub's lines")
+        for _ in range(5):
+            self.session.step()
+        self.assertEqual(len([c for c in self.a.calls if c.startswith("http ")]), 4, "at most once a minute")
+
+    def test_the_admin_tab_tells_the_game_s_marker_blueprints(self):
+        self.session.settle()
+        menu(self.a, "ADMIN")
+        self.session.step()
+        lines = [c for c in self.session.server.calls if "diag Coco: blueprints:" in c]
+        self.assertIn("print [coco race] diag Coco: blueprints: Gameplay/Challenges/ChallengeStart_Marker", lines)
+
+    def test_the_settings_tab_changes_the_hud(self):
+        self.session.settle()
+        menu(self.a, "SETTINGS", set_size=3)
+        saved = self.a.to_py(self.a.lua.eval('reskate.storage.get("hud:settings")'))
+        self.assertEqual(saved["scale"], 1.2)
+
     def test_the_menu_keeps_the_controller_from_the_game_while_open(self):
         self.session.settle()
         self.a.key("coja_menu")
@@ -888,9 +939,9 @@ class RaceTest(unittest.TestCase):
         menu_lua = self.a.lua.globals().require("hud/menu")
         self.a.key("coja_menu")
         self.session.step()
-        for _ in range(3):
-            self.tap(self.a, key=0x27)                           # right, along the tab row
-        self.assertEqual(menu_lua.state().tab, "TRACK STUDIO")
+        for _ in range(2):
+            self.tap(self.a, key=0x27)                           # right, along the tab row: HOME, RACES, ADMIN
+        self.assertEqual(menu_lua.state().tab, "ADMIN")
         self.tap(self.a, key=0x28)                               # down: the track choice
         self.tap(self.a, bit=0x0002)                             # d-pad down: Edit this track
         self.assertEqual(menu_lua.state().focus, 2)
@@ -912,9 +963,9 @@ class RaceTest(unittest.TestCase):
             self.session.step()
             self.a.pad_buttons = set()
             self.session.step()
-        for name in ("rb", "rb", "rb"):
+        for name in ("rb", "rb"):
             press(name)
-        self.assertEqual(menu_lua.state().tab, "TRACK STUDIO")
+        self.assertEqual(menu_lua.state().tab, "ADMIN")
         press("down")
         press("down")
         press("a")
@@ -936,9 +987,9 @@ class RaceTest(unittest.TestCase):
             self.a.cursor = {"x": x, "y": y, "left": True}
             self.session.step()                                  # drawn: the click is kept
             self.session.step()                                  # the next tick applies it
-        click(700, 170)                                          # the second tab: RACE
-        self.assertEqual(menu_lua.state().tab, "RACE")
-        menu_lua.show("TRACK STUDIO")
+        click(700, 170)                                          # the second tab: RACES
+        self.assertEqual(menu_lua.state().tab, "RACES")
+        menu_lua.show("ADMIN")
         self.session.step()
         click(620, 356)                                          # Edit this track, the first button
         self.assertEqual(self.a.to_py(self.a.state("editor"))["track"]["name"], "Harbour Loop")

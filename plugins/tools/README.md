@@ -29,20 +29,30 @@ use **Refresh tracks** or ask staff to create a track with F7.
 
 ### The COJA menu (F5)
 
-**F5** opens the COJA menu, our own panel drawn over the game like the F4 card. Use the arrows (left/right on the
-tab row switch tabs, on a choice change it), Enter or Space to press and Tab for the next tab; on a controller the
-d-pad, A, and LB/RB for the tabs; or the mouse. While it is open the skater is held and the game gets none of the
-controller's buttons. F5, Esc or B close it, and it closes by itself when a race or a challenge starts.
+**F5** opens the COJA menu: our own panel in the COCOJAMBO look, drawn over the game. While it is open the skater
+is held and the game gets none of your input, and it closes by itself when a race or a challenge starts.
 
-- **STATS**: your stats card, as on F4: points, rank, time played, the board's top 10, the server's rules and links.
-- **RACE**: choose the track, laps, grid time and racer count and place the flag; while
-  your race waits, start it or call it off.
-- **CHALLENGES**: every challenge on the map with its record and how far its start is; **Run** puts you on its
-  start and runs it.
-- **TRACK STUDIO** (staff): new, edit, delete and challenge on/off for the map's tracks; while editing, buttons place,
-  move, select, turn, resize and delete gates, switch circuit/sprint and save.
+| | Keyboard | Controller | Mouse |
+|---|---|---|---|
+| Move between rows | arrows up/down | d-pad up/down | point |
+| Switch tabs | Tab, or left/right on the tab row | LB / RB, or left/right on the tab row | click a tab |
+| Change a choice | left/right | d-pad left/right | click < or > |
+| Press | Enter or Space | A | click |
+| Close | F5 or Esc | B | click X |
 
-The HUD's own settings stay in Insert > PLUGINS > **COJA tools**.
+The tabs:
+
+- **HOME**: your profile: the COCOJAMBO logo, your name, role and crew, your points, rank, time played and week on
+  this server, and from the hub (reskate.cocojambo.net) your place on the ranked and unranked All Time boards, your
+  crew's points and how many servers are up.
+- **RACES**: choose a track, laps, grid time and racer count and place the race flag; while your race waits, start
+  it or call it off. Below: every challenge on the map with its record and distance; **Run** puts you on its start.
+- **ADMIN** (staff): Track Studio: new, edit, delete and challenge on/off for the map's tracks; while editing,
+  buttons place, move, select, turn, resize and delete gates, switch circuit/sprint and save.
+- **SETTINGS**: the points chip, its side, the notes and the HUD's size; the controls.
+
+The hub knows players by the name its boards show and lists each board's top 50: a player below that shows as
+not on the board yet.
 
 ### Race
 

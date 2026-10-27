@@ -14,6 +14,9 @@ local function save()
     pcall(reskate.storage.set, "hud:settings", out)
 end
 
+settings.save = save
+settings.DEFAULTS = DEFAULTS
+
 -- what the page shows about the server: set by the HUD (hud/client.lua)
 settings.status = function() return "Not on a COCOJAMBO server" end
 

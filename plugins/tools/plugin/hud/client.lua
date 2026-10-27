@@ -180,6 +180,7 @@ function hud.stats_lines()
     return out
 end
 function hud.on_server() return info ~= nil end
+function hud.my_name() return my_name() end
 
 local function panel(d)
     local w = 460

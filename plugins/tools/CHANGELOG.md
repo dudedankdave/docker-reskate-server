@@ -2,6 +2,20 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.0
+
+- The COJA menu (F5) is redone with four tabs:
+  - **HOME**: your profile in the COCOJAMBO look: the logo, your name, role and crew, your points, rank, time played
+    and week here, and from the hub (reskate.cocojambo.net) your place on the ranked and unranked All Time boards,
+    your crew and the servers.
+  - **RACES**: the race setup, then the challenges.
+  - **ADMIN** (staff): Track Studio.
+  - **SETTINGS**: the points chip, its side, the notes and the HUD's size, and the controls.
+- The game asks the hub at most once a minute while HOME is open (`net.http`, only to reskate.cocojambo.net).
+- The ADMIN tab logs the game's blueprints that look like challenge markers, for showing events with skate.'s own
+  marker (`world.entities`).
+- The controls are documented in the README; what we learned about ReSkate's API in docs/COJA-TOOLS-API-NOTES.md.
+
 ## 0.1.13
 
 - The mouse works in the COJA menu: the game reports `over_screen = false` for a screen without a panel (it means
