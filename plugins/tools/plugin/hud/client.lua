@@ -22,7 +22,6 @@ local TOP_Y = 150       -- the chip and the panel start below the game's own not
 
 function hud.reset() info, me, top, toasts, panel_open = nil, nil, nil, {}, false end
 -- What the HUD holds now (tests/test_tools_plugin.py reads it).
-hud.settings = settings   -- the races add their tabs to its page
 function hud.state() return {info = info, me = me, top = top, toasts = toasts, panel = panel_open, hidden = hidden} end
 function hud.server_name() return info and info.name end
 function hud.toggle_panel()
@@ -86,12 +85,8 @@ local function row(d, x, y, w, label, value, colour)
     return y + 26
 end
 
-local function panel(d)
-    local w = 460
-    local slide = (1 - draw.ease(now(), panel_at, 180)) * 40
-    local x = draw.w - w - 24 + slide
-    if settings.side == "right" then x = 24 - slide end
-    local y = TOP_Y
+-- The stats card: the F4 panel, and the STATS tab of the COJA menu (F5). Without d it only says how tall it is.
+local function stats_card(d, x, y, w, corner)
     local s = me and me.stats or {}
     local extra = type(s.lines) == "table" and s.lines or {}
     local rows = top and math.min(#top.rows, 10) or 0
@@ -102,11 +97,11 @@ local function panel(d)
     if rows > 0 then h = h + 24 + 30 + rows * 26 end
     if links + rules > 0 then h = h + 24 + 30 + (links + rules) * 26 end
     h = h + 14
-    if y + h > draw.h - 20 then y = math.max(20, draw.h - 20 - h) end
+    if not d then return h end
     draw.card(d, x, y, w, h, 0.94)
     local ix, iw = x + 22, w - 44
     draw.logo(d, ix, y + 18, 14)
-    draw.text(d, x + w - 20, y + 18, "F4 CLOSES", 12, theme.muted, "right", "bold")
+    if corner then draw.text(d, x + w - 20, y + 18, corner, 12, theme.muted, "right", "bold") end
     draw.text(d, ix, y + 38, draw.fit(d, (info and info.name ~= "" and info.name) or "COCOJAMBO", 17, iw, "bold"), 17, theme.ink, "left", "bold")
     local cy = y + 64
     draw.rule(d, x, cy, w)
@@ -151,6 +146,20 @@ local function panel(d)
             if type(l) == "table" then cy = row(d, ix, cy, iw, util.one_line(l.label, 20), util.one_line(l.url, 40), theme.sky) end
         end
     end
+    return h
+end
+function hud.stats_card(d, x, y, w) return stats_card(d, x, y, w) end
+function hud.on_server() return info ~= nil end
+
+local function panel(d)
+    local w = 460
+    local slide = (1 - draw.ease(now(), panel_at, 180)) * 40
+    local x = draw.w - w - 24 + slide
+    if settings.side == "right" then x = 24 - slide end
+    local y = TOP_Y
+    local h = stats_card(nil, x, y, w)
+    if y + h > draw.h - 20 then y = math.max(20, draw.h - 20 - h) end
+    stats_card(d, x, y, w, "F4 CLOSES")
 end
 
 -- ---- the notes at the top ----------------------------------------------------------------------------------

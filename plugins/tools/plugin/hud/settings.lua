@@ -17,33 +17,11 @@ end
 -- what the page shows about the server: set by the HUD (hud/client.lua)
 settings.status = function() return "Not on a COCOJAMBO server" end
 
--- More tabs from the rest of the plugin (the races): {name, build(ui), shown()}, between the dashboard and
--- the controls. settings.section adds one.
-local sections = {}
-function settings.section(name, build, shown)
-    sections[#sections + 1] = {name = name, build = build, shown = shown}
-end
-
 local SIDES = {"left", "right"}
-local current = "DASHBOARD"
-local function page(ui)
-    local names, builds = {"DASHBOARD"}, {}
-    for _, s in ipairs(sections) do
-        if not s.shown or s.shown() then
-            names[#names + 1] = s.name
-            builds[s.name] = s.build
-        end
-    end
-    names[#names + 1] = "CONTROLS"
-    names[#names + 1] = "SETTINGS"
-    local at = 1
-    for i, name in ipairs(names) do
-        if name == current then at = i end
-    end
-    current = names[ui:tabs("sections", names, at)] or "DASHBOARD"
-    if builds[current] then
-        builds[current](ui)
-    elseif current == "DASHBOARD" then
+local section = 1
+reskate.menu.page("COJA tools", function(ui)
+    section = ui:tabs("sections", {"DASHBOARD", "CONTROLS", "SETTINGS"}, section)
+    if section == 1 then
         local dash = settings.dashboard and settings.dashboard() or {}
         ui:card("COJA TOOLS", "Your COCOJAMBO server at a glance")
         ui:info("Server", dash.server or settings.status())
@@ -54,12 +32,12 @@ local function page(ui)
         ui:info("Leaderboard", dash.board or "Waiting for the server")
         ui:note("F4 opens your full stats, the top 10, server rules and links.")
         ui:separator()
-        ui:card("RACES", "The RACE, CHALLENGES and TRACK STUDIO tabs; F5 opens this menu")
-        ui:info("Multiplayer", "RACE tab, or Throwdowns > Cocojambo Deathraces")
-        ui:info("Solo", "CHALLENGES tab, or skate to a yellow challenge beacon and press F8")
-    elseif current == "CONTROLS" then
+        ui:card("RACES", "F5 opens the COJA menu: your stats, races, challenges and Track Studio")
+        ui:info("Multiplayer", "F5 > RACE, or Throwdowns > Cocojambo Deathraces")
+        ui:info("Solo", "F5 > CHALLENGES, or skate to a yellow challenge beacon and press F8")
+    elseif section == 2 then
         ui:card("RACE CONTROLS", "Controller combos are rebindable in Binds")
-        ui:info("F5", "This menu: races, challenges and Track Studio with the mouse")
+        ui:info("F5", "The COJA menu: stats, races, challenges and Track Studio, with the mouse")
         ui:info("F7", "Open Track Studio (staff)")
         ui:info("PgUp / PgDn, F6 · LB+←/→", "Select a track or gate")
         ui:info("F8 · LB+RB+A", "Start a nearby challenge; in Track Studio, create a track or place a gate")
@@ -91,24 +69,6 @@ local function page(ui)
         end
         if changed then save() end
     end
-end
-reskate.menu.page("COJA tools", page)
-
--- F5: the same page as a screen of its own, where the game lets a plugin open one from a key. What the game
--- said is kept for the server's log (settings.report, set by the races).
--- Guarded: a screen the game builds some other way must not raise errors every frame.
-local screen_error = nil
-local screen, screen_why = pcall(reskate.ui.screen, "coja", {title = "COJA tools"}, function(ui)
-    local ok, why = pcall(page, ui)
-    if not ok then screen_error = tostring(why) end
 end)
-function settings.open()
-    if not screen then return false, "ui.screen: " .. tostring(screen_why) end
-    if screen_error then return false, "the screen's page: " .. screen_error end
-    local ok, opened, why = pcall(reskate.ui.open, "coja")
-    if not ok then return false, "ui.open: " .. tostring(opened) end
-    if opened == false then return false, "ui.open: " .. tostring(why) end
-    return true
-end
 
 return settings

@@ -29,15 +29,17 @@ use **Refresh tracks** or ask staff to create a track with F7.
 
 ### The COJA menu (F5)
 
-**F5** opens the plugin's page (also in Insert > PLUGINS > **COJA tools**), all with the mouse:
+**F5** opens the COJA menu: a screen of its own in the HUD's look, used with the mouse (F5, Esc or its X close it):
 
-- **RACE**: pick the track, laps, grid time and racer count, and place the flag; while your race waits, start it or
-  call it off.
+- **STATS**: your stats card, as on F4: points, rank, time played, the board's top 10, the server's rules and links.
+- **RACE**: choose the track, laps, grid time and racer count (< and > step through them) and place the flag; while
+  your race waits, start it or call it off.
 - **CHALLENGES**: every challenge on the map with its record and how far its start is; **Run** puts you on its
   start and runs it.
 - **TRACK STUDIO** (staff): new, edit, delete and challenge on/off for the map's tracks; while editing, buttons place,
   move, select, turn, resize and delete gates, switch circuit/sprint and save.
-- **DASHBOARD**, **CONTROLS** and **SETTINGS** as before.
+
+The HUD's own settings stay in Insert > PLUGINS > **COJA tools**.
 
 ### Race
 

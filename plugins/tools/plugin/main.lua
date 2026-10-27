@@ -1258,7 +1258,7 @@ local function leave_key()
     end
 end
 
--- ---- the COJA menu (F5): races, challenges and Track Studio with the mouse, as tabs of the plugin's page ----
+-- ---- the COJA menu (F5, hud/menu.lua): the races' tabs, used with the mouse ------------------------------
 
 local function new_track()
     admin_menu = false
@@ -1429,23 +1429,22 @@ local function studio_tab(ui)
     end
 end
 
-if hud and hud.settings and hud.settings.section then
-    hud.settings.section("RACE", race_tab)
-    hud.settings.section("CHALLENGES", challenges_tab)
-    hud.settings.section("TRACK STUDIO", studio_tab, function() return staff end)
-end
-
-local function open_menu()
-    local ok, why = false, "no settings page"
-    if hud and hud.settings and hud.settings.open then ok, why = hud.settings.open() end
-    if ok then return end
-    diag("F5 menu: " .. tostring(why))
-    toast("The COJA menu is in Insert > PLUGINS > COJA tools: RACE, CHALLENGES and TRACK STUDIO.")
-end
+local menu = require("hud/menu")
+menu.on_report(function(text) diag("F5 menu: " .. text) end)
+menu.tab("STATS", function(ui)
+    if hud and hud.on_server() then
+        ui:custom(function(d, x, y, w) return hud.stats_card(d, x, y, w) end)
+    else
+        ui:note("Your stats show once the server has answered.")
+    end
+end)
+menu.tab("RACE", race_tab)
+menu.tab("CHALLENGES", challenges_tab)
+menu.tab("TRACK STUDIO", studio_tab, function() return staff end)
 
 R.on("action", function(name)
     if name == "race_leave" then leave_key()
-    elseif name == "coja_menu" then open_menu()
+    elseif name == "coja_menu" then menu.toggle()
     else edit_key(name) end
 end)
 
@@ -1823,6 +1822,8 @@ R.on("unload", function()
     pcall(R.physics.competition, false)
     pcall(R.throwdowns.flag.leave)
 end)
+
+menu.attach()   -- the menu's draw handler, after the races' own: the menu is drawn over them
 
 R.throwdowns.mode{
     id = MODE, name = "Cocojambo Deathraces",
