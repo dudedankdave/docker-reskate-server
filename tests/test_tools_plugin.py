@@ -151,7 +151,7 @@ reskate = {
     server = {
         say = function(text) py.call("say " .. text) end,
         tell = function(id, text) py.call("tell " .. id .. " " .. text) end,
-        move = function(id, at, heading) return py.move(id, at.x, at.y, at.z) end,
+        move = function(id, at) return py.move(id, at.x, at.y, at.z) end,
     },
     json = {encode = function(value) return py.encode(value) end, decode = function(text) return py.decode(text) end},
     net = {send = function(to, payload) return py.send(to, payload) end},
@@ -175,6 +175,7 @@ reskate = {
         position = function() local p = py.pos() return v(p[1], p[2], p[3]) end,
         get = function() local p = py.pos() return {position = v(p[1], p[2], p[3]), heading = py.heading, speed = 0} end,
         teleport = function(at, heading) return py.teleport(at.x, at.y, at.z, heading) end,
+        hold = function(on) py.call("hold " .. tostring(on)) return true end,
     },
     physics = {
         competition = function(on) py.call("competition " .. tostring(on)) end,
@@ -187,10 +188,10 @@ reskate = {
     },
     ui = {
         toast = function(text) py.toast(text) return true end,
-        screen = function(name, fn)
+        screen = function(name, fn, options)
             if type(fn) ~= "function" then error("function expected") end
             screens[name] = fn
-            py.call("screen " .. name)
+            py.call("screen " .. name .. ((options and options.panel == false) and " (no panel)" or ""))
         end,
         open = function(name) py.call("open " .. name) return true end,
         close = function(name) py.call("close " .. name) end,
@@ -206,9 +207,14 @@ reskate = {
             if type(code) ~= "number" or code < 1 or code > 254 then error("a virtual key from 1 to 254") end
             return py.key_down(code)
         end,
-        cursor = function() return py.cursor() end,
+        cursor = function()
+            local c = py.cursor()
+            if not c then return nil end
+            return {position = vector.create(c.x, c.y, 0), left = c.left, over_screen = true}
+        end,
         pad_bits = function() return py.pad_bits() end,
         game_buttons = function(mask) py.call("game_buttons " .. mask) end,
+        hide = function(flags) py.call("hide " .. tostring(next(flags or {}) ~= nil)) end,
         game_keys = function(keys)
             local out = {}
             for _, k in ipairs(keys) do
@@ -350,6 +356,7 @@ class Client:
         if not self.can_teleport:
             return False, "the host has turned teleporting off"
         self.position = [x, y, z]
+        self.facing = heading
         self.calls.append("teleport")
         return True
 
@@ -639,6 +646,8 @@ class RaceTest(unittest.TestCase):
             self.assertTrue(client.doc["match"]["input_lock"], "held for the lights")
             self.assertIn("competition true", client.calls)
         self.assertNotEqual(self.a.position, self.b.position, "side by side")
+        for client in (self.a, self.b):   # gate 1 is gone through along +x: heading pi/2 faces (sin, cos) = (1, 0)
+            self.assertAlmostEqual(client.facing, math.pi / 2, places=2, msg=client.name + " faces along the start gate")
         lights_out(self.session)
         self.assertEqual(self.a.race().phase, "running")
         self.assertFalse(self.a.doc["match"]["input_lock"])
@@ -812,9 +821,11 @@ class RaceTest(unittest.TestCase):
     def test_f5_opens_the_menu_over_the_game_and_every_tab_draws(self):
         build_track(self.session, self.a)
         menu_lua = self.a.lua.globals().require("hud/menu")
+        self.assertIn("screen COJA (no panel)", self.a.calls, "the game draws nothing over the menu")
         self.a.key("coja_menu")
         self.assertTrue(menu_lua.open)
-        self.assertNotIn("open coja", self.a.calls, "no game screen: it would cover the menu")
+        self.assertIn("open COJA", self.a.calls, "the screen: the cursor and the input are the plugin's")
+        self.assertIn("hold true", self.a.calls, "the skater is held")
         for tab in ("STATS", "RACE", "CHALLENGES", "TRACK STUDIO"):
             menu_lua.show(tab)
             before = self.a.shapes
@@ -824,9 +835,28 @@ class RaceTest(unittest.TestCase):
         self.assertIsNone(self.a.state("editor"))
         self.tap(self.a, key=0x1B)                               # Esc
         self.assertFalse(menu_lua.open)
+        self.assertIn("close COJA", self.a.calls)
+        self.assertIn("hold false", self.a.calls)
         reports = [c for c in self.session.server.calls if "diag Coco: F5 menu:" in c]
         self.assertTrue(any("hold input true" in c for c in reports), reports)
         self.assertFalse([c for c in reports if "menu tab" in c or "menu draw" in c], reports)
+
+    def test_esc_in_the_game_closes_the_menu(self):
+        self.session.settle()
+        menu_lua = self.a.lua.globals().require("hud/menu")
+        self.a.key("coja_menu")
+        self.a.lua.globals().fire("screen_closed", "COJA")
+        self.assertFalse(menu_lua.open)
+        self.assertIn("hold false", self.a.calls)
+
+    def test_a_race_start_closes_the_menu(self):
+        build_track(self.session, self.a)
+        host_and_join(self.session, self.a, self.b)
+        menu_b = self.b.lua.globals().require("hud/menu")
+        self.b.key("coja_menu")
+        self.a.ui("start", 7)
+        self.session.step()
+        self.assertFalse(menu_b.open, "the start sequence is the race's")
 
     def test_the_menu_keeps_the_controller_from_the_game_while_open(self):
         self.session.settle()

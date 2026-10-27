@@ -191,6 +191,11 @@ local function course(track, laps)
     return seq
 end
 
+-- The way through a gate as a heading: the game's heading h faces (sin h, cos h) in x and z (the skater's +Z), so
+-- the grid faces along the gate, whichever way the admin's skater looked when placing it.
+local atan2 = math.atan2 or math.atan
+local function gate_heading(g) return atan2(g.n[1], g.n[2]) end
+
 -- The grid: two by two behind the start gate, the host in front.
 local GRID_SLOTS = 10
 local function grid_slot(track, index)
@@ -346,9 +351,8 @@ local function server_main()
     -- A racer whose game could not put them on the grid asks the server to: it moves them, but only to a grid
     -- slot of a track saved on this map, and at most once every 2 s.
     local gridded_at = {}
-    local function move(player, at, heading)
-        local ok, moved, why = pcall(R.server.move, player.id, at, heading)
-        if not ok then ok, moved, why = pcall(R.server.move, player, at, heading) end
+    local function move(player, at)   -- reskate.server.move(player, position): no heading
+        local ok, moved, why = pcall(R.server.move, player.id, at)
         if not ok then return false, tostring(moved) end
         if moved == false then return false, tostring(why or "refused") end
         return true
@@ -366,7 +370,7 @@ local function server_main()
             return
         end
         local slot = math.clamp(math.floor(tonumber(m.slot) or 1), 1, GRID_SLOTS)
-        local ok, why = move(from, grid_slot(track, slot), track.gates[1].heading)
+        local ok, why = move(from, grid_slot(track, slot))
         pcall(R.console.print, string.format("[coco race] grid %s slot %d on %s: %s", tostring(from.name), slot, track.name,
             ok and "moved" or ("not moved, " .. tostring(why))))
         send(from.id, {t = "gridded", race = m.race, ok = ok, why = why})
@@ -412,6 +416,7 @@ local offers = {}        -- others' flags by race id
 local joined = nil       -- {race, leader, name, track}: enrolled on someone else's flag
 local race = nil         -- the race this player is in
 local trail = {}         -- the skater's last positions, {at, pos}: which way they skate
+local close_menu = function() end   -- the COJA menu's close (hud/menu.lua, loaded further down)
 
 local function hello()
     last_hello = now()
@@ -563,6 +568,7 @@ local function end_race()
 end
 
 local function begin_race(message, from_id)
+    close_menu()   -- the start sequence is the race's: the menu goes
     leave_flag(false)
     local track = message.track
     local grid_delay = math.clamp(tonumber(message.grid_delay) or GRID_MS, 0, 5000)
@@ -585,7 +591,7 @@ local function begin_race(message, from_id)
     local id = race.id
     R.time.after(250, function()
         if not race or race.id ~= id then return end
-        local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot), track.gates[1].heading)
+        local ok, moved, why = pcall(R.skater.teleport, grid_slot(track, slot), gate_heading(track.gates[1]))
         race.placed = ok and moved == true
         diag(string.format("teleport: ok=%s returned=%s %s", tostring(ok), tostring(moved), tostring(why or "")))
         race.tp_until = now() + 5000
@@ -1284,7 +1290,10 @@ local function place_flag()
     local ok, why = pcall(R.throwdowns.flag.begin, MODE, 1, {setup_page = false})
     if not ok then ok, why = pcall(R.throwdowns.flag.begin, MODE) end
     diag("flag.begin: " .. (ok and ("ok " .. tostring(why)) or tostring(why)))
-    if ok and why ~= false then return toast("Place the race flag.") end
+    if ok and why ~= false then
+        close_menu()   -- placing the flag is skating to the spot
+        return toast("Place the race flag.")
+    end
     toast("Open Throwdowns > Cocojambo Deathraces to place the flag: it starts with these choices.", "warn")
 end
 
@@ -1430,6 +1439,7 @@ local function studio_tab(ui)
 end
 
 local menu = require("hud/menu")
+close_menu = menu.close
 menu.on_report(function(text) diag("F5 menu: " .. text) end)
 -- The stats card (F4), as the menu's first tab.
 menu.tab("STATS", function(ui)

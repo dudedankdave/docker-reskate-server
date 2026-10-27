@@ -4,8 +4,12 @@
 --   keyboard    arrows move (left/right on the tab row switch tabs, on a choice change it), Enter or Space presses,
 --               Tab switches tabs, Esc or F5 closes
 --   controller  d-pad moves, A presses, LB/RB switch tabs, B closes
---   mouse       hover and click, where reskate.input.cursor (or .mouse) gives a position on the screen (the game
---               gives one only while a plugin's camera is shown, so for now it does not)
+--   mouse       hover and click
+--
+-- It is opened as a screen without a panel (reskate.ui.screen with panel = false): the game draws nothing of its
+-- own, the plugin draws the menu in its draw handler, and while it is open the input is the plugin's, the cursor
+-- shows (reskate.input.cursor) and Esc closes it. The controller's buttons are kept from the game and the skater
+-- is held, so the d-pad and the sticks do not skate.
 --
 -- Its tabs (the stats card, the races, the challenges, Track Studio) are built every frame from widgets (card,
 -- info, note, separator, button, dropdown, slider, toggle, custom), the same calls whether drawn or not:
@@ -19,6 +23,7 @@ local menu = {open = false}
 local V = draw.V
 local now = reskate.time.now
 local W, PAD = 760, 26
+local SCREEN = "COJA"
 
 local tabs = {}           -- {name, build(ui), shown()}
 local current = nil
@@ -257,12 +262,16 @@ local function json(value)
     return ok and text or tostring(value)
 end
 
--- The cursor, in the 1080-line grid; clicked is true on the frame the left button goes down.
+-- The cursor (reskate.input.cursor: {position, left, right, middle, wheel, over_screen} while our screen is open),
+-- in the 1080-line grid; clicked is true on the frame the left button goes down.
 local function read_mouse(d)
     mouse.clicked = false
     local ok, c = pcall(reskate.input.cursor)
-    if not ok or type(c) ~= "table" then ok, c = pcall(reskate.input.mouse) end
-    tell("cursor", "cursor: " .. tostring(ok) .. " " .. json(c))
+    if ok and type(c) == "table" and c.position then
+        tell("cursor", "cursor: " .. tostring(c.position.x) .. ", " .. tostring(c.position.y) .. " of " .. tostring(d:size().x))
+    else
+        tell("no cursor", "cursor: " .. tostring(ok) .. " " .. json(c))
+    end
     if not ok or type(c) ~= "table" then
         mouse.seen = false
         return
@@ -335,13 +344,12 @@ local function navigate()
     elseif pressed.press then nav = "press" end
 end
 
--- While open, the controller and the menu's keys are kept from the game, renewed every tick: the skater stays put
--- while the d-pad and the arrows work the menu. (Escape always reaches the game; a cursor only comes with a
--- plugin camera, so the menu asks for none.)
+-- While open, the controller's buttons and the menu's keys are kept from the game, renewed every tick (they are
+-- kept "while asked"), with the right stick and the triggers; the left stick cannot be, so the skater is held.
 local HELD_KEYS = {0x26, 0x28, 0x25, 0x27, 0x0D, 0x20, 0x09}   -- the arrows, Enter, Space, Tab
 local ALL_BUTTONS = 0xFFFF
-local STICKS = {"left_stick", "right_stick", "left_trigger", "right_trigger", "left_stick_click", "right_stick_click"}
-local function hold_input(on)
+local STICKS = {left_trigger = true, right_trigger = true, right_stick = true, left_stick_click = true, right_stick_click = true}
+local function hold_input(on, renew)
     local results = {}
     local function try(name, ...)
         local ok, a, b = pcall(reskate.input[name], ...)
@@ -356,6 +364,10 @@ local function hold_input(on)
         try("game_keys", {})
         try("game_buttons", 0)
         try("hide", {})
+    end
+    if not renew then   -- the skater held on opening, let go on closing: once each, not every tick
+        local ok, a, b = pcall(reskate.skater.hold, on)
+        results[#results + 1] = "skater.hold=" .. tostring(ok) .. " " .. tostring(a) .. (b and (" " .. tostring(b)) or "")
     end
     tell("hold " .. tostring(on), "hold input " .. tostring(on) .. ": " .. table.concat(results, ", "))
 end
@@ -403,10 +415,19 @@ local function render(d)
     nav = nil   -- a key for a widget that is not there any more
 end
 
-function menu.close()
+-- The screen: no panel of the game's, so the menu drawn below is all there is; its build has nothing to add.
+local screen_ok, screen_why = pcall(reskate.ui.screen, SCREEN, function() end, {panel = false})
+
+local function release()
     if not menu.open then return end
     menu.open = false
     hold_input(false)
+end
+
+function menu.close()
+    if not menu.open then return end
+    release()
+    if screen_ok then pcall(reskate.ui.close, SCREEN) end
 end
 
 function menu.toggle()
@@ -414,7 +435,16 @@ function menu.toggle()
     menu.open, opened_at, focus, nav = true, now(), 0, nil
     mouse.down = true      -- a button held while opening is no click
     was = held()           -- nor a key held while opening
+    hold_input(true)
+    if not screen_ok then return tell("screen", "ui.screen: " .. tostring(screen_why)) end
+    local ok, why = pcall(reskate.ui.open, SCREEN)
+    if not ok then tell("open", "ui.open: " .. tostring(why)) end
 end
+
+-- Esc closes the screen in the game itself.
+reskate.on("screen_closed", function(title)
+    if title == nil or title == SCREEN then release() end
+end)
 
 function menu.state() return {open = menu.open, tab = current, focus = focus} end
 
@@ -436,7 +466,7 @@ reskate.on("tick", function()
         menu.apply(p.tab, p.set)
     end
     if menu.open then
-        hold_input(true)
+        hold_input(true, true)
         navigate()
     end
 end)

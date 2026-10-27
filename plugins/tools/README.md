@@ -31,8 +31,8 @@ use **Refresh tracks** or ask staff to create a track with F7.
 
 **F5** opens the COJA menu, our own panel drawn over the game like the F4 card. Use the arrows (left/right on the
 tab row switch tabs, on a choice change it), Enter or Space to press and Tab for the next tab; on a controller the
-d-pad, A, and LB/RB for the tabs. While it is open, the game gets none of those keys and buttons, so the skater
-stays put. F5, Esc or B close it.
+d-pad, A, and LB/RB for the tabs; or the mouse. While it is open the skater is held and the game gets none of the
+controller's buttons. F5, Esc or B close it, and it closes by itself when a race or a challenge starts.
 
 - **STATS**: your stats card, as on F4: points, rank, time played, the board's top 10, the server's rules and links.
 - **RACE**: choose the track, laps, grid time and racer count and place the flag; while

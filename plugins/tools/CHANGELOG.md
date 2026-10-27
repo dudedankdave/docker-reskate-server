@@ -2,6 +2,18 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.1.11
+
+Built against ReSkate's own plugin API source (Dingo-Shenanigans/ReSkate) instead of guesses:
+
+- The COJA menu opens as a screen without a panel (`reskate.ui.screen(title, build, {panel = false})`): the game
+  draws nothing over it, the input is the plugin's, the mouse cursor shows and works, and Esc closes it.
+- While it is open the skater is held (`reskate.skater.hold`), the controller's buttons are kept from the game
+  every tick, and the right stick and triggers with them.
+- Racers on the grid, and challenge runners on the start, face along the start gate: the heading comes from the
+  gate's direction (the game's heading h faces (sin h, cos h)), not from where the admin looked when placing it.
+- The menu closes when a race or a challenge begins, and when the race flag is being placed.
+
 ## 0.1.10
 
 - While the COJA menu is open the game gets none of the controller's buttons, and neither the arrows, Enter, Space
