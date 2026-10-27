@@ -75,6 +75,14 @@ test server. Each point says where it is in that source, so it can be checked ag
 - Plugins see no parties: players have only `id, name, me, host, server`, and the server's `parties` command is not
   theirs to run (a plugin's console command only takes the lines meant for it).
 
+## Holding racers before GO
+
+- `match.input_lock` blocks the game's input only while no native challenge panel owns it
+  (`owned_menu_countdown_capture(input_lock, challenge_panel_owns_input())`, `input_capture.cpp`); with the game's
+  countdown shown (0.2.2) racers could move again. The races hold the skater as well (`reskate.skater.hold(true)`
+  under `physics.competition(true)`) and let go at GO. The game's countdown plays no sound for a plugin's race: the
+  plugin beeps (`audio.play_ui("countdown")` on 3, 2, 1, `"go"` at GO).
+
 ## Map markers and the maps' own races
 
 - The race point the Skate 3 map shows at the top of University is a native skate. race challenge in the map's level

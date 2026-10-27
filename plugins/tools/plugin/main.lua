@@ -560,6 +560,7 @@ local joined = nil       -- {race, leader, name, track}: enrolled on someone els
 local race = nil         -- the race this player is in
 local trail = {}         -- the skater's last positions, {at, pos}: which way they skate
 local close_menu = function() end   -- the COJA menu's close (hud/menu.lua, loaded further down)
+local release_hold                   -- the grid's hold let go (defined with the race below)
 
 local function hello()
     last_hello = now()
@@ -767,6 +768,7 @@ local function done(r) return r.ms ~= nil or r.dnf ~= nil end
 
 local function end_race()
     if not race or race.phase == "done" then return end
+    release_hold()
     for _, r in pairs(race.racers) do
         if not done(r) then r.dnf = "time" end
     end
@@ -892,9 +894,33 @@ local function passed(t)
     end
 end
 
+-- The grid's hold let go (at GO, or when the race goes before it).
+release_hold = function()
+    if race and race.held then
+        race.held = false
+        pcall(R.skater.hold, false)
+    end
+end
+
 local function race_tick(t)
-    if race.phase == "start" then   -- the game counts down and says GO itself (publish: hud.countdown)
-        if t >= race.go_at then race.phase = "running" end
+    if race.phase == "start" then   -- the game shows the countdown (publish: hud.countdown); the sounds are ours
+        -- Held on the grid: input_lock alone did not keep the skater once the game's countdown showed, so the skater
+        -- is held too (skater.hold, under the stock physics begin_race turned on), and let go at GO.
+        if race.placed and not race.held then
+            local ok, held, why = pcall(R.skater.hold, true)
+            race.held = ok and held ~= false
+            diag("race hold: " .. tostring(ok) .. " " .. tostring(held) .. " " .. tostring(why or ""))
+        end
+        local left = math.ceil((race.go_at - t) / 1000)
+        if left >= 1 and left <= COUNT_MS / 1000 and left ~= race.beeped then
+            race.beeped = left
+            sound("countdown")
+        end
+        if t >= race.go_at then
+            race.phase = "running"
+            sound("go")
+            release_hold()
+        end
         return
     end
     if race.phase == "done" then
@@ -927,6 +953,7 @@ end
 
 local function leave_race()
     if not race then return end
+    release_hold()
     if race.phase ~= "done" then tell_racers({t = "dnf", race = race.id, why = "left"}) end
     pcall(R.physics.competition, false)
     race = nil
@@ -2146,6 +2173,7 @@ end
 R.on("level_loaded", reset)
 R.on("level_unloading", reset)
 R.on("unload", function()
+    release_hold()
     pcall(R.physics.competition, false)
     pcall(R.throwdowns.flag.leave)
 end)

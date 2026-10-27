@@ -203,7 +203,7 @@ reskate = {
         dialog = function(id, spec) py.dialog(id, spec) return true end,
         close_dialog = function(id) end,
     },
-    audio = {play_ui = function(name) return true end},
+    audio = {play_ui = function(name) py.call("ui sound " .. name) return true end},
     http = {request = function(request, done)
         local status, body = py.http(request.url)
         reskate.time.after(50, function() done(status, body) end)
@@ -684,6 +684,7 @@ class RaceTest(unittest.TestCase):
             countdown = client.doc["hud"]["countdown"]
             self.assertTrue(0 < countdown["remaining_ms"] <= countdown["total_ms"] and countdown["ticking"], "the game's 3-2-1-GO")
             self.assertEqual(client.doc["hud"]["intro"]["title"], "HARBOUR LOOP")
+            self.assertIn("hold true", client.calls, "held on the grid")
             self.assertIn("competition true", client.calls)
         self.assertNotEqual(self.a.position, self.b.position, "side by side")
         for client in (self.a, self.b):   # gate 1 is gone through along +x: heading pi/2 faces (sin, cos) = (1, 0)
@@ -692,6 +693,10 @@ class RaceTest(unittest.TestCase):
         self.assertEqual(self.a.race().phase, "running")
         self.assertFalse(self.a.doc["match"]["input_lock"])
         self.assertNotIn("countdown", self.a.doc["hud"], "GO: the game shows it as the countdown ends")
+        for client in (self.a, self.b):
+            self.assertIn("hold false", client.calls, "let go at GO")
+            self.assertEqual(client.calls.count("ui sound countdown"), 3, "a beep on 3, 2 and 1")
+            self.assertIn("ui sound go", client.calls)
         for corner in CORNERS * 2 + [CORNERS[0]]:
             skate(self.session, self.a, corner)
         mine = self.a.race().racers[self.a.id]

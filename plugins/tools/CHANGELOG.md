@@ -2,6 +2,13 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.8
+
+- Racers are held on the grid again until GO: since the game shows the countdown, the throwdown's input lock alone no
+  longer kept them, so the skater is held too (`reskate.skater.hold`) and let go at GO (or when the race goes).
+- The countdown has sound again: a beep on 3, 2 and 1 and the GO sound (the game's countdown plays none for a
+  plugin's race).
+
 ## 0.2.7
 
 - Tracks are kept per map: the map's own level (`reskate.level.current()`), e.g. `dingolevel_reskate_skate3improved`.
