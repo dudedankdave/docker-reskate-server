@@ -2,6 +2,14 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.1.8
+
+- The COJA menu (F5) is built with the game's own widgets on its own screen: the game draws that screen over
+  anything a plugin draws, so 0.1.7's drawn menu sat hidden under it, and its mouse reading came back empty.
+- **STATS** shows the stats card's lines: points, rank, time played, team, the board's top 10, the server's rules
+  and links. F4 keeps the card itself.
+- F5 closes the menu again; Esc closes it as the game's screens do.
+
 ## 0.1.7
 
 - The COJA menu (F5) is a screen of its own in the HUD's look, used with the mouse (F5, Esc or X close it):

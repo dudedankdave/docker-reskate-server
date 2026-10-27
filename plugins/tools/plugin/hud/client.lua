@@ -148,7 +148,35 @@ local function stats_card(d, x, y, w, corner)
     end
     return h
 end
-function hud.stats_card(d, x, y, w) return stats_card(d, x, y, w) end
+-- What the stats card shows, as lines for the COJA menu's STATS tab (the game's widgets): {name, role,
+-- rows = {{label, value}}, board = {title, rows = {{name, points}}} or nil, rules = {text}, links = {{label, url}}}.
+function hud.stats_lines()
+    local s = me and me.stats or {}
+    local out = {name = (info and info.name ~= "" and info.name) or "COCOJAMBO", role = me and me.role, rows = {},
+                 rules = {}, links = {}}
+    local function add(label, value) out.rows[#out.rows + 1] = {label, value} end
+    add("Points" .. (s.board and (", " .. util.one_line(s.board, 28)) or ""), s.points and util.thousands(s.points) or "-")
+    add("Rank", s.rank and ("#" .. tostring(s.rank) .. (s.of and (" of " .. tostring(s.of)) or "")) or "-")
+    add("Time played here", util.duration(played()))
+    if s.team then add("Team", util.one_line(s.team, 28)) end
+    for _, l in ipairs(type(s.lines) == "table" and s.lines or {}) do
+        if type(l) == "table" then add(util.one_line(l.l or l.label, 30), util.one_line(l.v or l.value, 24)) end
+    end
+    if top and #top.rows > 0 then
+        out.board = {title = top.board and util.one_line(top.board, 40) or "", rows = {}}
+        for i = 1, math.min(#top.rows, 10) do
+            out.board.rows[i] = {util.one_line(top.rows[i].n, 26), util.thousands(top.rows[i].p or 0)}
+        end
+    end
+    for i = 1, info and type(info.rules) == "table" and math.min(#info.rules, 6) or 0 do
+        out.rules[i] = util.one_line(info.rules[i], 80)
+    end
+    for i = 1, info and type(info.links) == "table" and math.min(#info.links, 6) or 0 do
+        local l = info.links[i]
+        if type(l) == "table" then out.links[#out.links + 1] = {util.one_line(l.label, 20), util.one_line(l.url, 60)} end
+    end
+    return out
+end
 function hud.on_server() return info ~= nil end
 
 local function panel(d)

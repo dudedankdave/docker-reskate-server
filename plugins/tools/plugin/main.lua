@@ -1258,7 +1258,7 @@ local function leave_key()
     end
 end
 
--- ---- the COJA menu (F5, hud/menu.lua): the races' tabs, used with the mouse ------------------------------
+-- ---- the COJA menu (F5, hud/menu.lua): the races' tabs, used with the mouse --------------------------------
 
 local function new_track()
     admin_menu = false
@@ -1431,11 +1431,22 @@ end
 
 local menu = require("hud/menu")
 menu.on_report(function(text) diag("F5 menu: " .. text) end)
+-- The stats card (F4), as the menu's first tab.
 menu.tab("STATS", function(ui)
-    if hud and hud.on_server() then
-        ui:custom(function(d, x, y, w) return hud.stats_card(d, x, y, w) end)
-    else
-        ui:note("Your stats show once the server has answered.")
+    if not (hud and hud.on_server()) then return ui:note("Your stats show once the server has answered.") end
+    local s = hud.stats_lines()
+    ui:card(s.name, s.role and ("You  ·  " .. s.role) or "You")
+    for _, r in ipairs(s.rows) do ui:info(r[1], r[2]) end
+    if s.board then
+        ui:separator()
+        ui:card("BOARD", s.board.title)
+        for i, r in ipairs(s.board.rows) do ui:info(i .. ".  " .. r[1], r[2]) end
+    end
+    if #s.rules + #s.links > 0 then
+        ui:separator()
+        ui:card("SERVER", "")
+        for _, rule in ipairs(s.rules) do ui:note(rule) end
+        for _, l in ipairs(s.links) do ui:info(l[1], l[2]) end
     end
 end)
 menu.tab("RACE", race_tab)
@@ -1822,8 +1833,6 @@ R.on("unload", function()
     pcall(R.physics.competition, false)
     pcall(R.throwdowns.flag.leave)
 end)
-
-menu.attach()   -- the menu's draw handler, after the races' own: the menu is drawn over them
 
 R.throwdowns.mode{
     id = MODE, name = "Cocojambo Deathraces",
