@@ -581,6 +581,17 @@ if roles_scope == "shared" and os.path.ismount("/shared"):
     except OSError as exc:  # the server must start even if this breaks
         print(f"[roles] not shared: {exc!r}", flush=True)
 
+# world-layers.json (+ world-layers.version, the game version it was made for) lives in /data. When a server
+# starts without it (new volume) and /shared holds a copy, that copy is put back; an existing file is never replaced.
+if os.path.ismount("/shared") and os.path.isfile("/shared/world-layers.json") and not os.path.exists(os.path.join(DATA, "world-layers.json")):
+    try:
+        for name in ("world-layers.json", "world-layers.version"):
+            if os.path.isfile("/shared/" + name):
+                shutil.copyfile("/shared/" + name, os.path.join(DATA, name))
+        print("[layers] world-layers.json restored from /shared", flush=True)
+    except OSError as exc:  # the server must start even if this breaks
+        print(f"[layers] not restored: {exc!r}", flush=True)
+
 # Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
 if (value := env("MODS")) is not None:
     update = as_bool("MODS_UPDATE", env("MODS_UPDATE") or "true")

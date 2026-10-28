@@ -772,6 +772,7 @@ func entrypointMain(serverArgs []string) {
 		return
 	}
 	shareRoles()
+	restoreLayers()
 
 	// Thunderstore mods/maps (MODS): installed before the server starts, failures never block it.
 	if v, ok := env("MODS"); ok {
@@ -1040,4 +1041,30 @@ func shareRoles() {
 	if linked {
 		fmt.Println("[roles] data/roles.json is shared through /shared/roles.json")
 	}
+}
+
+// restoreLayers: world-layers.json (+ world-layers.version, the game version it was made for) lives in /data. When a
+// server starts without it (new volume) and /shared holds a copy, that copy is put back; an existing file is never
+// replaced. As in app/entrypoint.py.
+func restoreLayers() {
+	if !isMount("/shared") {
+		return
+	}
+	if _, err := os.Stat("/shared/world-layers.json"); err != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "world-layers.json")); err == nil {
+		return
+	}
+	for _, name := range []string{"world-layers.json", "world-layers.version"} {
+		raw, err := os.ReadFile("/shared/" + name)
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dataDir, name), raw, 0o644); err != nil {
+			fmt.Printf("[layers] not restored: %v\n", err)
+			return
+		}
+	}
+	fmt.Println("[layers] world-layers.json restored from /shared")
 }

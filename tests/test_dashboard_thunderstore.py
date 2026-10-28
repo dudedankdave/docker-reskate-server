@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import tarfile
 import tempfile
 import unittest
@@ -240,6 +241,141 @@ class UploadLayersTest(unittest.TestCase):
                     d.upload_layers("4", bad)
             with self.assertRaises(ValueError):
                 d.upload_layers("9", "{}")
+
+
+class LayersLoadedTest(unittest.TestCase):
+    def _log(self, text):
+        def tar(cid, path):
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as t:
+                info = tarfile.TarInfo("ReSkateServer.log")
+                info.size = len(text.encode())
+                t.addfile(info, io.BytesIO(text.encode()))
+            buf.seek(0)
+            return tarfile.open(fileobj=buf)
+        return tar
+
+    def test_a_fresh_start_is_not_remembered_as_failed(self):
+        import datetime
+        d = load()
+        d.LAYERS_SEEN.clear()
+        fmt = "%Y-%m-%dT%H:%M:%S.0Z"
+        now = datetime.datetime.now(datetime.timezone.utc)
+        fresh = now.strftime(fmt)
+        with mock.patch.object(d, "tar_of", self._log("[2000-01-01 00:00:00] booting\n")):
+            self.assertIsNone(d.layers_loaded("c", fresh))
+        loaded = "[%s] World layers: 261 from world-layers.json.\n" % now.strftime("%Y-%m-%d %H:%M:%S")
+        with mock.patch.object(d, "tar_of", self._log(loaded)):
+            self.assertTrue(d.layers_loaded("c", fresh))
+        old = (now - datetime.timedelta(hours=1)).strftime(fmt)
+        with mock.patch.object(d, "tar_of", self._log("[2000-01-01 00:00:00] booting\n")):
+            self.assertFalse(d.layers_loaded("c2", old))
+
+
+class PersistPoolTest(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+
+    def saved(self):
+        return self.d.env_read("1")
+
+    def test_pool_and_a_start_map_in_it_are_saved_for_the_next_start(self):
+        lib = ["A", "B", "C"]
+        rows = {"1": {"env": {"MAP": "C"}, "containers": []}}
+        live = {"1": {"live": True, "pool": ["A", "B", "C"]}}
+        with mock.patch.object(self.d, "server_details", return_value=rows), \
+                mock.patch.object(self.d, "server_maps", return_value=live):
+            self.d.persist_pool("1", ["A", "B"], lib)
+            self.assertEqual(self.saved(), {"MAP_POOL": "A,B", "MAP": "A"})
+            self.d.persist_pool("1", ["B", "C"], lib)          # the saved start map A is outside again
+            self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
+            self.d.persist_pool("1", ["B", "C"], lib)          # nothing to change when it is inside
+            self.assertEqual(self.saved(), {"MAP_POOL": "B,C", "MAP": "B"})
+            self.d.persist_pool("1", [], lib)                  # all maps: no start map needed
+            self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            live["1"]["pool"] = ["A", "B,x"]
+            self.d.persist_pool("1", ["A", "B,x"], lib)        # a comma cannot be carried in the list
+            self.assertEqual(self.saved(), {"MAP_POOL": "off"})
+            live["1"]["pool"] = ["A", "C"]                     # the server refused B: it is not saved
+            self.d.persist_pool("1", ["A", "B", "C"], lib + ["D"])
+            self.assertEqual(self.saved(), {"MAP_POOL": "A,C"})   # the container start map C is in it
+
+
+class TeamLogoTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        self.d.LOGO_CACHE.clear()
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.execute("CREATE TABLE teams (id INTEGER PRIMARY KEY, logo TEXT)")
+        con.executemany("INSERT INTO teams (logo) VALUES (?)",
+                        [("https://example.com/a.png",), ("http://example.com/b.png",), ("https://127.0.0.1/c.png",), ("https://example.com:8443/d.png",)])
+        con.commit()
+        con.close()
+
+    def test_only_saved_https_public_standard_port_links(self):
+        for url in ("https://example.com/other.png", "http://example.com/b.png", "https://127.0.0.1/c.png", "https://example.com:8443/d.png"):
+            with self.assertRaises(ValueError, msg=url):
+                self.d.team_logo(url)
+
+    def test_fetches_a_plain_picture_from_the_checked_address_and_caches_it(self):
+        calls = []
+
+        def fetch(host, address, path, limit):
+            calls.append((host, address, path))
+            return 200, "image/png; charset=binary", b"\x89PNG", ""
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", fetch):
+            self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"\x89PNG"))
+            self.d.team_logo("https://example.com/a.png")
+        self.assertEqual(calls, [("example.com", "93.184.216.34", "/a.png")])
+
+    def test_redirects_and_other_types_are_refused_and_the_cache_is_capped(self):
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]):
+            for answer in ((302, "text/html", b"", ""), (200, "image/svg+xml", b"<svg/>", "")):
+                with mock.patch.object(self.d, "_fetch_pinned", lambda *a, answer=answer: answer), self.assertRaises(ValueError):
+                    self.d.team_logo("https://example.com/a.png")
+        self.d.LOGO_CACHE.update({f"u{n}": (1e18, "image/png", b"") for n in range(self.d.LOGO_ENTRIES)})
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (200, "image/png", b"x", "")):
+            self.d.team_logo("https://example.com/a.png")
+        self.assertLessEqual(len(self.d.LOGO_CACHE), self.d.LOGO_ENTRIES)
+        self.assertIn("https://example.com/a.png", self.d.LOGO_CACHE)
+
+    def test_a_host_with_both_address_families_is_fine(self):
+        both = [(10, 1, 6, "", ("2606:50c0:8003::154", 443, 0, 0)), (2, 1, 6, "", ("185.199.110.133", 443))]
+        seen = []
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=both), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda host, address, *a: seen.append(address) or (200, "image/png", b"x", "")):
+            self.d.team_logo("https://example.com/a.png")
+        self.assertEqual(seen, ["185.199.110.133"])
+
+    def test_follows_a_few_redirects_and_checks_each_step(self):
+        steps = iter([(302, "", b"", "https://raw.example.org/x.png"), (200, "image/png", b"ok", "")])
+        seen = []
+
+        def fetch(host, address, path, limit):
+            seen.append((host, path))
+            return next(steps)
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", fetch):
+            self.assertEqual(self.d.team_logo("https://example.com/a.png"), ("image/png", b"ok"))
+        self.assertEqual(seen, [("example.com", "/a.png"), ("raw.example.org", "/x.png")])
+        self.d.LOGO_CACHE.clear()
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (302, "", b"", "http://example.com/plain.png")), \
+                self.assertRaises(ValueError):
+            self.d.team_logo("https://example.com/a.png")        # a redirect to http is refused
+        with mock.patch.object(self.d.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("93.184.216.34", 443))]), \
+                mock.patch.object(self.d, "_fetch_pinned", lambda *a: (302, "", b"", "https://example.com/loop.png")), \
+                self.assertRaises(ValueError):
+            self.d.team_logo("https://example.com/a.png")        # an endless chain stops
 
 
 class LayersFitTest(unittest.TestCase):
@@ -898,3 +1034,271 @@ class TeamsTest(unittest.TestCase):
         self.d.bridge = lambda path, body=None: {"ok": False, "lines": ["Only the owner can remove a leader."]}
         with self.assertRaisesRegex(ValueError, "owner can remove"):
             self.d.team_action({"action": "kick", "team": "CRW", "player": "76561198000000001"})
+
+
+class PublicPageTest(unittest.TestCase):
+    def setUp(self):
+        import sqlite3
+        import threading
+        import http.server
+        self.d = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d.SHARED = self.tmp.name
+        self.d.PUBLIC_CACHE.clear()
+        self.d.PUBLIC_HITS.clear()
+        self.d.PUBLIC_BAD_LOGOS.clear()
+        con = sqlite3.connect(f"{self.tmp.name}/leaderboard-unranked.db")
+        con.executescript(
+            "CREATE TABLE boards (id TEXT PRIMARY KEY, name TEXT, kind TEXT, created_at REAL, closed_at REAL);"
+            "CREATE TABLE players (steam_id TEXT PRIMARY KEY, name TEXT);"
+            "CREATE TABLE scores (board TEXT, steam_id TEXT, points INT, wins INT, played INT);"
+            "CREATE TABLE ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL, board TEXT, steam_id TEXT, points INT, reason TEXT, server TEXT);"
+            "INSERT INTO boards VALUES ('general','All Time','general',1,NULL),('week-2026-43','Week 43','week',2,5);"
+            "INSERT INTO players VALUES ('76561198000000001','Ann'),('76561198000000002','Bo');"
+            "INSERT INTO scores VALUES ('general','76561198000000001',50,1,3),('general','76561198000000002',80,2,4);")
+        con.commit()
+        con.close()
+        con = sqlite3.connect(f"{self.tmp.name}/teams.db")
+        con.executescript(
+            "CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT, tag TEXT, motto TEXT, description TEXT, logo TEXT, league TEXT, category TEXT, open INT, created REAL);"
+            "CREATE TABLE members (steam_id TEXT PRIMARY KEY, team INT, role TEXT, joined REAL);"
+            "CREATE TABLE known (steam_id TEXT PRIMARY KEY, name TEXT, seen REAL);"
+            "CREATE TABLE invites (team INT, steam_id TEXT);"
+            "CREATE TABLE applications (id INTEGER PRIMARY KEY, applicant TEXT, name TEXT, tag TEXT, status TEXT, created REAL, decided_by TEXT, decided_at REAL);"
+            "INSERT INTO teams VALUES (1,'Crew','crw','Go','We skate','https://example.com/a.png','unranked','Street',1,0);"
+            "INSERT INTO members VALUES ('76561198000000001',1,'owner',0),('76561198000000002',1,'member',1),('76561198000000003',1,'member',2);"
+            "INSERT INTO known VALUES ('76561198000000001','Ann',0),('76561198000000002','Bo',0);")
+        con.commit()
+        con.close()
+        self.d.bridge = lambda path, body=None: [
+            {"server": 1, "role": "Main", "running": True, "players": 3, "online": 2, "max": 20, "map": "Tampa", "password": "secret", "container": "reskate-server-1", "port": 10001, "slots": {"a": {"running": True, "online": 2, "map": "Tampa", "version": "2.1.1"}, "b": {"running": False}}},
+            {"server": 2, "role": "Skate 2", "running": False, "players": None, "max": 20, "map": "Old"},
+            {"server": 9, "role": "Test", "running": True, "players": 1, "online": 1, "max": 16, "map": "Secret"}]
+        self.d.server_details = lambda: {}
+        self.d.server_players = lambda number, rows=None: [{"name": "x", "steam_id": "1", "slot": "a"}] * 2
+        self.web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.d.Handler)
+        threading.Thread(target=self.web.serve_forever, daemon=True).start()
+        self.addCleanup(self.web.server_close)
+        self.addCleanup(self.web.shutdown)
+
+    def get(self, path):
+        import urllib.error
+        import urllib.request
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.web.server_address[1]}{path}", timeout=5) as r:
+                return r.status, r.read().decode(errors="replace"), r.headers
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode(), e.headers
+
+    def test_page_and_data_need_no_login_and_the_rest_still_does(self):
+        self.assertEqual(self.get("/status")[0], 200)
+        for path in ("/status/api/servers", "/status/api/board?league=unranked&board=general", "/status/api/teams"):
+            self.assertEqual(self.get(path)[0], 200, path)
+        for path in ("/admin/api/leaderboard", "/admin/api/teams", "/admin/api/servers"):
+            self.assertEqual(self.get(path)[0], 401, path)
+        for path in ("/api/leaderboard", "/api/servers", "/login"):
+            self.assertEqual(self.get(path)[0], 404, path)
+
+    def test_status_page_is_the_root_and_the_dashboard_lives_under_admin(self):
+        import http.client
+        host, port = "127.0.0.1", self.web.server_address[1]
+        def raw(path):
+            c = http.client.HTTPConnection(host, port, timeout=5)
+            c.request("GET", path)
+            r = c.getresponse()
+            return r.status, r.getheader("Location"), r.read().decode()
+        code, _, root = raw("/")
+        self.assertEqual(code, 200)
+        self.assertIn("Cocojambo", root)
+        self.assertNotIn('type="password"', root)
+        self.assertIn('lang="de"', raw("/de")[2])
+        for old, new in (("/status", "/"), ("/public", "/"), ("/status/de", "/de")):
+            self.assertEqual(raw(old)[:2], (301, new), old)
+        code, _, login = raw("/admin")
+        self.assertEqual(code, 200)
+        self.assertIn('type="password"', login)
+        self.assertIn('action="/admin/login"', login)
+        self.assertEqual(raw("/admin/")[2], login)
+
+    def test_dashboard_page_calls_only_its_own_prefix(self):
+        page = self.d.ADMIN_PAGE
+        self.assertIn("'/admin/api/servers", page)
+        self.assertIn("'/admin/logout'", page)
+        self.assertNotIn("'/api/", page)
+        self.assertNotIn("'/logout'", page)
+
+    def test_sticker_pack_is_served_by_plain_name_only(self):
+        with open(f"{self.tmp.name}/ok.webp", "wb") as f:
+            f.write(b"RIFF....WEBP")
+        self.d.STICKERS = self.tmp.name
+        code, _, headers = self.get("/status/s/ok.webp")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/webp"))
+        self.assertEqual(self.get("/status/s/nope.webp")[0], 404)
+        for bad in ("..", "a/b", "..%2Fok"):
+            self.assertNotEqual(self.get(f"/status/s/{bad}.webp")[0], 200, bad)
+
+    def test_no_sticker_appears_twice_on_the_page(self):
+        used = re.findall(r"/status/s/([a-z0-9-]+)\.webp", self.d.PUBLIC_PAGE)
+        self.assertGreater(len(used), 10)
+        self.assertEqual(sorted(set(used)), sorted(used))
+
+    def test_every_sticker_the_page_uses_is_in_the_repository(self):
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "stickers")
+        names = set(re.findall(r"/status/s/([a-z0-9-]+)\.webp", self.d.PUBLIC_PAGE))
+        self.assertTrue(names)
+        for name in names:
+            self.assertTrue(os.path.isfile(os.path.join(folder, name + ".webp")), name)
+
+    def test_status_shows_only_what_a_player_needs(self):
+        code, body, _ = self.get("/status/api/servers")
+        self.assertEqual(json.loads(body)["servers"], [
+            {"server": 1, "role": "Main", "online": True, "players": 2, "max": 20, "map": "Tampa",
+             "slots": [{"slot": "A", "online": True, "players": 2, "version": "2.1.1"}, {"slot": "B", "online": False, "players": None, "version": ""}]},
+            {"server": 2, "role": "Skate 2", "online": False, "players": None, "max": 20, "map": "", "slots": []}])
+        for secret in ("secret", "reskate-server-1", "10001"):
+            self.assertNotIn(secret, body)
+
+    def test_only_the_status_page_may_frame_discord(self):
+        code, body, headers = self.get("/status")
+        self.assertIn("frame-src https://discord.com", headers["Content-Security-Policy"])
+        self.assertEqual(len(headers.get_all("Content-Security-Policy")), 1)
+        self.assertIn("https://discord.com/widget?id=", body)
+        self.assertNotIn("frame-src", self.get("/status/api/servers")[2]["Content-Security-Policy"])
+
+    def test_the_test_server_is_not_on_the_page_unless_listed(self):
+        self.assertNotIn("Secret", self.get("/status/api/servers")[1])
+        self.d.PUBLIC_SERVERS = {"1", "9"}
+        self.d.PUBLIC_CACHE.clear()
+        self.assertEqual([s["server"] for s in json.loads(self.get("/status/api/servers")[1])["servers"]], [1, 9])
+
+    def test_leaderboard_has_no_steam_ids_and_checks_the_league(self):
+        code, body, _ = self.get("/status/api/board?league=unranked&board=general")
+        data = json.loads(body)
+        self.assertEqual([(r["rank"], r["name"], r["tag"], r["points"]) for r in data["rows"]], [(1, "Bo", "CRW", 80), (2, "Ann", "CRW", 50)])
+        self.assertEqual([b["open"] for b in data["boards"]], [True, False])
+        self.assertNotIn("7656119", body)
+        self.assertNotIn("steam_id", body)
+        self.assertEqual(self.get("/status/api/board?league=../x")[0], 400)
+        self.assertEqual(json.loads(self.get("/status/api/board?league=unranked&board=nope")[1])["board"], "general")
+        self.assertEqual(json.loads(self.get("/status/api/board?league=ranked")[1])["rows"], [])
+
+    def test_teams_show_names_not_steam_ids(self):
+        code, body, _ = self.get("/status/api/teams")
+        team = json.loads(body)["teams"][0]
+        self.assertEqual((team["tag"], team["logo"], team["points"]), ("CRW", True, {"unranked": 130, "ranked": 0}))
+        self.assertEqual([m["name"] for m in team["members"]], ["Ann", "Bo", "Unbekannt"])
+        self.assertNotIn("7656119", body)
+        self.assertNotIn("https://example.com", body)
+
+    def test_logo_only_by_tag_and_a_failed_one_is_not_retried(self):
+        calls = []
+
+        def logo(url):
+            calls.append(url)
+            raise ValueError("broken")
+        self.d.team_logo = logo
+        self.assertEqual(self.get("/status/api/logo?tag=NOPE")[0], 404)
+        self.assertEqual(self.get("/status/api/logo?tag=crw")[0], 404)
+        self.assertEqual(self.get("/status/api/logo?tag=CRW")[0], 404)
+        self.assertEqual(calls, ["https://example.com/a.png"])
+        self.d.PUBLIC_BAD_LOGOS.clear()
+        self.d.team_logo = lambda url: ("image/png", b"\x89PNG")
+        code, body, headers = self.get("/status/api/logo?tag=CRW")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/png"))
+
+    def test_map_picture_by_name_only_when_there_is_one(self):
+        self.d.map_image = lambda name: ("image/png", b"\x89PNG") if name == "Tampa" else None
+        code, _, headers = self.get("/status/api/mapimg?name=Tampa")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/png"))
+        self.assertEqual(self.get("/status/api/mapimg?name=Nope")[0], 404)
+        self.assertEqual(self.get("/public")[0], 200)
+
+    def test_answers_are_cached_and_the_last_good_one_survives_a_failure(self):
+        calls = []
+        real = self.d.bridge
+
+        def bridge(path, body=None):
+            calls.append(path)
+            return real(path, body)
+        self.d.bridge = bridge
+        self.get("/status/api/servers")
+        self.get("/status/api/servers")
+        self.assertEqual(len(calls), 1)
+        self.d.PUBLIC_CACHE["status"] = (0, self.d.PUBLIC_CACHE["status"][1])
+        self.d.bridge = lambda path, body=None: (_ for _ in ()).throw(OSError("down"))
+        self.assertEqual(self.get("/status/api/servers")[0], 200)
+        self.d.PUBLIC_CACHE.clear()
+        self.assertEqual(self.get("/status/api/servers")[0], 503)
+
+    def test_rate_limit_per_address(self):
+        self.d.PUBLIC_RATE = 3
+        self.assertEqual([self.get("/status/api/teams")[0] for _ in range(5)], [200, 200, 200, 429, 429])
+
+    def test_discord_card_uses_only_a_discord_invite_link(self):
+        page = self.d.public_page()
+        self.assertIn('href="https://discord.gg/Vz2CSREqjB"', page)
+        self.assertNotIn("__DISCORD__", page)
+        for bad in ('https://evil.example/x', 'javascript:alert(1)', 'https://discord.gg/x"><script>', ""):
+            self.d.DISCORD = bad
+            page = self.d.public_page()
+            self.assertNotIn("__DISCORD__", page)
+            self.assertNotIn("discord.gg", page)
+            self.assertNotIn('class="join"', page)
+
+    def test_english_is_the_default_and_german_has_its_own_route(self):
+        en, de = self.get("/status")[1], self.get("/status/de")[1]
+        self.assertIn('<html lang="en">', en)
+        self.assertIn('<html lang="de">', de)
+        self.assertIn("Join our Discord", en)
+        self.assertIn("Komm auf unseren Discord", de)
+        self.assertEqual(self.get("/public")[1], en)
+        for page in (en, de):
+            self.assertNotIn("{{", page)
+            self.assertNotIn("__T__", page)
+        self.assertEqual(self.get("/status/fr")[0], 404)
+
+    def test_every_text_exists_in_both_languages_and_in_the_page(self):
+        en, de = self.d.PUBLIC_TEXT["en"], self.d.PUBLIC_TEXT["de"]
+        self.assertEqual(set(en), set(de))
+        self.assertEqual(set(en["kinds"]), set(de["kinds"]))
+        import re
+        used = set(re.findall(r"\bT\.(\w+)", self.d.PUBLIC_PAGE)) | set(re.findall(r"\{\{(\w+)\}\}", self.d.PUBLIC_PAGE))
+        self.assertLessEqual(used - {"lang", "on_en", "on_de"}, set(en))
+
+    def test_link_previews_get_absolute_urls_and_the_picture(self):
+        import re
+        for path, lang, url in (("/", "en_US", "https://reskate.cocojambo.net/"), ("/de", "de_DE", "https://reskate.cocojambo.net/de")):
+            page = self.get(path)[1]
+            self.assertIn(f'<meta property="og:url" content="{url}">', page)
+            self.assertIn(f'<meta property="og:locale" content="{lang}">', page)
+            self.assertIn('<meta property="og:image" content="https://reskate.cocojambo.net/status/og.jpg">', page)
+            self.assertIn('<meta name="twitter:card" content="summary_large_image">', page)
+            self.assertIn('<meta name="theme-color"', page)
+            self.assertNotIn("__BASE__", page)
+            self.assertNotIn("__PATH__", page)
+            self.assertTrue(re.search(r'og:title" content="[^"]{10,}"', page))
+        self.assertIn("Live", self.get("/de")[1].split('og:title" content="')[1].split('"')[0])
+
+    def test_the_preview_picture_is_served_and_ships_in_the_repository(self):
+        import os
+        self.d.STICKERS = self.tmp.name
+        with open(f"{self.tmp.name}/og.jpg", "wb") as f:
+            f.write(b"\xff\xd8\xff fake")
+        code, body, headers = self.get("/status/og.jpg")
+        self.assertEqual((code, headers["Content-Type"]), (200, "image/jpeg"))
+        os.remove(f"{self.tmp.name}/og.jpg")
+        self.assertEqual(self.get("/status/og.jpg")[0], 404)
+        repo = os.path.join(os.path.dirname(self.d.__file__), "..", "assets", "stickers", "og.jpg")
+        with open(repo, "rb") as f:
+            head = f.read(3)
+        self.assertEqual(head, b"\xff\xd8\xff")
+
+    def test_the_admin_page_is_not_touched_by_the_status_page_scripts(self):
+        for word in ("podium", "gzh", "tr_(", "T.gz", "T.loc"):
+            self.assertNotIn(word, self.d.PAGE, word)
+
+    def test_page_renders_text_only(self):
+        page = self.d.PUBLIC_PAGE
+        self.assertNotIn("innerHTML", page)
+        self.assertNotIn("steam", page.lower())

@@ -30,6 +30,8 @@ DASHBOARD_PASSWORD=... BRIDGE_TOKEN=... docker compose -p tools -f docker-compos
 
 - Listens on `127.0.0.1:8790` in plain HTTP. Put the reverse proxy for your subdomain in front: HTTPS, proxying to
   that port, with `X-Forwarded-Proto` and `X-Forwarded-For` set (the session cookie gets `Secure` behind HTTPS).
+- The root (`/`, German on `/de`) is the public, read-only status page without login (old `/status` links redirect there). The admin dashboard lives under `/admin`; everything else is a 404.
+- Link previews (Discord, chat apps) use `DASHBOARD_PUBLIC_URL` (default `https://reskate.cocojambo.net`) as the absolute base for their OpenGraph tags and the preview picture `/status/og.jpg`.
 - Login with `DASHBOARD_PASSWORD` (8+ characters, else it refuses to start). Session cookie is signed, HttpOnly,
-  SameSite=Strict; 5 wrong passwords from one address lock it out for 5 minutes.
+  SameSite=Strict and only sent to `/admin`; 5 wrong passwords from one address lock it out for 5 minutes.
 - Docker goes through the `dockerproxy` service (`RESKATE_MODE=dockerproxy`, [`modules/dockerproxy.py`](../modules/dockerproxy.py)), never the real socket: a Docker socket is root on the host whether it is mounted `:ro` or not. The proxy passes on the dashboard's reads, restarts of game servers and its file writes into a game server's `/data` and `/data/Mods`, refuses everything else, and hides secret env values of the tool containers. The dashboard then runs as uid 1000. Leave `DASHBOARD_DOCKER` out to run without Docker.
