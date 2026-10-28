@@ -14,6 +14,9 @@ local function save()
     pcall(reskate.storage.set, "hud:settings", out)
 end
 
+settings.save = save
+settings.DEFAULTS = DEFAULTS
+
 -- what the page shows about the server: set by the HUD (hud/client.lua)
 settings.status = function() return "Not on a COCOJAMBO server" end
 
@@ -32,13 +35,14 @@ reskate.menu.page("COJA tools", function(ui)
         ui:info("Leaderboard", dash.board or "Waiting for the server")
         ui:note("F4 opens your full stats, the top 10, server rules and links.")
         ui:separator()
-        ui:card("RACES", "Pick a track, race settings and player count")
-        ui:info("Multiplayer", "Throwdowns > Cocojambo Deathraces; choose a track, racer limit and grid time")
-        ui:info("Solo", "Skate to a yellow challenge beacon and press F8")
+        ui:card("RACES", "F5 opens the COJA menu: your stats, races, challenges and Track Studio")
+        ui:info("Multiplayer", "F5 > RACE, or Throwdowns > Cocojambo Deathraces")
+        ui:info("Solo", "F5 > CHALLENGES, or skate to a yellow challenge beacon and press F8")
     elseif section == 2 then
         ui:card("RACE CONTROLS", "Controller combos are rebindable in Binds")
+        ui:info("F5", "The COJA menu: stats, races, challenges and Track Studio, with the mouse")
         ui:info("F7", "Open Track Studio (staff)")
-        ui:info("F5 / F6 · LB+←/→", "Select a track or gate")
+        ui:info("PgUp / PgDn, F6 · LB+←/→", "Select a track or gate")
         ui:info("F8 · LB+RB+A", "Start a nearby challenge; in Track Studio, create a track or place a gate")
         ui:info("F9 · LB+RB+B", "Delete the selected gate, or track from Track Studio")
         ui:info("6 · LB+RB+X", "Edit the selected track, or move the selected gate 3 m ahead")

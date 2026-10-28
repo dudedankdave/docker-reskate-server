@@ -8,6 +8,7 @@
 --   coco info <base64 json>                 the server's name, links and rules on the panel; kept
 --   coco toast <SteamID64|all> <base64 json> a note at the top of the screen: {text, kind, secs}
 --   coco status                             who has the HUD
+--   coco import <map> <base64 json>         race tracks made elsewhere (main.lua adds it: the tracks are its)
 -- Time played is counted here, per server (storage "hud:t:<SteamID64>", seconds).
 local util = require("lib/util")
 local decode64 = require("lib/base64")
@@ -102,12 +103,14 @@ local function payload(text, what)
     if not value then reskate.console.print("error: coco " .. what .. ": not base64 JSON of an object") end
     return value
 end
+core.payload = payload
 
 local function present(id)
     return calls.players()[id] ~= nil
 end
 
 local commands = {}
+core.commands = commands   -- main.lua adds `import`
 function commands.player(args)
     local id = args[2]
     if not (id and id:match(util.STEAMID)) then return reskate.console.print("error: coco player <SteamID64> <base64 json>") end
@@ -168,13 +171,14 @@ reskate.console.command("coco", "COJA tools: the HUD's stats, board, server info
     local fn = commands[args[1] or ""]
     if fn then return fn(args) end
     reskate.console.print("coco player <SteamID64> <base64 json> | coco top <base64 json> | coco info <base64 json> | "
-        .. "coco toast <SteamID64|all> <base64 json> | coco status")
+        .. "coco toast <SteamID64|all> <base64 json> | coco status | coco import <map> <base64 json>")
 end, {
     {name = "player", args = "<SteamID64> <base64 json>", help = "a player's stats for their HUD"},
     {name = "top", args = "<base64 json>", help = "the board on the panel: {board, rows = [{n, p}]}"},
     {name = "info", args = "<base64 json>", help = "the server's name, links and rules on the panel"},
     {name = "toast", args = "<SteamID64|all> <base64 json>", help = "a note at the top of the screen: {text, kind, secs}"},
     {name = "status", args = "", help = "who has the HUD"},
+    {name = "import", args = "<map> <base64 json>", help = "race tracks for a map: a track or {tracks = [...]}, as stored"},
 })
 
 -- A reload of the plugin mid-session: the players already here count from now, and their HUDs start over.
