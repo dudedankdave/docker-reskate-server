@@ -602,6 +602,17 @@ if (value := env("MODS")) is not None:
     except Exception as exc:  # the server must start even if this breaks
         print(f"[mods] disabled: {exc!r}", flush=True)
 
+# The server side of required plugins (game modes whose rules or data live on the server):
+# /data/Plugins, which the server loads from /app/Plugins. "off" removes the ones installed here.
+if (value := env("PLUGINS_REQUIRED")) is not None:
+    sys.path.insert(0, "/app")
+    try:
+        import mods
+        mods.install_plugins("" if value.lower() in ("off", "none") else value,
+                             as_bool("MODS_UPDATE", env("MODS_UPDATE") or "true"))
+    except Exception as exc:  # the server must start even if this breaks
+        print(f"[mods] plugins: {exc!r}", flush=True)
+
 warn_unknown_maps(cfg)
 
 # Updates: UPDATE_MODE=pinned runs the server in the image (/app); auto runs it from /data/server,

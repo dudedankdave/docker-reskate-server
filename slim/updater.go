@@ -38,7 +38,7 @@ var (
 var (
 	ours = map[string]bool{"entrypoint.py": true, "healthcheck.py": true, "notifier.py": true, "mods.py": true,
 		"updater.py": true, "supervisor.py": true, "reskate": true, "__pycache__": true, versionFile: true, pulledFile: true}
-	keep = map[string]bool{"ReSkateServer.json": true, "ReSkateServer.log": true, "Mods": true, "world-layers.json": true}
+	keep = map[string]bool{"ReSkateServer.json": true, "ReSkateServer.log": true, "Mods": true, "Plugins": true, "world-layers.json": true}
 )
 
 type release struct {

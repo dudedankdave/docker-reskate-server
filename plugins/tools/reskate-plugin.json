@@ -1,0 +1,22 @@
+{
+    "api": 1,
+    "entry": "plugin/main.lua",
+    "side": "both",
+    "permissions": [
+        "throwdowns",
+        "net.session",
+        "session.read",
+        "skater.read",
+        "skater.teleport",
+        "skater.control",
+        "overlay",
+        "input",
+        "ui.screen",
+        "audio.ui",
+        "storage",
+        "server",
+        "console",
+        "menu",
+        "world.raycast"
+    ]
+}
