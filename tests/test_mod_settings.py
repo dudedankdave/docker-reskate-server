@@ -54,6 +54,32 @@ class SettingsModuleTest(unittest.TestCase):
         self.check()
         self.assertEqual(len(self.sent), 2)                              # nothing new: nothing again
 
+    def test_new_mods_first_then_the_rest_after_done(self):
+        self.write("MODS=A-Map\nMAP_POOL=X\n")
+        self.check()
+        self.write("MODS=A-Map,B-Map\nMAP_POOL=X,B\n")
+        polls = []
+
+        def call(method, path, body=None, timeout=40):
+            if "after=999999999" in path:
+                return {"events": [], "last": 7}
+            polls.append(list(self.sent))
+            return {"events": [{"id": 8, "server": "1", "text": "[20:00:00] [mods] done, maps reloaded"}], "last": 8}
+        with mock.patch.object(mod_settings.bridgeclient, "call", side_effect=call):
+            self.check()
+        self.assertEqual(polls, [[("1", "a", "mods add B-Map")]])            # the pool waited for "done"
+        self.assertEqual([x[2] for x in self.sent], ["mods add B-Map", "map-pool clear", "map-pool add X", "map-pool add B"])
+
+    def test_no_done_still_sends_the_rest(self):
+        self.write("MODS=A-Map\n")
+        self.check()
+        self.write("MODS=A-Map,B-Map\nWELCOME_MESSAGE=hi\n")
+        with mock.patch.object(mod_settings.bridgeclient, "call", return_value={"events": [], "last": 7}), \
+                mock.patch.object(mod_settings, "MODS_WAIT", 0.01):
+            out = self.check()
+        self.assertIn("no \"[mods] done\"", out)
+        self.assertEqual([x[2] for x in self.sent], ["mods add B-Map", "welcome hi"])
+
 
 class AnnouncerModuleTest(unittest.TestCase):
     def test_announcement(self):

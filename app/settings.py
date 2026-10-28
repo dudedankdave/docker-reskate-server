@@ -20,6 +20,7 @@ digest() is printed at start as "[settings] digest <hex>". slim/settings.go does
 import hashlib
 import json
 import os
+import re
 
 DIR = os.environ.get("SETTINGS_DIR") or "/shared/settings"
 IDENTITY = ("PORT", "QUERY_PORT", "STEAM_TOKEN", "RESKATE_SERVER")   # per container, never from the files
@@ -209,6 +210,9 @@ LIVE = {
 }
 # Lists the env merges into what the server has (in-game additions stay), so a change only adds:
 LIVE.update({
+    # new packages are installed and linked while the server runs (`mods add`, then `maps reload`); one that
+    # leaves the list stays linked until the next restart. live_commands() sends only the added ones.
+    "MODS": lambda v, e: _mods_lines("", v),
     "ADMINS": lambda v, e: [f"role {x.strip()} admin" for x in v.split(",") if x.strip()],
     "RESERVED": lambda v, e: [f"reserved add {x.strip()}" for x in v.split(",") if x.strip()],
     "SCORE_ALLOW": lambda v, e: [f"score-allow {x.strip().lower()}" for x in v.split(",") if x.strip()],
@@ -217,11 +221,32 @@ LIVE.update({
 })
 
 
+# Keys that became LIVE later: a server on an older image still counts them in its restart digest.
+LATER_LIVE = ("MODS",)
+MODS_LINE = 250        # the bridge takes console lines up to 300 characters
+
+
+def _mods_lines(old, new):
+    """`mods add ...` for the MODS entries in `new` that `old` does not have, a few packages per line."""
+    have = {t for t in re.split(r"[\s,]+", old.strip()) if t}
+    added = [t for t in re.split(r"[\s,]+", new.strip()) if t and t not in have and t.lower() not in ("off", "none")]
+    lines, line = [], ""
+    for token in added:
+        if line and len(line) + 1 + len(token) > MODS_LINE:
+            lines.append(line)
+            line = ""
+        line = f"{line} {token}" if line else f"mods add {token}"
+    return lines + ([line] if line else [])
+
+
 def live_commands(old, new):
-    """(console commands that bring a running server from settings `old` to `new`, keys that need a restart)."""
+    """(console commands that bring a running server from settings `old` to `new`, keys that need a restart).
+    New map packages (`mods add`) come first, so a pool that names their maps finds them."""
     commands, restart = [], []
+    if old.get("MODS") != new.get("MODS") and "MODS" in new:
+        commands += _mods_lines(old.get("MODS", ""), new["MODS"])
     for key in sorted(set(old) | set(new)):
-        if old.get(key) == new.get(key):
+        if old.get(key) == new.get(key) or (key == "MODS" and key in new):
             continue
         if key not in LIVE or key not in new:
             restart.append(key)
@@ -238,6 +263,12 @@ def live_commands(old, new):
 def restart_digest(values):
     """digest() of only the keys a running server cannot take (LIVE has the others)."""
     return digest({k: v for k, v in values.items() if k not in LIVE})
+
+
+def restart_digests(values):
+    """Every restart digest a server with these settings may have logged: this image's, and that of an older
+    image for which the LATER_LIVE keys still needed a restart."""
+    return {restart_digest(values), digest({k: v for k, v in values.items() if k not in LIVE or k in LATER_LIVE})}
 
 
 def apply(environ=os.environ, folder=None):
