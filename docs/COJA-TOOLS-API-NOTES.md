@@ -117,6 +117,12 @@ into it runs over 50 ms, when it averages over 2 ms a tick for 3 seconds in a ro
 more than 5 errors in 10 s (`plugin_vm.h`, `Limits`). So big jobs (thousands of blueprints) are spread over ticks,
 and what is measured every frame (`d:measure`) is cached.
 
+The load counts too: running the entry file, with every module it `require`s, is one call of 50 ms
+(`plugin_vm.cpp`, `load`), and the game loads plugins while it loads the map. A load that took well under that on
+one start ran over it on a busier one ("plugin/main.lua ran longer than 50 ms", 0.2.13). So `main.lua` only queues
+the parts with `reskate.time.after`, one `require` a tick (the plugin is `plugin/races.lua`). Binds, the throwdown
+mode and handlers can be registered from a timer.
+
 ## Which map
 
 - `reskate.session.world().map` is skate.'s base world (`bam`, `grom`, `ftue`, `stadium_1`, `stadium_2`, `mpr`;

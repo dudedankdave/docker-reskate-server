@@ -92,8 +92,12 @@ function fire(name, ...)
     for _, f in ipairs(handlers[name] or {}) do f(...) end
 end
 function run_timers(t)
-    for id, timer in pairs(timers) do
-        if t >= timer.at then
+    local due = {}   -- a timer may start another: not while the table is walked
+    for id, timer in pairs(timers) do due[#due + 1] = {id, timer} end
+    table.sort(due, function(a, b) return a[1] < b[1] end)
+    for _, entry in ipairs(due) do
+        local id, timer = entry[1], entry[2]
+        if timers[id] == timer and t >= timer.at then
             if timer.every then timer.at = timer.at + timer.every else timers[id] = nil end
             timer.f()
         end
@@ -253,7 +257,9 @@ def luau_to_lua(source: str) -> str:
     return re.sub(r"^(\s*)([\w.\[\]]+)\s*\+=\s*(.+)$", r"\1\2 = \2 + (\3)", source, flags=re.M)
 
 
-SOURCE = luau_to_lua((PLUGIN / "plugin" / "main.lua").read_text(encoding="utf-8"))
+# The plugin itself (main.lua only queues its parts, see test_the_load_is_spread_over_ticks).
+SOURCE = luau_to_lua((PLUGIN / "plugin" / "races.lua").read_text(encoding="utf-8"))
+LOADER = luau_to_lua((PLUGIN / "plugin" / "main.lua").read_text(encoding="utf-8"))
 # The player's state is in locals of the chunk: a function at its end reads them.
 STATE = ("\nfunction plugin_state() return {race = race, joined = joined, host = host, editor = editor, "
          "tracks = tracks, staff = staff} end\n")
@@ -305,7 +311,7 @@ class Session:
 
 
 class Client:
-    def __init__(self, session, steam_id, name, side="client"):
+    def __init__(self, session, steam_id, name, side="client", source=None):
         self.session, self.id, self.name, self.side = session, steam_id, name, side
         self.position = [0.0, 0.0, 0.0]
         self.can_teleport = True
@@ -336,7 +342,7 @@ class Client:
             "players": self.players, "menu_open": lambda: self.menu_open,
         })
         self.lua.execute(PRELUDE, py)
-        self.lua.execute(SOURCE if side == "server" else SOURCE + STATE)
+        self.lua.execute(source or (SOURCE if side == "server" else SOURCE + STATE))
         self.lua.globals().fire("load")
 
     # -- conversion between Lua tables and JSON
@@ -561,6 +567,16 @@ class RaceTest(unittest.TestCase):
         for client in [self.session.server] + self.session.clients:
             self.assertEqual(client.oversize, [], client.name + " sent a message over 4 KB")
             self.assertFalse([c for c in client.calls if c.startswith("log ")], client.name)
+
+    def test_the_load_is_spread_over_ticks(self):
+        # ReSkate gives the load one call of 50 ms: it only queues the parts, each required on a tick of its own
+        fresh = Client(self.session, "76561198000000010", "Fresh", source=LOADER)
+        self.assertNotIn("mode deathraces", fresh.calls, "nothing registered in the load's own call")
+        for _ in range(12):
+            fresh.lua.globals().run_timers(self.session.now)
+            self.session.now += 100
+        self.assertIn("mode deathraces", fresh.calls)
+        self.assertIn("bind coja_menu F5", fresh.calls)
 
     def test_loading_registers_the_mode_and_its_keys(self):
         self.assertIn("mode deathraces", self.a.calls)

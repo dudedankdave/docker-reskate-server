@@ -2,6 +2,13 @@
 
 Versions below 1.0.0 are pre-releases.
 
+## 0.2.14
+
+- Fixed: the plugin could be stopped as the game started ("plugin/main.lua ran longer than 50 ms" in ReSkate.log),
+  leaving F4, F5 and the races dead until a restart. ReSkate gives a plugin's whole load one call of 50 ms, while the
+  game is busy loading the map. `main.lua` now only queues the plugin's parts and each is loaded on a tick of its
+  own; the plugin itself is `plugin/races.lua`.
+
 ## 0.2.13
 
 - Fixed (0.2.12): setting up a Throwdown race failed again. The game goes through a setup step (hidden for a flag
