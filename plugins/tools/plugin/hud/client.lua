@@ -85,12 +85,8 @@ local function row(d, x, y, w, label, value, colour)
     return y + 26
 end
 
-local function panel(d)
-    local w = 460
-    local slide = (1 - draw.ease(now(), panel_at, 180)) * 40
-    local x = draw.w - w - 24 + slide
-    if settings.side == "right" then x = 24 - slide end
-    local y = TOP_Y
+-- The stats card: the F4 panel, and the STATS tab of the COJA menu (F5). Without d it only says how tall it is.
+local function stats_card(d, x, y, w, corner)
     local s = me and me.stats or {}
     local extra = type(s.lines) == "table" and s.lines or {}
     local rows = top and math.min(#top.rows, 10) or 0
@@ -101,11 +97,11 @@ local function panel(d)
     if rows > 0 then h = h + 24 + 30 + rows * 26 end
     if links + rules > 0 then h = h + 24 + 30 + (links + rules) * 26 end
     h = h + 14
-    if y + h > draw.h - 20 then y = math.max(20, draw.h - 20 - h) end
+    if not d then return h end
     draw.card(d, x, y, w, h, 0.94)
     local ix, iw = x + 22, w - 44
     draw.logo(d, ix, y + 18, 26)
-    draw.text(d, x + w - 20, y + 22, "F4 CLOSES", 12, theme.muted, "right", "bold")
+    if corner then draw.text(d, x + w - 20, y + 22, corner, 12, theme.muted, "right", "bold") end
     draw.text(d, ix, y + 54, draw.fit(d, (info and info.name ~= "" and info.name) or "COCOJAMBO", 17, iw, "bold"), 17, theme.ink, "left", "bold")
     local cy = y + 86
     draw.rule(d, x, cy, w)
@@ -150,6 +146,53 @@ local function panel(d)
             if type(l) == "table" then cy = row(d, ix, cy, iw, util.one_line(l.label, 20), util.one_line(l.url, 40), theme.sky) end
         end
     end
+    return h
+end
+function hud.stats_card(d, x, y, w) return stats_card(d, x, y, w) end
+
+-- What the stats card shows, as lines for the COJA menu's STATS tab (the game's widgets): {name, role,
+-- rows = {{label, value}}, board = {title, rows = {{name, points}}} or nil, rules = {text}, links = {{label, url}}}.
+function hud.stats_lines()
+    local s = me and me.stats or {}
+    local out = {name = (info and info.name ~= "" and info.name) or "COCOJAMBO", role = me and me.role, rows = {},
+                 rules = {}, links = {}}
+    local function add(label, value) out.rows[#out.rows + 1] = {label, value} end
+    add("Points" .. (s.board and (", " .. util.one_line(s.board, 28)) or ""), s.points and util.thousands(s.points) or "-")
+    add("Rank", s.rank and ("#" .. tostring(s.rank) .. (s.of and (" of " .. tostring(s.of)) or "")) or "-")
+    add("Time played here", util.duration(played()))
+    if s.team then add("Team", util.one_line(s.team, 28)) end
+    for _, l in ipairs(type(s.lines) == "table" and s.lines or {}) do
+        if type(l) == "table" then add(util.one_line(l.l or l.label, 30), util.one_line(l.v or l.value, 24)) end
+    end
+    if top and #top.rows > 0 then
+        out.board = {title = top.board and util.one_line(top.board, 40) or "", rows = {}}
+        for i = 1, math.min(#top.rows, 10) do
+            out.board.rows[i] = {util.one_line(top.rows[i].n, 26), util.thousands(top.rows[i].p or 0)}
+        end
+    end
+    for i = 1, info and type(info.rules) == "table" and math.min(#info.rules, 6) or 0 do
+        out.rules[i] = util.one_line(info.rules[i], 80)
+    end
+    for i = 1, info and type(info.links) == "table" and math.min(#info.links, 6) or 0 do
+        local l = info.links[i]
+        if type(l) == "table" then out.links[#out.links + 1] = {util.one_line(l.label, 20), util.one_line(l.url, 60)} end
+    end
+    return out
+end
+function hud.on_server() return info ~= nil end
+function hud.my_name() return my_name() end
+-- The player's crew tag, as the server's tools send it with their stats (nil: no crew, or not told yet).
+function hud.my_team() return me and me.stats and me.stats.team or nil end
+
+local function panel(d)
+    local w = 460
+    local slide = (1 - draw.ease(now(), panel_at, 180)) * 40
+    local x = draw.w - w - 24 + slide
+    if settings.side == "right" then x = 24 - slide end
+    local y = TOP_Y
+    local h = stats_card(nil, x, y, w)
+    if y + h > draw.h - 20 then y = math.max(20, draw.h - 20 - h) end
+    stats_card(d, x, y, w, "F4 CLOSES")
 end
 
 -- ---- the notes at the top ----------------------------------------------------------------------------------

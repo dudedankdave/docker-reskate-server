@@ -35,8 +35,19 @@ end
 function draw.label(d, x, y, text, colour)
     draw.text(d, x, y, string.upper(text), 13, colour or theme.muted, "left", "bold")
 end
+-- Measured widths, kept: measuring is a call into the game, and a menu measures the same texts every frame (a
+-- plugin that takes over 2 ms a tick for 3 s is stopped). Cleared when it grows or the window's scale changes.
+local widths, widths_n, widths_u = {}, 0, nil
 function draw.width(d, text, size, font)
-    return d:measure(tostring(text), {size = size * draw.scale, font = font or "body"}).x / draw.u
+    text = tostring(text)
+    if widths_u ~= draw.u or widths_n > 2000 then widths, widths_n, widths_u = {}, 0, draw.u end
+    local key = text .. "\0" .. size .. "\0" .. (font or "body") .. "\0" .. draw.scale
+    local w = widths[key]
+    if not w then
+        w = d:measure(text, {size = size * draw.scale, font = font or "body"}).x / draw.u
+        widths[key], widths_n = w, widths_n + 1
+    end
+    return w
 end
 -- A pill with a coloured dot: the role, a note's kind.
 function draw.pill(d, x, y, text, dot, size)
@@ -58,12 +69,16 @@ function draw.ease(now, at, ms)
     if t < 0 then t = 0 elseif t > 1 then t = 1 end
     return 1 - (1 - t) * (1 - t)
 end
--- Text cut to fit `w` (in the grid), with a dot at the end when cut.
+-- Text cut to fit `w` (in the grid), with a dot at the end when cut: the longest start that fits, found by halving.
 function draw.fit(d, text, size, w, font)
     text = tostring(text)
     if draw.width(d, text, size, font) <= w then return text end
-    while #text > 1 and draw.width(d, text .. ".", size, font) > w do text = text:sub(1, -2) end
-    return text .. "."
+    local lo, hi = 0, #text - 1           -- the longest start known to fit, and one that may
+    while lo < hi do
+        local mid = (lo + hi + 1) // 2
+        if draw.width(d, text:sub(1, mid) .. ".", size, font) <= w then lo = mid else hi = mid - 1 end
+    end
+    return text:sub(1, math.max(lo, 1)) .. "."
 end
 
 return draw

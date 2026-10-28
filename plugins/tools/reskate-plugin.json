@@ -17,6 +17,11 @@
         "server",
         "console",
         "menu",
-        "world.raycast"
+        "world.raycast",
+        "net.http",
+        "world.entities"
+    ],
+    "domains": [
+        "reskate.cocojambo.net"
     ]
 }

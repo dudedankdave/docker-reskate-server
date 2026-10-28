@@ -446,7 +446,7 @@ class RaceTest(unittest.TestCase):
         self.assertIn("bind race_editor F7", self.a.calls)
         self.assertIn("bind adjust_right Pad.RB+Pad.Right", self.a.calls)   # the keyboard keys are polled
         self.assertIn("bind hud_panel F4", self.a.calls)
-        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 14, "at most 16 actions")
+        self.assertEqual(sum(c.startswith("bind ") for c in self.a.calls), 15, "at most 16 actions")
 
     def test_the_server_tells_players_whether_they_are_staff(self):
         self.session.settle()
