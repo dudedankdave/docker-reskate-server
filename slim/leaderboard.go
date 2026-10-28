@@ -138,7 +138,7 @@ type leaderboard struct {
 	started                 time.Time
 	chatEvery, discordEvery map[string]time.Duration // per board kind; 0 = never
 
-	hud       bool                 // the COJA tools HUD (hud.go): what it shows comes from here
+	hud       bool                 // the tools HUD (hud.go): what it shows comes from here
 	hudBoard  string               // TOOLS_HUD_BOARD
 	hudServer hudServer            // the panel's server part
 	hudDue    map[string]time.Time // SteamID64 -> when their HUD's stats are due

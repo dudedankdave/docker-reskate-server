@@ -811,7 +811,7 @@ def setting(cfg, server, key, default):
 
 
 def server_name(cfg, number, server, version):
-    fmt = cfg.get("name_format", "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}")
+    fmt = cfg.get("name_format", "ReSkate {n} - {role}")
     return fmt.format(v=version.replace(".", ""), n=number, role=server.get("role", ""))
 
 

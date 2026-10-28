@@ -38,33 +38,36 @@ func hudDecode(t *testing.T, lines []string) []hudSent {
 
 func TestHudOn(t *testing.T) {
 	for _, c := range []struct {
-		hud, required string
-		want          bool
+		hud, plugin, required string
+		want                  bool
 	}{
-		{"", "SmokeyDawg58-ReSkate_Throwdown, COCOJAMBO-TOOLS", true},
-		{"", "cocojambo-tools-1.0.0", true},
-		{"", "COCOJAMBO-TOOLSX", false},
-		{"", "", false},
-		{"true", "", true},
-		{"false", "COCOJAMBO-TOOLS", false},
+		{"", "Acme-HUD", "SmokeyDawg58-ReSkate_Throwdown, ACME-HUD", true},
+		{"", "Acme-HUD", "acme-hud-1.0.0", true},
+		{"", "Other-One, Acme-HUD", "Acme-HUD", true},
+		{"", "Acme-HUD", "ACME-HUDX", false},
+		{"", "", "Acme-HUD", false},
+		{"", "Acme-HUD", "", false},
+		{"true", "", "", true},
+		{"false", "Acme-HUD", "Acme-HUD", false},
 	} {
 		t.Setenv("TOOLS_HUD", c.hud)
+		t.Setenv("TOOLS_HUD_PLUGIN", c.plugin)
 		t.Setenv("PLUGINS_REQUIRED", c.required)
 		if got := hudOn(); got != c.want {
-			t.Errorf("TOOLS_HUD=%q PLUGINS_REQUIRED=%q: %v", c.hud, c.required, got)
+			t.Errorf("TOOLS_HUD=%q TOOLS_HUD_PLUGIN=%q PLUGINS_REQUIRED=%q: %v", c.hud, c.plugin, c.required, got)
 		}
 	}
 	t.Setenv("SERVER_NAME", "Yard")
-	t.Setenv("TOOLS_LINKS", "Discord=https://discord.gg/x | broken | Web=https://cocojambo.net")
+	t.Setenv("TOOLS_LINKS", "Discord=https://discord.gg/x | broken | Web=https://example.com")
 	t.Setenv("TOOLS_RULES", "Be nice| |No hacks")
 	info := hudInfo()
-	if info.Name != "Yard" || len(info.Links) != 2 || info.Links[1].URL != "https://cocojambo.net" || strings.Join(info.Rules, "|") != "Be nice|No hacks" {
+	if info.Name != "Yard" || len(info.Links) != 2 || info.Links[1].URL != "https://example.com" || strings.Join(info.Rules, "|") != "Be nice|No hacks" {
 		t.Fatalf("%+v", info)
 	}
 }
 
 func TestHudFeed(t *testing.T) {
-	t.Setenv("PLUGINS_REQUIRED", "COCOJAMBO-TOOLS")
+	t.Setenv("TOOLS_HUD", "true")
 	t.Setenv("SERVER_NAME", "Yard")
 	b, sent, _ := newTestBoard(t)
 	if !b.hud {

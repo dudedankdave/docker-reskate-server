@@ -13,7 +13,7 @@ LINES = {
     "[20:01:02] Dave joined (76561198065850675, admin), 3/100 players, loaded in 12 s":
         ({"admin", "log", "public"}, "Dave joined, 3/100 players"),
     "[20:05:00] Bob left (timeout) [rtt 80 ms]": ({"admin", "log", "public"}, "Bob left"),
-    "[20:06:00] COCOJAMBOS YARD 1 is up on Pattonville for 100 players.":
+    "[20:06:00] MY YARD 1 is up on Pattonville for 100 players.":
         ({"log", "public"}, "Up on Pattonville for 100 players."),
     "[20:07:00] [throwdown] Jam has finished: Dave wins": ({"log", "public"}, "[throwdown] Jam has finished: Dave wins"),
     "[20:08:00] Everyone has loaded Southbank": ({"log", "public"}, "Everyone has loaded Southbank"),
