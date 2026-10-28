@@ -68,14 +68,14 @@ local function chip(d)
     if s and s.rank then parts[#parts + 1] = "#" .. tostring(s.rank) end
     parts[#parts + 1] = util.duration(played())
     local line = table.concat(parts, "  |  ")
-    local logo_h = 11
+    local logo_h = 14
     local w = math.max(logo_h * draw.LOGO_RATIO, draw.width(d, line, 14, "bold")) + 20
-    local h = 46
+    local h = 52
     local x = 16
     if settings.side == "right" then x = draw.w - w - 16 end
     draw.card(d, x, TOP_Y, w, h, 0.55, 6)
-    draw.logo(d, x + 10, TOP_Y + 8, logo_h, 0.85)
-    draw.text(d, x + 10, TOP_Y + 23, line, 14, theme.a(theme.ink, 0.8), "left", "bold")
+    draw.logo(d, x + 10, TOP_Y + 9, logo_h, 0.9)
+    draw.text(d, x + 10, TOP_Y + 29, line, 14, theme.a(theme.ink, 0.8), "left", "bold")
 end
 
 -- ---- the panel (F4), on the other side from the chip -------------------------------------------------------
@@ -97,17 +97,17 @@ local function panel(d)
     local links = info and type(info.links) == "table" and math.min(#info.links, 6) or 0
     local rules = info and type(info.rules) == "table" and math.min(#info.rules, 6) or 0
     -- how tall: counted first, so the card is drawn under what goes on it
-    local h = 64 + 30 + (4 + (s.team and 1 or 0) + #extra) * 26
+    local h = 86 + 30 + (4 + (s.team and 1 or 0) + #extra) * 26
     if rows > 0 then h = h + 24 + 30 + rows * 26 end
     if links + rules > 0 then h = h + 24 + 30 + (links + rules) * 26 end
     h = h + 14
     if y + h > draw.h - 20 then y = math.max(20, draw.h - 20 - h) end
     draw.card(d, x, y, w, h, 0.94)
     local ix, iw = x + 22, w - 44
-    draw.logo(d, ix, y + 18, 14)
-    draw.text(d, x + w - 20, y + 18, "F4 CLOSES", 12, theme.muted, "right", "bold")
-    draw.text(d, ix, y + 38, draw.fit(d, (info and info.name ~= "" and info.name) or "COCOJAMBO", 17, iw, "bold"), 17, theme.ink, "left", "bold")
-    local cy = y + 64
+    draw.logo(d, ix, y + 18, 26)
+    draw.text(d, x + w - 20, y + 22, "F4 CLOSES", 12, theme.muted, "right", "bold")
+    draw.text(d, ix, y + 54, draw.fit(d, (info and info.name ~= "" and info.name) or "COCOJAMBO", 17, iw, "bold"), 17, theme.ink, "left", "bold")
+    local cy = y + 86
     draw.rule(d, x, cy, w)
     draw.label(d, ix, cy + 12, "You")
     if me and me.role then draw.pill(d, x + w - 22 - draw.width(d, me.role, 12, "bold") - 30, cy + 8, me.role, theme.iris, 12) end

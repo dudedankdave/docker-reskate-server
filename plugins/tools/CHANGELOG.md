@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The COCOJAMBO logo is larger: it heads the F4 panel (the in-game dashboard) and sits bigger on the points chip.
+
 ## 1.0.5
 
 - Place new and moved gates 3 m ahead of the admin, and sink their bottom stroke slightly into the floor.
