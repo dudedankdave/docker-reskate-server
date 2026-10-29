@@ -1,0 +1,7 @@
+{
+  "name": "Acme Yard",
+  "public_url": "https://status.example.com",
+  "discord_invite": "https://discord.gg/example",
+  "discord_widget_id": "123456789",
+  "text": {"en": {"scat1": "Acme's own words."}}
+}

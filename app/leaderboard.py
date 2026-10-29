@@ -35,8 +35,8 @@ server that mounts the same folder at /shared (/shared/leaderboard.db); without 
 falls back to "server", this server's own database in /data/leaderboard.db. LEADERBOARD_FILE
 overrides the file in either scope.
 
-The COJA tools HUD (the COCOJAMBO-TOOLS plugin, plugins/tools): with TOOLS_HUD on (by default whenever
-PLUGINS_REQUIRED lists COCOJAMBO-TOOLS) every online player's HUD gets their points and rank on the board
+The tools HUD (a plugin that speaks the `coco` console commands below, such as COJA tools): with TOOLS_HUD on (by
+default whenever PLUGINS_REQUIRED lists a package named in TOOLS_HUD_PLUGIN) every online player's HUD gets their points and rank on the board
 TOOLS_HUD_BOARD (default general: All Time), their week, and their team tag, and the panel gets that board's top 10
 (`coco player` / `coco top` on the console, as base64 JSON): shortly after joining, after points are awarded and every
 5 minutes. Once the server is up the panel also gets the server's name (SERVER_NAME), links (TOOLS_LINKS,
@@ -91,7 +91,6 @@ MODE_WORDS = {"jam": "jam", "jams": "jam", "skate": "skate", "s.k.a.t.e": "skate
               "spot": "spot", "spot battle": "spot", "spotbattle": "spot", "battle": "spot", "spot battles": "spot",
               "props": "props", "prop": "props"}
 
-HUD_PACKAGE = re.compile(r"^cocojambo-tools(-\d+\.\d+\.\d+)?$", re.I)   # the plugin in PLUGINS_REQUIRED turns the HUD feed on
 HUD_EVERY = 300       # seconds between two refreshes of every online player's HUD and the board
 HUD_AFTER_JOIN = 3    # seconds after the join line before a player's stats go out
 HUD_AFTER_UP = 5      # seconds after the server is up before the server's info goes out
@@ -132,11 +131,13 @@ def truthy(value):
 
 
 def hud_on(environ=None):
-    """TOOLS_HUD, else on when PLUGINS_REQUIRED lists COCOJAMBO-TOOLS."""
+    """TOOLS_HUD, else on when PLUGINS_REQUIRED lists a package named in TOOLS_HUD_PLUGIN (Owner-Name, comma separated)."""
     value = env("TOOLS_HUD", "", environ)
     if value:
         return truthy(value)
-    return any(HUD_PACKAGE.match(p) for p in re.split(r"[,\s]+", env("PLUGINS_REQUIRED", "", environ)) if p)
+    names = [n for n in re.split(r"[,\s]+", env("TOOLS_HUD_PLUGIN", "", environ)) if n]
+    pattern = re.compile(r"^(?:%s)(-\d+\.\d+\.\d+)?$" % "|".join(re.escape(n) for n in names), re.I) if names else None
+    return bool(pattern) and any(pattern.match(p) for p in re.split(r"[,\s]+", env("PLUGINS_REQUIRED", "", environ)) if p)
 
 
 def hud_info(environ=None):

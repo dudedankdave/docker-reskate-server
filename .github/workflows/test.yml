@@ -31,5 +31,4 @@ jobs:
           go test ./...
       - name: Python tests (incl. default vs. slim config parity)
         run: |
-          pip install lupa    # runs the plugins' Lua (tests/test_cocojambo_races.py)
           python -m unittest discover -s tests -v

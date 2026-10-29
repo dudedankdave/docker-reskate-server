@@ -14,6 +14,7 @@ HERE = pathlib.Path(__file__).resolve().parent.parent
 
 def load():
     os.environ.setdefault("DASHBOARD_PASSWORD", "x" * 12)
+    os.environ.setdefault("DASHBOARD_BRANDING_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "branding"))
     os.environ.setdefault("BRIDGE_TOKEN", "t")
     spec = importlib.util.spec_from_file_location("dashboard", HERE / "modules" / "dashboard.py")
     mod = importlib.util.module_from_spec(spec)
@@ -197,9 +198,20 @@ class DiskTest(unittest.TestCase):
 
 
 class BrandingTest(unittest.TestCase):
+    def test_without_a_branding_directory_the_page_is_neutral(self):
+        with mock.patch.dict(os.environ, {"DASHBOARD_BRANDING_DIR": "/nonexistent-branding"}):
+            d = load()
+        self.assertEqual(d.BRAND, "ReSkate servers")
+        self.assertEqual((d.DISCORD, d.DISCORD_WIDGET, d.PUBLIC_URL), ("", "", ""))
+        page = d.public_page("en")
+        self.assertIn("ReSkate servers", page)
+        self.assertNotIn("discord.com/widget", page)
+        self.assertNotIn("ocojambo", page)
+
     def test_logo_and_favicon_are_valid_and_login_page_formats(self):
         d = load()
-        self.assertTrue(d.LOGO_SVG.startswith("<svg"))
+        self.assertTrue(d.branding_file("logo.svg").startswith(b"<svg"))
+        self.assertTrue(d.default_logo().startswith("<svg"))
         self.assertTrue(d.FAVICON_PNG.startswith(b"\x89PNG"))
         self.assertIn("/logo.svg", d.LOGIN % "")
 
@@ -1110,7 +1122,9 @@ class PublicPageTest(unittest.TestCase):
             return r.status, r.getheader("Location"), r.read().decode()
         code, _, root = raw("/")
         self.assertEqual(code, 200)
-        self.assertIn("Cocojambo", root)
+        self.assertIn("Acme Yard", root)
+        self.assertIn("Acme's own words.", root)
+        self.assertIn("discord.com/widget?id=123456789", root)
         self.assertNotIn('type="password"', root)
         self.assertIn('lang="de"', raw("/de")[2])
         for old, new in (("/status", "/"), ("/public", "/"), ("/status/de", "/de")):
@@ -1237,7 +1251,7 @@ class PublicPageTest(unittest.TestCase):
 
     def test_discord_card_uses_only_a_discord_invite_link(self):
         page = self.d.public_page()
-        self.assertIn('href="https://discord.gg/Vz2CSREqjB"', page)
+        self.assertIn('href="https://discord.gg/example"', page)
         self.assertNotIn("__DISCORD__", page)
         for bad in ('https://evil.example/x', 'javascript:alert(1)', 'https://discord.gg/x"><script>', ""):
             self.d.DISCORD = bad
@@ -1264,15 +1278,15 @@ class PublicPageTest(unittest.TestCase):
         self.assertEqual(set(en["kinds"]), set(de["kinds"]))
         import re
         used = set(re.findall(r"\bT\.(\w+)", self.d.PUBLIC_PAGE)) | set(re.findall(r"\{\{(\w+)\}\}", self.d.PUBLIC_PAGE))
-        self.assertLessEqual(used - {"lang", "on_en", "on_de"}, set(en))
+        self.assertLessEqual(used - {"lang", "on_en", "on_de", "brand"}, set(en))
 
     def test_link_previews_get_absolute_urls_and_the_picture(self):
         import re
-        for path, lang, url in (("/", "en_US", "https://reskate.cocojambo.net/"), ("/de", "de_DE", "https://reskate.cocojambo.net/de")):
+        for path, lang, url in (("/", "en_US", "https://status.example.com/"), ("/de", "de_DE", "https://status.example.com/de")):
             page = self.get(path)[1]
             self.assertIn(f'<meta property="og:url" content="{url}">', page)
             self.assertIn(f'<meta property="og:locale" content="{lang}">', page)
-            self.assertIn('<meta property="og:image" content="https://reskate.cocojambo.net/status/og.jpg">', page)
+            self.assertIn('<meta property="og:image" content="https://status.example.com/status/og.jpg">', page)      # the fixture's og.jpg
             self.assertIn('<meta name="twitter:card" content="summary_large_image">', page)
             self.assertIn('<meta name="theme-color"', page)
             self.assertNotIn("__BASE__", page)
@@ -1280,19 +1294,18 @@ class PublicPageTest(unittest.TestCase):
             self.assertTrue(re.search(r'og:title" content="[^"]{10,}"', page))
         self.assertIn("Live", self.get("/de")[1].split('og:title" content="')[1].split('"')[0])
 
-    def test_the_preview_picture_is_served_and_ships_in_the_repository(self):
+    def test_the_preview_picture_comes_from_the_branding_directory(self):
         import os
-        self.d.STICKERS = self.tmp.name
+        self.d.BRANDING_DIR = self.tmp.name
         with open(f"{self.tmp.name}/og.jpg", "wb") as f:
             f.write(b"\xff\xd8\xff fake")
         code, body, headers = self.get("/status/og.jpg")
         self.assertEqual((code, headers["Content-Type"]), (200, "image/jpeg"))
+        self.assertIn('og:image" content="https://status.example.com/status/og.jpg"', self.get("/")[1])
         os.remove(f"{self.tmp.name}/og.jpg")
-        self.assertEqual(self.get("/status/og.jpg")[0], 404)
-        repo = os.path.join(os.path.dirname(self.d.__file__), "..", "assets", "stickers", "og.jpg")
-        with open(repo, "rb") as f:
-            head = f.read(3)
-        self.assertEqual(head, b"\xff\xd8\xff")
+        self.assertEqual(self.get("/status/og.jpg")[0], 404)       # no picture: no preview tags either
+        self.assertNotIn("og:image", self.get("/")[1])
+        self.assertNotIn("twitter:image", self.get("/")[1])
 
     def test_the_admin_page_is_not_touched_by_the_status_page_scripts(self):
         for word in ("podium", "gzh", "tr_(", "T.gz", "T.loc"):
