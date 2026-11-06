@@ -187,7 +187,7 @@ def latest_release():
     if os.environ.get("PRETEND_LATEST"):          # for trying a dry run against a release that isn't out
         return os.environ["PRETEND_LATEST"]
     info = json.loads(fetch(LAUNCHER).decode("utf-8-sig"))["server_linux"]
-    if not re.fullmatch(r"\d+(\.\d+)+", info.get("version", "")):
+    if not re.fullmatch(r"\d+(\.\d+)+(-\d+)?", info.get("version", "")):
         raise RuntimeError(f"launcher.json: unexpected version {info.get('version')!r}")
     return info["version"]
 
@@ -521,9 +521,10 @@ class Rollover:
         if not started:
             return False                           # an image from before the settings files
         values, _, _ = settings.load(inst.env, folder, report=False)
-        want = settings.restart_digest(values) if kind == "restart-digest" else settings.digest(values)
-        if started[-1] == want:
+        wants = settings.restart_digests(values) if kind == "restart-digest" else {settings.digest(values)}
+        if started[-1] in wants:
             return False
+        want = min(wants)
         if not self.few_enough(server, inst):
             self.once(("settings-wait", inst.name, want),
                       f"Server {number}: its settings changed, restarting {inst.name} once few enough players are on it.")
@@ -810,7 +811,7 @@ def setting(cfg, server, key, default):
 
 
 def server_name(cfg, number, server, version):
-    fmt = cfg.get("name_format", "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}")
+    fmt = cfg.get("name_format", "ReSkate {n} - {role}")
     return fmt.format(v=version.replace(".", ""), n=number, role=server.get("role", ""))
 
 

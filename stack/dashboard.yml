@@ -37,6 +37,7 @@ services:
       - dockerproxy:/run/dockerproxy
       - reskate-mods:/mods:ro
       - reskate-shared:/shared      # writable: only /shared/settings/*.env is written, and only by "Neue Map hinzufügen"
+      # - ./branding:/config/branding:ro   # your own status page branding (branding.json, logo.svg, og.jpg ...), see DASHBOARD.md
 volumes:
   dockerproxy:
   reskate-shared:

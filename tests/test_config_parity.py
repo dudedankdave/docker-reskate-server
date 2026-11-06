@@ -46,7 +46,7 @@ CASES = {
     "cleared": {"SERVER_PASSWORD": "off", "WELCOME_MESSAGE": "off", "MAP_POOL": "off", "PLUGINS_REQUIRED": "off", "THROWDOWN_LOCKS": "off", "ANNOUNCEMENTS": "off",
                 "COMMANDS": "off", "VOTES_CUSTOM": "off", "PARK_MODS": "off", "WORDS_BLOCKED": "off"},
     "leaderboard": {"LEADERBOARD": "true", "COMMANDS": '[{"name": "rules", "reply": "Be nice"}]'},
-    "name cleaned": {"SERVER_NAME": "Cocojambo's Yard | discord.gg/x"},
+    "name cleaned": {"SERVER_NAME": "My Yard | discord.gg/x"},
 }
 
 

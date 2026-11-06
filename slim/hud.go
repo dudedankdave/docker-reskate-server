@@ -1,7 +1,7 @@
 package main
 
-// The leaderboard's feed for the COJA tools HUD (the COCOJAMBO-TOOLS plugin, plugins/tools), as in leaderboard.py:
-// with TOOLS_HUD on (by default whenever PLUGINS_REQUIRED lists COCOJAMBO-TOOLS) every online player's HUD gets
+// The leaderboard's feed for the tools HUD (a plugin that speaks the `coco` console commands, such as COJA tools), as in leaderboard.py:
+// with TOOLS_HUD on (by default whenever PLUGINS_REQUIRED lists a package named in TOOLS_HUD_PLUGIN) every online player's HUD gets
 // their points and rank on the board TOOLS_HUD_BOARD (default general: All Time) and their week, and the panel
 // gets that board's top 10 (`coco player` / `coco top` on the console, as base64 JSON): shortly after joining,
 // after points are awarded and every 5 minutes. Once the server is up the panel also gets the server's name
@@ -20,21 +20,29 @@ import (
 	"time"
 )
 
-var hudPackageRe = regexp.MustCompile(`(?i)^cocojambo-tools(-\d+\.\d+\.\d+)?$`)
-
 const (
 	hudEvery     = 5 * time.Minute // between two refreshes of every online player's HUD and the board
 	hudAfterJoin = 3 * time.Second // after the join line, before a player's stats go out
 	hudAfterUp   = 5 * time.Second // after the server is up, before the server's info goes out
 )
 
-// hudOn: TOOLS_HUD, else on when PLUGINS_REQUIRED lists COCOJAMBO-TOOLS.
+// hudOn: TOOLS_HUD, else on when PLUGINS_REQUIRED lists a package named in TOOLS_HUD_PLUGIN (Owner-Name, comma separated).
 func hudOn() bool {
 	if v := strings.TrimSpace(os.Getenv("TOOLS_HUD")); v != "" {
 		return truthy(v, false)
 	}
+	var names []string
+	for _, n := range regexp.MustCompile(`[,\s]+`).Split(os.Getenv("TOOLS_HUD_PLUGIN"), -1) {
+		if n != "" {
+			names = append(names, regexp.QuoteMeta(n))
+		}
+	}
+	if len(names) == 0 {
+		return false
+	}
+	re := regexp.MustCompile(`(?i)^(?:` + strings.Join(names, "|") + `)(-\d+\.\d+\.\d+)?$`)
 	for _, p := range regexp.MustCompile(`[,\s]+`).Split(os.Getenv("PLUGINS_REQUIRED"), -1) {
-		if p != "" && hudPackageRe.MatchString(p) {
+		if p != "" && re.MatchString(p) {
 			return true
 		}
 	}

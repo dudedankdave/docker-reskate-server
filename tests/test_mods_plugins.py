@@ -25,8 +25,8 @@ class InstallPluginsTest(unittest.TestCase):
         self.plugins = root / "Plugins"
         self.mods.PLUGINS_DIR = str(self.plugins)
         self.mods.PLUGINS_TMP = str(root / ".plugins-tmp")
-        self.sides = {"COCOJAMBO-TOOLS": "both", "SmokeyDawg58-ReSkate_Throwdown": "client"}
-        self.versions = {"COCOJAMBO-TOOLS": "1.0.0", "SmokeyDawg58-ReSkate_Throwdown": "2.0.0"}
+        self.sides = {"Acme-Tools": "both", "SmokeyDawg58-ReSkate_Throwdown": "client"}
+        self.versions = {"Acme-Tools": "1.0.0", "SmokeyDawg58-ReSkate_Throwdown": "2.0.0"}
         self.downloads = []
 
         def meta(owner, name, version=None):
@@ -50,33 +50,33 @@ class InstallPluginsTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def test_only_plugins_with_a_server_side_are_installed(self):
-        self.mods.install_plugins("SmokeyDawg58-ReSkate_Throwdown, COCOJAMBO-TOOLS")
-        self.assertEqual(sorted(os.listdir(self.plugins)), ["COCOJAMBO-TOOLS"])
-        self.assertTrue((self.plugins / "COCOJAMBO-TOOLS" / "reskate-plugin.json").is_file())
+        self.mods.install_plugins("SmokeyDawg58-ReSkate_Throwdown, Acme-Tools")
+        self.assertEqual(sorted(os.listdir(self.plugins)), ["Acme-Tools"])
+        self.assertTrue((self.plugins / "Acme-Tools" / "reskate-plugin.json").is_file())
         self.assertFalse(os.path.exists(self.mods.PLUGINS_TMP))
 
     def test_an_installed_version_is_not_downloaded_again(self):
-        self.mods.install_plugins("COCOJAMBO-TOOLS")
-        self.mods.install_plugins("COCOJAMBO-TOOLS")
-        self.assertEqual(self.downloads, ["COCOJAMBO-TOOLS-1.0.0"])
+        self.mods.install_plugins("Acme-Tools")
+        self.mods.install_plugins("Acme-Tools")
+        self.assertEqual(self.downloads, ["Acme-Tools-1.0.0"])
 
     def test_a_new_version_replaces_the_old_unless_updates_are_off(self):
-        self.mods.install_plugins("COCOJAMBO-TOOLS")
-        self.versions["COCOJAMBO-TOOLS"] = "1.1.0"
-        self.mods.install_plugins("COCOJAMBO-TOOLS", update=False)
-        self.assertEqual(self.mods.read_manifest(self.plugins / "COCOJAMBO-TOOLS")["version_number"], "1.0.0")
-        self.mods.install_plugins("COCOJAMBO-TOOLS")
-        self.assertEqual(self.mods.read_manifest(self.plugins / "COCOJAMBO-TOOLS")["version_number"], "1.1.0")
+        self.mods.install_plugins("Acme-Tools")
+        self.versions["Acme-Tools"] = "1.1.0"
+        self.mods.install_plugins("Acme-Tools", update=False)
+        self.assertEqual(self.mods.read_manifest(self.plugins / "Acme-Tools")["version_number"], "1.0.0")
+        self.mods.install_plugins("Acme-Tools")
+        self.assertEqual(self.mods.read_manifest(self.plugins / "Acme-Tools")["version_number"], "1.1.0")
 
     def test_a_plugin_no_longer_required_is_removed_but_not_a_hand_copied_one(self):
-        self.mods.install_plugins("COCOJAMBO-TOOLS")
+        self.mods.install_plugins("Acme-Tools")
         (self.plugins / "Mine").mkdir()
         self.mods.install_plugins("")
         self.assertEqual(os.listdir(self.plugins), ["Mine"])
 
     def test_a_failure_never_raises(self):
         with mock.patch.object(self.mods, "meta", side_effect=RuntimeError("offline")):
-            self.mods.install_plugins("COCOJAMBO-TOOLS")
+            self.mods.install_plugins("Acme-Tools")
         self.assertFalse(self.plugins.exists())
 
 

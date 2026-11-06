@@ -1,6 +1,6 @@
 """Look at the dashboard on your own PC with made-up data (no bridge, no Docker, no servers needed):
 
-    python modules/dashboard_demo.py      # then open http://localhost:8790, password: demo12345
+    python modules/dashboard_demo.py      # then open http://localhost:8790/admin, password: demo12345 (the public status page is the root)
 
 Only for trying the page; the real thing is `RESKATE_MODE=dashboard` (modules/dashboard.py)."""
 import os

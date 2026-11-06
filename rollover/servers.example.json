@@ -14,7 +14,7 @@
   "mods_volume": "reskate-mods",
   "image": "dudedankdave/reskate-server",
   "container_prefix": "reskate-server-",
-  "name_format": "[24-7] - [v{v}] - COCOJAMBOS YARD {n} - {role}",
+  "name_format": "ReSkate {n} - {role}",
   "protect": [],
   "servers": {
     "1": {

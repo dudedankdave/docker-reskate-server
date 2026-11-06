@@ -55,7 +55,7 @@ var (
 	badNameRe   = regexp.MustCompile(`(?i)\S*(discord|clyde)\S*`)
 	spacesRe    = regexp.MustCompile(`\s+`)
 	trailRe     = regexp.MustCompile(`(\s*\|\s*)+$`)
-	versionRe   = regexp.MustCompile(`^\d+(\.\d+)+$`)
+	versionRe   = regexp.MustCompile(`^\d+(\.\d+)+(-\d+)?$`)
 	digitsRe    = regexp.MustCompile(`\d+`)
 	scheduleRe  = regexp.MustCompile(`^(?:([a-z]{3}(?:,[a-z]{3})*) )?(\d{1,2}):(\d{2})$`)
 	essentialRe = regexp.MustCompile(`(?i)\bcode\b|Config problem|\bWARNING\b|\bERROR\b|\bfailed\b`)

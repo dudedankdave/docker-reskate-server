@@ -660,7 +660,7 @@ class Notifier:
 
     def news(self, latest):
         """The updates scope: each official ReSkate release newer than this image, once."""
-        base = self.image_version if re.fullmatch(r"\d+(\.\d+)+", self.image_version) else self.running()
+        base = self.image_version if re.fullmatch(r"\d+(\.\d+)+(-\d+)?", self.image_version) else self.running()
         if not self.updates.url or updater.numbers(latest) <= updater.numbers(base):
             return
         seen = read_json(NEWS_STATE)
@@ -728,7 +728,7 @@ class Notifier:
         guarded(self.console_loop)
         if self.essentials.url and os.environ.get("MODS", "").strip():
             guarded(self.mods_loop)
-        if self.mode == "auto" or ((self.upd.url or self.updates.url) and re.fullmatch(r"\d+(\.\d+)+", self.image_version)):
+        if self.mode == "auto" or ((self.upd.url or self.updates.url) and re.fullmatch(r"\d+(\.\d+)+(-\d+)?", self.image_version)):
             guarded(self.update_loop)
 
 

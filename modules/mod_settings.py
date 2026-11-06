@@ -3,9 +3,11 @@
 For every server whose /shared/modules.json says "settings": "external", it watches what the settings
 files (/shared/settings, see app/settings.py) say for that server. When that changes, the settings the
 server can take while it runs (app/settings.py LIVE: welcome, map pool, announcements, votes, checks ...)
-are typed into its console through the bridge, and the server saves them to its own file. What it cannot
-take (MAX_PLAYERS, MODS, ...) is left to the rollover, which restarts the server once nobody is on it
-(it compares only those, the "restart-digest").
+are typed into its console through the bridge, and the server saves them to its own file. New MODS entries
+go in first (`mods add`, which installs and links them and reloads the maps); the rest waits until the server
+says "[mods] done" (at most SETTINGS_MODS_WAIT seconds, default 300), so a pool can name the new maps. What it
+cannot take (MAX_PLAYERS, a package leaving MODS, ...) is left to the rollover, which restarts the server once
+nobody is on it (it compares only those, the "restart-digest").
 
 Also: when /shared/roles.json changes, every running server that shares it reads it again ("roles reload").
 
@@ -27,6 +29,7 @@ import settings  # noqa: E402
 BY = "module:settings"
 CHECK = 20
 ROLES = os.environ.get("ROLES_FILE") or "/shared/roles.json"
+MODS_WAIT = float(os.environ.get("SETTINGS_MODS_WAIT") or 300)
 
 
 def applied_path(number):
@@ -48,6 +51,22 @@ def save_applied(number, values):
         json.dump(values, f, sort_keys=True)
     os.chmod(path + ".tmp", 0o600)               # it holds the secrets' values too
     os.replace(path + ".tmp", path)
+
+
+def wait_mods(number, after, count, clock=time.time):
+    """True once the server said "[mods] done" `count` times after event `after`; False after MODS_WAIT."""
+    end, done = clock() + MODS_WAIT, 0
+    while clock() < end:
+        wait = max(1, min(20, int(end - clock())))
+        got = bridgeclient.call("GET", f"/v1/events?after={after}&wait={wait}&server={number}", timeout=wait + 20)
+        for e in got["events"]:
+            after = max(after, e["id"])
+            done += "[mods] done" in e.get("text", "")
+        if done >= count:
+            return True
+        if got["last"] < after:              # the bridge started again
+            return False
+    return False
 
 
 class Module:
@@ -76,9 +95,18 @@ class Module:
             return
         commands, restart = settings.live_commands(before, now)
         changed = sorted(k for k in set(before) | set(now) if before.get(k) != now.get(k))
+        mods = [line for line in commands if line.startswith("mods add ")]
+        rest = [line for line in commands if line not in mods]
         sent = 0
+        if mods:
+            after = bridgeclient.call("GET", "/v1/events?after=999999999&wait=0")["last"]
+            for slot in slots:
+                for line in mods:
+                    sent += bridgeclient.console(number, line, BY, slot if len(slot) == 1 else None)
+            if not wait_mods(number, after, len(mods) * len(slots)):
+                common.say(f"server {number}: no \"[mods] done\" after {MODS_WAIT:.0f} s, sending the rest anyway")
         for slot in slots:
-            for line in commands:
+            for line in rest:
                 sent += bridgeclient.console(number, line, BY, slot if len(slot) == 1 else None)
         save_applied(number, now)
         common.say(f"server {number}: {', '.join(changed)} changed; {len(commands)} console command(s) sent"

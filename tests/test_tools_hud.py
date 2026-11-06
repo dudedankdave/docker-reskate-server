@@ -24,18 +24,22 @@ def decoded(line):
 
 class OnTest(unittest.TestCase):
     def test_on_with_the_plugin_required_or_by_hand(self):
-        self.assertTrue(leaderboard.hud_on({"PLUGINS_REQUIRED": "SmokeyDawg58-ReSkate_Throwdown, COCOJAMBO-TOOLS"}))
-        self.assertTrue(leaderboard.hud_on({"PLUGINS_REQUIRED": "cocojambo-tools-1.0.0"}))
-        self.assertFalse(leaderboard.hud_on({"PLUGINS_REQUIRED": "COCOJAMBO-TOOLSX"}))
+        named = {"TOOLS_HUD_PLUGIN": "Acme-HUD"}
+        self.assertTrue(leaderboard.hud_on(dict(named, PLUGINS_REQUIRED="SmokeyDawg58-ReSkate_Throwdown, ACME-HUD")))
+        self.assertTrue(leaderboard.hud_on(dict(named, PLUGINS_REQUIRED="acme-hud-1.0.0")))
+        self.assertFalse(leaderboard.hud_on(dict(named, PLUGINS_REQUIRED="ACME-HUDX")))
+        self.assertFalse(leaderboard.hud_on(dict(named)))
+        self.assertTrue(leaderboard.hud_on({"TOOLS_HUD_PLUGIN": "Other-One, Acme-HUD", "PLUGINS_REQUIRED": "Acme-HUD"}))
+        self.assertFalse(leaderboard.hud_on({"PLUGINS_REQUIRED": "Acme-HUD"}))      # no plugin named: only TOOLS_HUD turns it on
         self.assertFalse(leaderboard.hud_on({}))
         self.assertTrue(leaderboard.hud_on({"TOOLS_HUD": "true"}))
-        self.assertFalse(leaderboard.hud_on({"TOOLS_HUD": "false", "PLUGINS_REQUIRED": "COCOJAMBO-TOOLS"}))
+        self.assertFalse(leaderboard.hud_on(dict(named, TOOLS_HUD="false", PLUGINS_REQUIRED="Acme-HUD")))
 
     def test_the_server_info(self):
-        info = leaderboard.hud_info({"SERVER_NAME": "COCOJAMBOS YARD", "TOOLS_LINKS": "Discord=https://discord.gg/x | broken | Web=https://cocojambo.net",
+        info = leaderboard.hud_info({"SERVER_NAME": "MY YARD", "TOOLS_LINKS": "Discord=https://discord.gg/x | broken | Web=https://example.com",
                                      "TOOLS_RULES": "Be nice| |No hacks"})
-        self.assertEqual(info, {"name": "COCOJAMBOS YARD", "links": [{"label": "Discord", "url": "https://discord.gg/x"},
-                                                                     {"label": "Web", "url": "https://cocojambo.net"}],
+        self.assertEqual(info, {"name": "MY YARD", "links": [{"label": "Discord", "url": "https://discord.gg/x"},
+                                                                     {"label": "Web", "url": "https://example.com"}],
                                 "rules": ["Be nice", "No hacks"]})
 
     def test_a_line_is_base64_json(self):
@@ -49,7 +53,7 @@ class FeedTest(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.sent = []
         self.env = {"LEADERBOARD": "true", "LEADERBOARD_FILE": os.path.join(self.dir.name, "lb.db"),
-                    "PLUGINS_REQUIRED": "COCOJAMBO-TOOLS", "SERVER_NAME": "Yard", "TOOLS_LINKS": "Discord=d.gg/x"}
+                    "TOOLS_HUD_PLUGIN": "Acme-HUD", "PLUGINS_REQUIRED": "Acme-HUD", "SERVER_NAME": "Yard", "TOOLS_LINKS": "Discord=d.gg/x"}
 
     def tearDown(self):
         self.dir.cleanup()
@@ -66,7 +70,7 @@ class FeedTest(unittest.TestCase):
         b.hud_tick(time.time() + seconds)
 
     def test_off_without_the_plugin(self):
-        b = self.board(PLUGINS_REQUIRED="")
+        b = self.board(PLUGINS_REQUIRED="", TOOLS_HUD_PLUGIN="Acme-HUD")
         b.feed("[12:00:00] Anna joined (%s, player), 1/16 players" % A)
         b.tick()
         self.assertEqual(self.coco(), [])
