@@ -133,7 +133,7 @@ def curl(args, timeout):
 def latest():
     """The newest ReSkate release's Linux server: {"version", "url", "sha256", "size", "exe_sha256"}."""
     info = json.loads(curl([LAUNCHER], 30).decode("utf-8-sig"))["server_linux"]
-    if not re.fullmatch(r"\d+(\.\d+)+", info.get("version", "")):
+    if not re.fullmatch(r"\d+(\.\d+)+(-\d+)?", info.get("version", "")):
         raise RuntimeError(f"launcher.json: unexpected server_linux version {info.get('version')!r}")
     return info
 

@@ -187,7 +187,7 @@ def latest_release():
     if os.environ.get("PRETEND_LATEST"):          # for trying a dry run against a release that isn't out
         return os.environ["PRETEND_LATEST"]
     info = json.loads(fetch(LAUNCHER).decode("utf-8-sig"))["server_linux"]
-    if not re.fullmatch(r"\d+(\.\d+)+", info.get("version", "")):
+    if not re.fullmatch(r"\d+(\.\d+)+(-\d+)?", info.get("version", "")):
         raise RuntimeError(f"launcher.json: unexpected version {info.get('version')!r}")
     return info["version"]
 
