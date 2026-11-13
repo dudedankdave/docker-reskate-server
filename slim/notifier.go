@@ -55,7 +55,7 @@ var (
 	badNameRe   = regexp.MustCompile(`(?i)\S*(discord|clyde)\S*`)
 	spacesRe    = regexp.MustCompile(`\s+`)
 	trailRe     = regexp.MustCompile(`(\s*\|\s*)+$`)
-	versionRe   = regexp.MustCompile(`^\d+(\.\d+)+(-\d+)?$`)
+	versionRe   = regexp.MustCompile(`^\d+(\.\d+)+(-\d+)?(-hotfix(-\d+)?)?$`)
 	digitsRe    = regexp.MustCompile(`\d+`)
 	scheduleRe  = regexp.MustCompile(`^(?:([a-z]{3}(?:,[a-z]{3})*) )?(\d{1,2}):(\d{2})$`)
 	essentialRe = regexp.MustCompile(`(?i)\bcode\b|Config problem|\bWARNING\b|\bERROR\b|\bfailed\b`)
@@ -480,7 +480,11 @@ func readNew(s *tailState) []string {
 
 func numbers(v string) []int {
 	var out []int
-	for _, m := range digitsRe.FindAllString(v, 4) {
+	// A trailing "-hotfix" counts as 1 and "-hotfix-N" as N (same as numbers() in updater.py).
+	if i := strings.Index(v, "-hotfix"); i >= 0 && !strings.HasPrefix(v[i+len("-hotfix"):], "-") {
+		v = v[:i] + "-hotfix-1" + v[i+len("-hotfix"):]
+	}
+	for _, m := range digitsRe.FindAllString(v, 6) {
 		n, _ := strconv.Atoi(m)
 		out = append(out, n)
 	}

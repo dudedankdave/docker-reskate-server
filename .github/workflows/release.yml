@@ -89,7 +89,7 @@ jobs:
           import json, os, re
           info = json.load(open("launcher.json", encoding="utf-8-sig"))["server_linux"]
           v = info["version"]
-          assert re.fullmatch(r"\d+(\.\d+)+(-\d+)?", v), v
+          assert re.fullmatch(r"\d+(\.\d+)+(-\d+)?(-hotfix(-\d+)?)?", v), v
           url = info["url"]
           if url.startswith("asset:"):
               url = f"https://github.com/{os.environ['UPSTREAM']}/releases/download/{os.environ['PRE_TAG'] or 'v' + v}/{url[6:]}"

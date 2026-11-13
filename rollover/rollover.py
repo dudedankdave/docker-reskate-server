@@ -84,7 +84,10 @@ def say(message):
 
 
 def numbers(version):
-    return tuple(int(n) for n in re.findall(r"\d+", version or "")[:4])
+    """Release number as a tuple. A trailing "-hotfix" counts as 1 and "-hotfix-N" as N, so
+    2.1.4-5 < 2.1.4-5-hotfix < 2.1.4-5-hotfix-2 < 2.1.5."""
+    version = re.sub(r"-hotfix(?!-\d)", "-hotfix-1", version or "")
+    return tuple(int(n) for n in re.findall(r"\d+", version)[:6])
 
 
 # ---- Docker API --------------------------------------------------------------------------
@@ -187,7 +190,7 @@ def latest_release():
     if os.environ.get("PRETEND_LATEST"):          # for trying a dry run against a release that isn't out
         return os.environ["PRETEND_LATEST"]
     info = json.loads(fetch(LAUNCHER).decode("utf-8-sig"))["server_linux"]
-    if not re.fullmatch(r"\d+(\.\d+)+(-\d+)?", info.get("version", "")):
+    if not re.fullmatch(r"\d+(\.\d+)+(-\d+)?(-hotfix(-\d+)?)?", info.get("version", "")):
         raise RuntimeError(f"launcher.json: unexpected version {info.get('version')!r}")
     return info["version"]
 
