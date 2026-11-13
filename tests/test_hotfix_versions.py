@@ -19,6 +19,21 @@ class HotfixVersionTest(unittest.TestCase):
         self.assertGreater(rollover.numbers("2.1.4-2"), rollover.numbers("2.1.4"))
         self.assertLess(updater.numbers("2.1.4-2"), updater.numbers("2.1.5"))
 
+    def test_hotfix_suffix_orders_after_its_release(self):
+        order = ["2.1.4-5", "2.1.4-5-hotfix", "2.1.4-5-hotfix-2", "2.1.5"]
+        for mod in (updater, rollover):
+            keys = [mod.numbers(v) for v in order]
+            self.assertEqual(keys, sorted(keys))
+            self.assertEqual(len(set(keys)), 4)
+
+    def test_hotfix_versions_are_accepted(self):
+        for v in ("2.1.4-5-hotfix", "2.1.4-5-hotfix-2"):
+            body = json.dumps({"server_linux": {"version": v, "url": "asset:x.tar.gz"}}).encode()
+            with mock.patch.object(rollover, "fetch", return_value=body):
+                self.assertEqual(rollover.latest_release(), v)
+            with mock.patch.object(updater, "curl", return_value=body):
+                self.assertEqual(updater.latest()["version"], v)
+
     def test_rollover_accepts_it(self):
         with mock.patch.object(rollover, "fetch", return_value=LAUNCHER):
             self.assertEqual(rollover.latest_release(), "2.1.4-2")
