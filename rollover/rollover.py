@@ -815,7 +815,14 @@ def setting(cfg, server, key, default):
 
 def server_name(cfg, number, server, version):
     fmt = cfg.get("name_format", "ReSkate {n} - {role}")
-    return fmt.format(v=version.replace(".", ""), n=number, role=server.get("role", ""))
+    return fmt.format(v=name_version(version), n=number, role=server.get("role", ""))
+
+
+def name_version(version):
+    """The version in a server's name, short: 2.1.4 -> 214, 2.1.4-5 -> 2145, 2.1.4-5-hotfix -> 2145h1,
+    2.1.4-5-hotfix-2 -> 2145h2."""
+    version = re.sub(r"-hotfix(?:-(\d+))?", lambda m: "h" + (m.group(1) or "1"), version)
+    return version.replace(".", "").replace("-", "")
 
 
 def main():

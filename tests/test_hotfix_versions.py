@@ -34,6 +34,15 @@ class HotfixVersionTest(unittest.TestCase):
             with mock.patch.object(updater, "curl", return_value=body):
                 self.assertEqual(updater.latest()["version"], v)
 
+    def test_server_name_stays_short(self):
+        names = {"2.1.4": "214", "2.1.4-2": "2142", "2.1.4-5": "2145",
+                 "2.1.4-5-hotfix": "2145h1", "2.1.4-5-hotfix-2": "2145h2"}
+        for version, short in names.items():
+            self.assertEqual(rollover.name_version(version), short)
+        server = {"role": "Main"}
+        cfg = {"name_format": "[v{v}] {n} {role}"}
+        self.assertEqual(rollover.server_name(cfg, 1, server, "2.1.4-5-hotfix-2"), "[v2145h2] 1 Main")
+
     def test_rollover_accepts_it(self):
         with mock.patch.object(rollover, "fetch", return_value=LAUNCHER):
             self.assertEqual(rollover.latest_release(), "2.1.4-2")
