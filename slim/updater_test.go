@@ -42,3 +42,20 @@ func TestPrepareServerAfterPulledRelease(t *testing.T) {
 		}
 	}
 }
+
+func TestHotfixVersionsOrder(t *testing.T) {
+	order := []string{"2.1.4-5", "2.1.4-5-hotfix", "2.1.4-5-hotfix-2", "2.1.5"}
+	for i := 0; i+1 < len(order); i++ {
+		if cmpVersion(order[i], order[i+1]) != -1 {
+			t.Fatalf("%s should rank below %s", order[i], order[i+1])
+		}
+	}
+	for _, v := range order {
+		if !versionRe.MatchString(v) {
+			t.Fatalf("%s should be a valid version", v)
+		}
+	}
+	if versionRe.MatchString("2.1.4-rc") {
+		t.Fatal("2.1.4-rc must stay invalid")
+	}
+}
